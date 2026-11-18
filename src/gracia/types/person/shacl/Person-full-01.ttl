@@ -1,0 +1,44 @@
+# The full profile of a person, on foaf:Person: the minimal one (a name, or both parts it is made
+# of), and the places a person can be reached and found. The fields that are one plain string
+# are in the edit form (name, given name, family name, nickname, title); the rest are IRIs or can
+# repeat, and a form leaves their values alone. The profile is closed: a property that is not
+# described here (a misspelt one, say) is a violation, where the minimal profile lets it be.
+@prefix gracia: <https://gracia.pub/ns/> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix dash: <http://datashapes.org/dash#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+
+gracia:PersonFullShape a sh:NodeShape ; sh:targetClass foaf:Person ;
+    sh:description "A person: a name, or the two parts it is made of, and ways to reach them." ;
+    # a name, or the two parts it is made of (the write hook of foaf:name makes the name of them)
+    sh:message "Give a name, or both a given name and a family name" ;
+    sh:or ( [ sh:property [ sh:path foaf:name ; sh:minCount 1 ] ]
+            [ sh:property [ sh:path foaf:givenName ; sh:minCount 1 ] ;
+              sh:property [ sh:path foaf:familyName ; sh:minCount 1 ] ] ) ;
+    sh:closed true ; sh:ignoredProperties ( rdf:type ) ;  # a property that is not here is a mistake
+    sh:property [ sh:path foaf:name ; sh:name "Name" ; sh:order 1 ; dash:propertyRole dash:LabelRole ;
+        sh:description "The full name, as it is shown; empty, it is made of the given and the family name" ;
+        sh:datatype xsd:string ; sh:maxCount 1 ; sh:minLength 1 ] ,
+    [ sh:path foaf:givenName ; sh:name "Given name" ; sh:order 2 ;
+        sh:datatype xsd:string ; sh:maxCount 1 ; sh:minLength 1 ] ,
+    [ sh:path foaf:familyName ; sh:name "Family name" ; sh:order 3 ;
+        sh:datatype xsd:string ; sh:maxCount 1 ; sh:minLength 1 ] ,
+    [ sh:path foaf:nick ; sh:name "Nickname" ; sh:order 4 ;
+        sh:datatype xsd:string ; sh:maxCount 1 ] ,
+    [ sh:path foaf:title ; sh:name "Title" ; sh:order 5 ;
+        sh:description "Dr, Prof, Ms ..." ;
+        sh:datatype xsd:string ; sh:maxCount 1 ] ,
+    [ sh:path foaf:mbox ; sh:name "Mailbox" ; sh:order 6 ;
+        sh:description "A mailto: address; there may be several" ;
+        sh:nodeKind sh:IRI ; sh:pattern "^mailto:[^@\\s]+@[^@\\s]+$" ] ,
+    [ sh:path foaf:phone ; sh:name "Phone" ; sh:order 7 ;
+        sh:description "A tel: number; there may be several" ;
+        sh:nodeKind sh:IRI ; sh:pattern "^tel:\\+?[0-9() .-]+$" ] ,
+    [ sh:path foaf:homepage ; sh:name "Homepage" ; sh:order 8 ;
+        sh:nodeKind sh:IRI ; sh:pattern "^https?://" ] ,
+    [ sh:path foaf:depiction ; sh:name "Picture" ; sh:order 9 ;
+        sh:nodeKind sh:IRI ; sh:pattern "^https?://" ] ,
+    [ sh:path foaf:knows ; sh:name "Knows" ; sh:order 10 ;
+        sh:description "Other people, as IRIs" ; sh:nodeKind sh:IRI ] .

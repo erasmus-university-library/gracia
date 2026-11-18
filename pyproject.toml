@@ -1,0 +1,52 @@
+[project]
+name = "gracia"
+version = "0.1.0"
+description = "RDF resources in DuckDB: flattened triples with integer ids, import/export/XSLT"
+requires-python = ">=3.12"
+dependencies = [
+    "chameleon>=4.6.0",
+    "colander>=2.0",
+    "deform>=3.0.1",
+    "duckdb>=2.0",
+    "fanstatic>=1.8",
+    "lmdb>=3.0.0",
+    "luigi>=3.8.1",
+    "pyoxigraph>=0.5.13",
+    "pyramid>=2.1",
+    "pyrudof>=0.3.37",
+    "saxonche>=13.1",
+    "tantivy>=0.27.0",
+    "waitress>=3.0.2",
+]
+
+[project.scripts]
+gracia = "gracia.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "pytest-xdist>=3.8.0",
+    "ruff>=0.16",
+    "ty>=0.0.105",
+    "webtest>=3.0.7",
+]
+
+[build-system]
+requires = ["uv_build>=0.12,<0.13"]
+build-backend = "uv_build"
+
+[tool.ty.src]
+include = ["src", "tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.pytest.ini_options]
+filterwarnings = ["ignore:pkg_resources is deprecated:UserWarning"]  # imported by pyramid 2.1
+testpaths = ["tests"]
+markers = ["processes: starts real job processes and signals them (slow, 60 s); skip with -m \"not processes\""]
+pythonpath = ["tests"]  # tests import their helpers (base, support) as top-level modules

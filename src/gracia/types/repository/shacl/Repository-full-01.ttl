@@ -1,0 +1,18 @@
+# The shape of the repository resource: the manage form is generated from it.
+@prefix gracia: <https://gracia.pub/ns/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix dash: <http://datashapes.org/dash#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gracia:RepositoryShape a sh:NodeShape ;
+    sh:targetClass gracia:Repository ;
+    sh:description "The repository itself: its title, its types, its extensions and where its files are. There is one record of it." ;
+    sh:property [
+        sh:path gracia:title ; dash:propertyRole dash:LabelRole ; sh:name "Title" ; sh:description "The name of this repository" ;
+        sh:order 1 ; sh:datatype xsd:string ; sh:minCount 1 ; sh:maxCount 1 ; sh:minLength 1
+    ] ,
+    [
+        sh:path gracia:timezone ; sh:name "Time zone" ;
+        sh:description "The time zone that times are shown in (Europe/Amsterdam). Empty: UTC. Everything is stored in UTC" ;
+        sh:order 2 ; sh:datatype xsd:string ; sh:maxCount 1
+    ] .

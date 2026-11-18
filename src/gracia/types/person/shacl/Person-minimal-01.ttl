@@ -1,0 +1,23 @@
+# The minimal profile of a person: a few strings, on foaf:Person.
+@prefix gracia: <https://gracia.pub/ns/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix dash: <http://datashapes.org/dash#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+
+gracia:PersonMinimalShape a sh:NodeShape ; sh:targetClass foaf:Person ;
+    sh:description "A person, by name." ;
+    # a name, or the two parts it is made of (the write hook of foaf:name makes the name of them)
+    sh:message "Give a name, or both a given name and a family name" ;
+    sh:or ( [ sh:property [ sh:path foaf:name ; sh:minCount 1 ] ]
+            [ sh:property [ sh:path foaf:givenName ; sh:minCount 1 ] ;
+              sh:property [ sh:path foaf:familyName ; sh:minCount 1 ] ] ) ;
+    sh:property [ sh:path foaf:name ; sh:name "Name" ; sh:order 1 ; dash:propertyRole dash:LabelRole ;
+        sh:description "The full name, as it is shown; empty, it is made of the given and the family name" ;
+        sh:datatype xsd:string ; sh:maxCount 1 ; sh:minLength 1 ] ,
+    [ sh:path foaf:givenName ; sh:name "Given name" ; sh:order 2 ;
+        sh:datatype xsd:string ; sh:maxCount 1 ] ,
+    [ sh:path foaf:familyName ; sh:name "Family name" ; sh:order 3 ;
+        sh:datatype xsd:string ; sh:maxCount 1 ] ,
+    [ sh:path foaf:nick ; sh:name "Nickname" ; sh:order 4 ;
+        sh:datatype xsd:string ; sh:maxCount 1 ] .

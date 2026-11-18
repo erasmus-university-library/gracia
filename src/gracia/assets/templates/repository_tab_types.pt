@@ -1,0 +1,16 @@
+<!-- The Types tab of the manage page of a repository: a card for each type that is installed, like
+     the Extensions tab: its name, what its shape says of it, its slug, how many records it has and
+     a link to its manage page (for those who may manage it). -->
+<div>
+  <div class="type pb-3 mb-4 border-bottom" id="type-${t['slug']}" tal:repeat="t types">
+    <h2 class="h5 mb-1">
+      ${t['name']}
+      <span class="badge text-bg-secondary ms-1" tal:condition="t['system']">system</span>
+    </h2>
+    <p class="text-muted mb-1" tal:condition="t['description']">${t['description']}</p>
+    <p class="mb-2"><code>${t['slug']}</code>
+      <span class="ms-2 text-muted">${t['records']} ${'record' if t['records'] == 1 else 'records'}</span></p>
+    <a href="${t['url']}" class="btn btn-outline-secondary btn-sm" tal:condition="t['url']">Manage</a>
+  </div>
+  <p class="text-muted" tal:condition="not types">No types are installed.</p>
+</div>

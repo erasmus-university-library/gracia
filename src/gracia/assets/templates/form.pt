@@ -1,0 +1,16 @@
+<html metal:use-macro="layout.macros['layout']">
+  <metal:slot fill-slot="header">
+    <h1 class="h3 mb-0">${heading}</h1>
+    <div class="text-muted">${subtitle}</div>
+  </metal:slot>
+  <metal:slot fill-slot="content">
+    <div class="text-end text-muted small mb-1" tal:condition="modified">${modified}</div>
+    <div class="d-flex justify-content-end gap-2 mb-2" tal:condition="toggle or history">
+      <a class="btn btn-outline-secondary btn-sm" href="${toggle[1]}" tal:condition="toggle">${toggle[0]}</a>
+      <a class="btn btn-outline-secondary btn-sm" href="${history}" tal:condition="history">History</a>
+    </div>
+    <div class="alert alert-success" tal:condition="saved">Saved.</div>
+    <div class="alert alert-danger" tal:repeat="error errors">${error}</div>
+    <div tal:replace="structure form">form</div>
+  </metal:slot>
+</html>

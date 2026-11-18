@@ -1,0 +1,19 @@
+<!-- The source of a record in place of its form: the data as text in a serialization, a list to
+     show it in another one, and Save. The text is read in the format it was shown in
+     (`source_format_was`), so choosing another format and pressing Save does not mix them up. -->
+<form method="post" action="${action}" accept-charset="utf-8" autocomplete="off">
+  <div class="d-flex align-items-center gap-2 mb-2">
+    <label class="form-label mb-0" for="source-format">Format</label>
+    <select class="form-select form-select-sm w-auto" id="source-format" name="source_format" data-source-format="">
+      <option tal:repeat="name formats" value="${name}" selected="${'selected' if name == fmt else None}">${name}</option>
+    </select>
+    <button type="submit" name="convert" value="convert" class="btn btn-outline-secondary btn-sm">Show</button>
+  </div>
+  <input type="hidden" name="source_format_was" value="${was}" />
+  <textarea class="form-control font-monospace" name="source_text" rows="22" spellcheck="false"
+            data-editor="${editor}">${text}</textarea>
+  <div class="form-text" tal:condition="new">A new record has its number made when it is saved; ${placeholder} stands for it.</div>
+  <div class="mt-3">
+    <button type="submit" name="save" value="save" class="btn btn-primary">Save</button>
+  </div>
+</form>

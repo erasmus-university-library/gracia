@@ -1,0 +1,31 @@
+<!-- The records of a type, a page of them (`views.type.type_page`): the label of each, a link to it,
+     and the pages under them. Page 1 is the newest records; the pages go back in time. -->
+<html metal:use-macro="layout.macros['layout']">
+  <metal:slot fill-slot="header">
+    <h1 class="h3 mb-0">${heading}</h1>
+    <div class="text-muted">${summary}</div>
+  </metal:slot>
+  <metal:slot fill-slot="content">
+    <div class="d-flex justify-content-end gap-2 mb-3" tal:condition="add_url or manage_url">
+      <a class="btn btn-outline-primary btn-sm" href="${add_url}" tal:condition="add_url">Add</a>
+      <a class="btn btn-outline-secondary btn-sm" href="${manage_url}" tal:condition="manage_url">Manage</a>
+    </div>
+    <p class="text-muted" tal:condition="not items">There are no records here yet.</p>
+    <ul class="list-group mb-4" tal:condition="items">
+      <li class="list-group-item d-flex justify-content-between align-items-center" tal:repeat="item items">
+        <a href="${item['url']}">${item['label']}</a>
+        <span class="small text-muted">${item['number']}</span>
+      </li>
+    </ul>
+    <nav aria-label="Pages" tal:condition="pages > 1">
+      <ul class="pagination flex-wrap">
+        <li tal:repeat="link nav"
+            class="page-item${' active' if link['current'] else ''}${' disabled' if link['url'] is None else ''}">
+          <a class="page-link" href="${link['url']}" tal:condition="link['url'] is not None">${link['label']}</a>
+          <span class="page-link" tal:condition="link['url'] is None">${link['label']}</span>
+        </li>
+      </ul>
+      <p class="small text-muted">Page ${page} of ${pages}. Page 1 has the newest records.</p>
+    </nav>
+  </metal:slot>
+</html>

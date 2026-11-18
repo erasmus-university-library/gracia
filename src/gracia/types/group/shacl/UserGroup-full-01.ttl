@@ -1,0 +1,14 @@
+# The shape of a user group.
+@prefix gracia: <https://gracia.pub/ns/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix dash: <http://datashapes.org/dash#> .
+@prefix dct: <http://purl.org/dc/terms/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gracia:UserGroupShape a sh:NodeShape ; sh:targetClass gracia:UserGroup ;
+    sh:description "A group of users: its members get the permissions of the group." ;
+    sh:property [ sh:path gracia:name ; sh:name "Name" ; sh:order 1 ;
+        dash:propertyRole dash:LabelRole ;
+        sh:description "The name of the group: members get the permissions of group:<name>" ;
+        sh:datatype xsd:string ; sh:minCount 1 ; sh:maxCount 1 ;
+        sh:pattern "^[a-z][a-z0-9_-]*$" ] .

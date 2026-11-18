@@ -1,0 +1,53 @@
+<!-- The job panel: the jobs of a repository (or the part of them that `panel_filter` names) with
+     the progress of each stage, and a dialog that follows one job. Any page can include it (the
+     address is `request.resource_url(jobs, "list")`, made by the view):
+
+       <div tal:define="panel_list_url list_url;
+                        panel_filter string:job=validate&subject=person;
+                        panel_watch string:;
+                        panel_compact string:"
+            metal:use-macro="panel.macros['panel']"></div>
+
+     A compact panel (panel_compact string:true) shows no table, only the dialog, and asks for
+     nothing until a job is started or watched. `static/scripts/jobs.js` finds every
+     [data-job-panel] on the page. A button or a form that
+     starts a job announces it (`gracia:job-started`) and the panels open the job. -->
+<div metal:define-macro="panel" class="job-panel" data-job-panel=""
+     data-list-url="${panel_list_url}" data-filter="${panel_filter}" data-watch="${panel_watch}"
+     data-compact="${panel_compact}">
+  <div class="alert alert-danger d-none" data-problem="" role="alert"></div>
+  <table class="table align-middle ${'d-none' if panel_compact else ''}">
+    <thead>
+      <tr><th>Job</th><th>State</th><th style="width: 30%">Progress</th><th>Started</th><th></th></tr>
+    </thead>
+    <tbody data-jobs-body="">
+      <tr class="none"><td colspan="5" class="text-muted">Loading…</td></tr>
+    </tbody>
+  </table>
+
+  <div class="modal fade" tabindex="-1" data-progress-dialog="" data-bs-backdrop="static">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 class="modal-title h5" data-title="">Job</h2>
+          <span class="badge ms-2" data-state=""></span>
+        </div>
+        <div class="modal-body">
+          <div data-stages=""></div>
+          <details class="mt-2" data-log-fold="">
+            <summary class="small user-select-none">Details</summary>
+            <iframe class="w-100 border rounded mt-1 bg-light" data-log-frame="" title="Log"
+                    style="height: 13rem"></iframe>
+          </details>
+          <div class="small mt-2" data-message=""></div>
+          <div class="alert alert-danger mt-3 mb-0 d-none" data-error="" role="alert"></div>
+        </div>
+        <div class="modal-footer">
+          <a class="btn btn-outline-secondary btn-sm d-none" data-download="">Download results</a>
+          <button type="button" class="btn btn-outline-danger d-none" data-stop="">Stop job</button>
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

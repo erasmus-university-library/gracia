@@ -1,0 +1,66 @@
+<!-- The form of gracia.forms.Form(tabs=...): deform's form.pt with the fields on tabs. Every field
+     that is a mapping is a tab of its own, the loose fields are on the last one. A tab that has an
+     error is the one that is open, and is marked. -->
+<form
+  tal:define="item_template item_template|field.widget.item_template;
+              css_class css_class|string:${field.widget.css_class or field.css_class or ''};
+              formid formid|field.formid;
+              action action|field.action or None;
+              method field.method;
+              buttons field.buttons;
+              tabs python:field.widget.tabs(field)"
+  tal:attributes="class css_class; action action"
+  id="${formid}"
+  method="${method}"
+  enctype="multipart/form-data"
+  accept-charset="utf-8"
+  i18n:domain="deform">
+
+  <fieldset class="deform-form-fieldset">
+
+    <input type="hidden" name="_charset_" />
+    <input type="hidden" name="__formid__" value="${formid}"/>
+
+    <div class="alert alert-danger" tal:condition="field.error">
+      <div class="error-msg-lbl" i18n:translate="">There was a problem with your submission</div>
+      <div class="error-msg-detail" i18n:translate="">Errors have been highlighted below</div>
+      <p class="error-msg">${field.errormsg}</p>
+    </div>
+
+    <ul class="nav nav-tabs mb-3" role="tablist">
+      <li class="nav-item" role="presentation" tal:repeat="tab tabs">
+        <button type="button" class="nav-link${' active' if tab.active else ''}"
+                data-bs-toggle="tab" data-bs-target="#${tab.id}" role="tab"
+                aria-selected="${'true' if tab.active else 'false'}">${tab.title}<span
+                tal:condition="tab.error" class="text-danger" title="This tab has an error"> ●</span></button>
+      </li>
+    </ul>
+    <div class="tab-content">
+      <div class="tab-pane${' active' if tab.active else ''}" id="${tab.id}" role="tabpanel"
+           tal:repeat="tab tabs">
+        <tal:mapping tal:condition="tab.mapping is not None">
+          <div class="alert alert-danger" tal:condition="tab.mapping.errormsg">${tab.mapping.errormsg}</div>
+          ${structure: tab.mapping.start_mapping()}
+          <div tal:repeat="child tab.mapping.children"
+               tal:replace="structure child.render_template(item_template)"/>
+          ${structure: tab.mapping.end_mapping()}
+        </tal:mapping>
+        <tal:loose tal:condition="tab.mapping is None">
+          <div tal:repeat="child tab.fields"
+               tal:replace="structure child.render_template(item_template)"/>
+        </tal:loose>
+      </div>
+    </div>
+
+    <div class="mb-3 deform-form-buttons">
+      <tal:loop tal:repeat="button buttons">
+        <button id="${formid+button.name}" name="${button.name}" type="${button.type}"
+                class="btn ${button.css_class or ('btn-primary' if repeat.button.start else 'btn-secondary')}"
+                value="${button.value}" tal:condition="button.type != 'link'">${button.title}</button>
+        <a id="${formid+button.name}" class="btn ${button.css_class or 'btn-secondary'}"
+           href="${button.value}" tal:condition="button.type == 'link'">${button.title}</a>
+      </tal:loop>
+    </div>
+
+  </fieldset>
+</form>

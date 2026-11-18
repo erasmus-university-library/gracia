@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en" metal:define-macro="layout">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${title}</title>
+  <link rel="icon" type="image/svg+xml" href="${favicon}">
+  <!-- the styles and scripts are put here by gracia.static: one of each, cached for good -->
+  <metal:slot define-slot="head"></metal:slot>
+</head>
+<body>
+  <header class="container py-3 border-bottom mb-4">
+    <a class="gracia-logo mb-3" href="${home}" aria-label="gracia, home">
+      <span class="wave" aria-hidden="true">👋</span><span>gracia</span>
+    </a>
+    <metal:slot define-slot="header">
+      <h1 class="h3 mb-0">${title}</h1>
+    </metal:slot>
+  </header>
+  <main class="container pb-4">
+    <div tal:repeat="flash flashes" class="alert alert-${flash[0]} alert-dismissible fade show"
+         role="alert">
+      ${flash[1]}
+      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+    <metal:slot define-slot="content"></metal:slot>
+  </main>
+  <footer class="container py-3 border-top text-muted small">
+    <metal:slot define-slot="footer">gracia</metal:slot>
+  </footer>
+</body>
+</html>

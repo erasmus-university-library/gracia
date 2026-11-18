@@ -1,0 +1,74 @@
+<!-- The Search tab of the manage page of a repository: the fields the docs of its types can have (the schema
+     mode of the doc stylesheets) against the fields of its search indexes (the settings of the Search
+     extension). A field that only the docs have is greyed, with a button that adds it to the settings; the
+     others have a button that takes it out. What the index holds follows when it is made again. -->
+<div id="search-tab">
+  <div class="alert alert-danger d-none" id="search-jobs-problem" role="alert"></div>
+  <div class="alert alert-danger" tal:repeat="error errors" role="alert">${error}</div>
+  <p class="text-muted" tal:condition="notice" id="search-tab-none">${notice}</p>
+  <div class="alert alert-warning" tal:condition="problem" id="search-tab-problem" role="alert">${problem}</div>
+
+  <fieldset class="mb-4" tal:repeat="section sections" id="search-index-${section['name']}">
+    <legend class="h5"><code>${section['name']}</code>
+      <span class="badge ${'text-bg-success' if section['state'] == 'ok' else 'text-bg-warning'} ms-2 fs-6">${
+        {'ok': 'ok', 'stale': 'needs a rebuild', 'missing': 'not made yet'}[section['state']]}</span></legend>
+    <p class="small text-muted">
+      <span tal:condition="section['state'] == 'ok'">${section['documents']} documents.</span>
+      <span tal:condition="section['state'] == 'stale'">The fields changed since the index was made: it keeps answering what it had and is not written to until it is made again.</span>
+      <span tal:condition="section['state'] == 'missing'">Nothing has been indexed yet.</span>
+      A greyed field is one the docs of the types can have and the index does not.
+    </p>
+    <form method="post" action="${action}" id="form-repository-search-${section['name']}">
+      <input type="hidden" name="__formid__" value="form-repository-search"/>
+      <input type="hidden" name="index" value="${section['name']}"/>
+      <table class="table table-sm align-middle mb-2">
+        <thead>
+          <tr><th>Field</th><th>Type</th><th>Types</th><th>Stored</th><th>Indexed</th><th>Fast</th>
+              <th>Tokenizer</th><th class="text-end" title="Documents that have a value (fast fields only)">Documents</th><th></th></tr>
+        </thead>
+        <tbody>
+          <tr tal:repeat="row section['rows']" id="search-field-${row['name']}" data-state="${row['state']}"
+              class="${'text-muted' if row['state'] == 'available' else ''}">
+            <td><code>${row['name']}</code>
+              <span class="badge text-bg-light" tal:condition="row['state'] == 'available'">not indexed</span>
+              <span class="badge text-bg-warning" tal:condition="row['state'] == 'orphan'"
+                    title="No doc stylesheet makes this field: nothing will ever be in it">not in any doc</span>
+              <span class="badge text-bg-warning" tal:condition="row['state'] == 'different'"
+                    title="The index has it otherwise than the docs offer: ${', '.join(row['differences'])}">differs: ${', '.join(row['differences'])}</span>
+              <span class="badge text-bg-danger" tal:condition="row['conflict']"
+                    title="Two types say what this field is differently">conflict</span></td>
+            <td>${row['type']}</td>
+            <td><span tal:condition="row['every_type']">every type</span>
+                <span tal:condition="not row['every_type']">${', '.join(row['types'])}</span></td>
+            <td>${'yes' if row['stored'] else 'no'}</td>
+            <td>${'yes' if row['indexed'] else 'no'}</td>
+            <td>${'yes' if row['fast'] else 'no'}</td>
+            <td>${row['tokenizer'] if row['type'] == 'text' else ''}</td>
+            <td class="text-end">
+              <span tal:condition="row['docs'] is not None">${row['docs']}</span>
+              <span tal:condition="row['docs'] is None and row['measured']" class="text-muted"
+                    title="Only a fast field can be counted">–</span></td>
+            <td class="text-end">
+              <button tal:condition="row['state'] == 'available'" type="submit" name="add" value="${row['name']}"
+                      class="btn btn-outline-primary btn-sm">Add</button>
+              <button tal:condition="row['state'] != 'available'" type="submit" name="remove" value="${row['name']}"
+                      class="btn btn-outline-danger btn-sm" disabled="${'disabled' if row['required'] else None}"
+                      title="${'The index cannot do without it' if row['required'] else None}">Remove</button></td>
+          </tr>
+        </tbody>
+      </table>
+    </form>
+  </fieldset>
+
+  <form id="search-job-rebuild_search" tal:condition="rebuild and sections" class="mt-2 mb-0">
+    <button type="button" class="btn btn-outline-primary btn-sm" data-start-fields=""
+            data-start-job="${rebuild['url']}"
+            data-start-error="#search-jobs-problem">${rebuild['title']}</button>
+    <span class="small text-muted ms-2">makes the indexes again, next to the ones that answer</span>
+  </form>
+
+  <div tal:condition="can_list and rebuild" id="search-job-dialog"
+       tal:define="panel_list_url string:${list_url}; panel_watch string:; panel_compact string:true;
+                   panel_filter string:job=rebuild_search"
+       metal:use-macro="panel.macros['panel']"></div>
+</div>

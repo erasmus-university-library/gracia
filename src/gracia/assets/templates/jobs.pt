@@ -1,0 +1,52 @@
+<html metal:use-macro="layout.macros['layout']">
+  <metal:slot fill-slot="header">
+    <h1 class="h3 mb-0">${heading}</h1>
+    <div class="text-muted">${subtitle}</div>
+  </metal:slot>
+
+  <metal:slot fill-slot="content">
+    <div data-start-url="${start_url}">
+      <h2 class="h5">Start a job</h2>
+      <div class="list-group mb-4">
+        <div class="list-group-item text-muted" tal:condition="not startable">
+          You may not start any job here.
+        </div>
+        <div class="list-group-item d-flex align-items-center gap-3" tal:repeat="item startable">
+          <div class="flex-grow-1">
+            <div class="fw-semibold">${item['job'].title}</div>
+            <div class="text-muted small">${item['job'].description}</div>
+          </div>
+          <button type="button" class="btn btn-primary" data-bs-toggle="modal"
+                  data-bs-target="#start-${item['job'].name}-modal">Start…</button>
+        </div>
+      </div>
+
+      <h2 class="h5">Jobs</h2>
+      <div tal:define="panel_list_url string:${list_url}; panel_watch string:; panel_compact string:"
+           metal:use-macro="panel.macros['panel']"></div>
+    </div>
+
+    <!-- one dialog per job that may be started: its form, from the Colander schema of the job -->
+    <div class="modal fade" tabindex="-1" id="start-${item['job'].name}-modal"
+         data-job="${item['job'].name}" tal:repeat="item startable">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2 class="modal-title h5">${item['job'].title}</h2>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <p class="text-muted" tal:condition="not item['fields']">This job has no settings.</p>
+            <div class="alert alert-danger d-none job-problem" role="alert"></div>
+            <div class="job-form" tal:content="structure item['form']">form</div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+            <button type="submit" class="btn btn-primary" form="${item['job'].form_id}">Start</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </metal:slot>
+
+</html>

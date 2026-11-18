@@ -1,0 +1,18 @@
+# The shape of a user.
+@prefix gracia: <https://gracia.pub/ns/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix dash: <http://datashapes.org/dash#> .
+@prefix dct: <http://purl.org/dc/terms/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gracia:UserShape a sh:NodeShape ; sh:targetClass gracia:User ;
+    sh:description "Someone who can log in: a user id and a password, in the groups that give their permissions." ;
+    sh:property [ sh:path gracia:userid ; sh:name "User id" ; sh:order 1 ;
+        dash:propertyRole dash:LabelRole, dash:KeyInfoRole ;
+        dash:uniqueValueForClass gracia:User ;
+        sh:datatype xsd:string ; sh:minCount 1 ; sh:maxCount 1 ;
+        sh:pattern "^[a-z0-9][a-z0-9._-]{0,63}$" ] ,
+    [ sh:path gracia:credentials ; sh:name "Credentials" ; sh:order 2 ;
+        sh:description "A salted password hash, never the password" ;
+        sh:datatype xsd:string ; sh:minCount 1 ; sh:maxCount 1 ] ,
+    [ sh:path gracia:memberOf ; sh:name "Member of" ; sh:order 3 ; sh:nodeKind sh:IRI ] .

@@ -1,0 +1,78 @@
+<!-- The Extensions tab of the manage page of a repository: a card for each extension, with a
+     button to turn it on or off and, when it is on and has settings, a dialog with two tabs: the
+     form, and the same settings as JSON. -->
+<div>
+  <div class="extension pb-3 mb-4 border-bottom" id="extension-${card['name']}" tal:repeat="card cards">
+    <h2 class="h5 mb-1">
+      ${card['title']}
+      <span class="badge text-bg-success ms-1" tal:condition="card['enabled']">enabled</span>
+      <span class="badge text-bg-secondary ms-1" tal:condition="not card['enabled']">disabled</span>
+    </h2>
+    <p class="text-muted mb-2">${card['description']}</p>
+
+    <div class="d-flex flex-wrap align-items-center gap-2">
+      <!-- one button for what can be done now: Disable when it is on, Enable when it is off; Disable
+           is there and greyed out (`disabled`) when the extension says it cannot be turned off -->
+      <form method="post" action="${card['url']}" class="d-flex mb-0" tal:condition="card['enabled']"
+            data-confirm="Disable ${card['title']}? Its settings are kept.">
+        <input type="hidden" name="__formid__" value="${card['form_id']}">
+        <button type="submit" name="disable" value="disable" class="btn btn-outline-secondary btn-sm"
+                disabled="${None if card['can_disable'] else 'disabled'}"
+                title="${None if card['can_disable'] else 'This extension cannot be disabled'}">Disable</button>
+      </form>
+      <form method="post" action="${card['url']}" class="d-flex mb-0" tal:condition="not card['enabled']">
+        <input type="hidden" name="__formid__" value="${card['form_id']}">
+        <button type="submit" name="enable" value="enable" class="btn btn-outline-primary btn-sm">Enable</button>
+      </form>
+      <button type="button" class="btn btn-outline-secondary btn-sm" tal:condition="card['settings']"
+              data-bs-toggle="modal" data-bs-target="#modal-extension-${card['name']}">Settings</button>
+    </div>
+
+    <div class="modal fade" tabindex="-1" id="modal-extension-${card['name']}"
+         data-open="${'true' if card['open'] else None}" tal:condition="card['settings']">
+      <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2 class="modal-title h5">${card['title']}: settings</h2>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <div class="alert alert-danger" role="alert" tal:repeat="error card['errors']">${error}</div>
+            <ul class="nav nav-tabs" role="tablist">
+              <li class="nav-item" role="presentation">
+                <button type="button" class="nav-link${' active' if card['inner'] == 'settings' else ''}"
+                        data-bs-toggle="tab" data-bs-target="#ext-${card['name']}-settings"
+                        role="tab">Settings</button>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button type="button" class="nav-link${' active' if card['inner'] == 'json' else ''}"
+                        data-bs-toggle="tab" data-bs-target="#ext-${card['name']}-json"
+                        role="tab">Import / Export</button>
+              </li>
+            </ul>
+            <div class="tab-content pt-3">
+              <div class="tab-pane${' active' if card['inner'] == 'settings' else ''}"
+                   id="ext-${card['name']}-settings" role="tabpanel">
+                <div tal:replace="structure card['form_html']">the form</div>
+              </div>
+              <div class="tab-pane${' active' if card['inner'] == 'json' else ''}"
+                   id="ext-${card['name']}-json" role="tabpanel">
+                <form method="post" action="${card['url']}" accept-charset="utf-8" autocomplete="off">
+        <input type="hidden" name="__formid__" value="${card['form_id']}">
+                  <label class="form-label" for="json-${card['name']}">The settings as JSON</label>
+                  <textarea class="form-control font-monospace" id="json-${card['name']}" name="json"
+                            rows="10" spellcheck="false" data-editor="json">${card['json']}</textarea>
+                  <div class="form-text">Copy it, or paste settings here and update.</div>
+                  <div class="mt-3">
+                    <button type="submit" name="import_json" value="import" class="btn btn-primary">Update from JSON</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="text-muted" tal:condition="not cards">There are no extensions.</p>
+</div>

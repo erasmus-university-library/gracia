@@ -1,0 +1,58 @@
+"""Deform views for the tests of gracia.views.deform, found by a scan."""
+
+import colander
+import deform
+from pyramid.response import Response
+
+from gracia.views.deform import deform_view, dependent_select, options_validator, render_fields
+
+SEEN: list = []  # (form, field) the shades view was called with
+SHADES = {"red": ["crimson", "scarlet"], "blue": ["navy", "azure"]}
+
+
+class Colours(colander.MappingSchema):
+    family = colander.SchemaNode(
+        colander.String(),
+        widget=deform.widget.SelectWidget(values=[("red", "Red"), ("blue", "Blue")]),
+    )
+    shade = colander.SchemaNode(
+        colander.String(), widget=dependent_select("shades", depends_on="family")
+    )
+    validator = options_validator("shade", "shades", depends_on="family")
+
+
+def colours_form(context, request) -> deform.Form:
+    """The factory: a fresh form for this request (the page makes its form the same way)."""
+    return deform.Form(Colours().bind(request=request, context=context), buttons=())
+
+
+@deform_view("shades", permission="view", form=colours_form)
+def shades(context, request, values, form, field):
+    SEEN.append((form, field))
+    return [(s, s.title()) for s in SHADES.get(values.get("family"), [])]
+
+
+@deform_view("palette", permission="view", form=colours_form)
+def palette(context, request, values, form, field):
+    """A view that answers HTML: what changes the complete form, here a paragraph."""
+    return f"<p id='palette'>{values.get('family', 'none')}</p>"
+
+
+@deform_view("hue", permission="edit", form=colours_form)
+def hue(context, request, values, form, field):
+    """A view of the complete form: blue is free text, red is a choice. It returns the form."""
+    if values.get("family") == "blue":
+        form["shade"].widget = deform.widget.TextInputWidget()
+    return form
+
+
+@deform_view("teapot", permission="view", form=colours_form)
+def teapot(context, request, values, form, field):
+    """A view that answers a Response of its own."""
+    return Response("short and stout", status=418, content_type="text/plain")
+
+
+@deform_view("row", permission="view", form=colours_form)
+def row(context, request, values, form, field):
+    """A view that re-renders the row of the field it was asked for, without form tags."""
+    return render_fields(form, request.params.items(), [field.name])

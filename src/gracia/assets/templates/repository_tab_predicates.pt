@@ -1,0 +1,17 @@
+<!-- The Predicates tab of the manage page of a repository: a card for each predicate that is
+     registered, like the Extensions tab: the name the shapes give its property, the property, what
+     the predicate does (its docstring), its parts, and how many values of the property are stored. -->
+<div>
+  <div class="predicate pb-3 mb-4 border-bottom" id="predicate-${card['title']}" tal:repeat="card cards">
+    <h2 class="h5 mb-1">
+      ${card['title']}
+      <span class="badge text-bg-secondary ms-1" tal:repeat="part card['parts']">${part}</span>
+    </h2>
+    <p class="text-muted mb-1" tal:condition="card['description']">${card['description']}</p>
+    <p class="mb-2"><code class="text-break">${card['uri']}</code>
+      <span class="ms-2 text-muted">${card['values']} stored</span></p>
+    <p class="mb-1 small" style="white-space: pre-line">${card['doc']}</p>
+    <p class="mb-0 small text-muted"><code>${card['name']}</code></p>
+  </div>
+  <p class="text-muted" tal:condition="not cards">No predicates are registered.</p>
+</div>

@@ -1,0 +1,30 @@
+<div tal:omit-tag="field.widget.hidden"
+     tal:define="hidden hidden|field.widget.hidden;
+                 description description|field.description;
+                 oid oid|field.oid"
+     title="${description}"
+     class="d-flex gap-1 align-items-start mb-2 deform-seq-item ${field.widget.item_css_class or ''} ${field.default_item_css_class()}"
+     i18n:domain="deform">
+  <div class="flex-grow-1">
+    <span tal:replace="structure field.serialize(cstruct)"/>
+    <tal:errors condition="field.error and not hidden"
+                define="errstr 'error-%s' % oid"
+                repeat="msg field.error.messages()">
+      <p tal:condition="msg"
+         id="${errstr if repeat.msg.index==0 else '%s-%s' % (errstr, repeat.msg.index)}"
+         class="form-text text-danger mb-0"
+         i18n:translate="">${msg}</p>
+    </tal:errors>
+  </div>
+  <button class="deform-order-button btn btn-outline-secondary"
+          id="${oid}-order"
+          tal:condition="not hidden"
+          title="Reorder (via drag and drop)"
+          i18n:attributes="title">&#8597;</button>
+  <button class="deform-close-button btn btn-outline-secondary"
+          id="${oid}-close"
+          tal:condition="not hidden"
+          title="Remove"
+          i18n:attributes="title"
+          onclick="javascript:deform.removeSequenceItem(this);">&times;</button>
+</div>

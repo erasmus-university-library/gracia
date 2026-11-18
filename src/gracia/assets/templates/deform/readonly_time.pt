@@ -1,0 +1,2 @@
+<input type="text" id="${field.oid}" value="${cstruct}"
+       class="form-control-plaintext" readonly tabindex="-1" />

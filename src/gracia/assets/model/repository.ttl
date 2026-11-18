@@ -1,0 +1,67 @@
+# What a new repository starts with. Everything the repository stores is a record, the repository
+# too: one record of the type `repository`, `rec:repository:1`, whose content has its title, the list
+# of its types, the schema its own form follows and what it says of its extensions.
+#
+#   record       rec:<slug>:<n>   gracia:resource -> a blank node; its type is in its uri (<slug>), and the
+#                                      class of the type is among the rdf:types of the blank node
+#   type record  rec:type:<n>        name, slug, class, where its files are (gracia:assets) and
+#                                      which schema file its records follow (gracia:schemaTemplate); its
+#                                      resource uri is its class, which is how `gracia:types` lists it
+#
+# The type "Type" describes the type records themselves (it is a bit meta), and the type
+# "Repository" the one record that holds the types. Shapes and stylesheets are files in the package
+# of a type, not data: gracia:assets says where (see gracia.assets).
+@prefix gracia: <https://gracia.pub/ns/> .
+
+<@REPO@> a gracia:Record ;
+    gracia:resource_uri <@REPOU@> ;
+    gracia:label "@TITLE@" ;
+    gracia:resource _:content .
+
+_:content a gracia:Repository ;
+    gracia:title "@TITLE@" ;
+    gracia:assets "@A1@" ; gracia:schemaTemplate "Repository-full-01.ttl" ;
+    gracia:types ( <@C1@> <@C2@> <@C3@> <@C4@>@EXTRA_TYPES@ ) .
+
+<@K1@> a gracia:Record ;
+    gracia:resource_uri <@K1U@> ;
+    gracia:label "Repository" ;
+    gracia:resource [ a gracia:Type ; gracia:name "Repository" ; gracia:slug "repository" ;
+        gracia:class gracia:Repository ; gracia:assets "@A1@" ;
+        gracia:schemaTemplate "Repository-full-01.ttl" ] .
+
+<@K2@> a gracia:Record ;
+    gracia:resource_uri <@K2U@> ;
+    gracia:label "Type" ;
+    gracia:resource [ a gracia:Type ; gracia:name "Type" ; gracia:slug "type" ;
+        gracia:class gracia:Type ; gracia:assets "@A2@" ;
+        gracia:schemaTemplate "Type-full-01.ttl" ] .
+
+<@K3@> a gracia:Record ;
+    gracia:resource_uri <@K3U@> ;
+    gracia:label "User" ;
+    gracia:resource [ a gracia:Type ; gracia:name "User" ; gracia:slug "user" ;
+        gracia:class gracia:User ; gracia:assets "@A3@" ;
+        gracia:schemaTemplate "User-full-01.ttl" ] .
+
+<@K4@> a gracia:Record ;
+    gracia:resource_uri <@K4U@> ;
+    gracia:label "UserGroup" ;
+    gracia:resource [ a gracia:Type ; gracia:name "UserGroup" ; gracia:slug "group" ;
+        gracia:class gracia:UserGroup ; gracia:assets "@A4@" ;
+        gracia:schemaTemplate "UserGroup-full-01.ttl" ] .
+
+<@G1@> a gracia:Record ;
+    gracia:resource_uri <@G1U@> ;
+    gracia:label "admin" ;
+    gracia:resource [ a gracia:UserGroup ; gracia:name "admin" ] .
+
+<@G2@> a gracia:Record ;
+    gracia:resource_uri <@G2U@> ;
+    gracia:label "editor" ;
+    gracia:resource [ a gracia:UserGroup ; gracia:name "editor" ] .
+
+<@G3@> a gracia:Record ;
+    gracia:resource_uri <@G3U@> ;
+    gracia:label "manager" ;
+    gracia:resource [ a gracia:UserGroup ; gracia:name "manager" ] .

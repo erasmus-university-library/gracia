@@ -1,0 +1,25 @@
+<html metal:use-macro="layout.macros['layout']">
+  <metal:slot fill-slot="header">
+    <h1 class="h3 mb-0">${heading}</h1>
+    <div class="text-muted">${subtitle}</div>
+  </metal:slot>
+
+  <metal:slot fill-slot="content">
+    <div data-job-log="" data-log-url="${log_url}" data-status-url="${status_url}">
+      <div class="d-flex align-items-center gap-3 mb-2">
+        <label class="form-label mb-0" for="log-name">Log</label>
+        <select class="form-select form-select-sm w-auto" id="log-name" data-log-name="">
+          <option value="luigi" selected="${name == 'luigi' or None}">luigi.log: what the job and its workers log</option>
+          <option value="job" selected="${name == 'job' or None}">job.log: what the process printed</option>
+        </select>
+        <span class="badge text-bg-secondary" data-log-state=""></span>
+        <div class="form-check ms-auto mb-0">
+          <input class="form-check-input" type="checkbox" id="log-follow" data-log-follow="" checked="checked">
+          <label class="form-check-label" for="log-follow">Follow</label>
+        </div>
+      </div>
+      <pre class="bg-light border rounded p-2 small mb-0" style="height: 70vh; overflow: auto"
+           data-log-text=""></pre>
+    </div>
+  </metal:slot>
+</html>

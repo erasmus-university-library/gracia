@@ -1,0 +1,100 @@
+/* the logo: a waving hand and the name, on a soft yellow pill */
+.gracia-logo {
+  display: inline-flex; align-items: center; gap: .45rem;
+  padding: .2rem .85rem .2rem .55rem; border-radius: 2rem;
+  background: linear-gradient(135deg, #fff6c2, #ffd84d);
+  box-shadow: 0 1px 0 #f0b400, 0 3px 8px rgba(240, 180, 0, .35);
+  color: #5a3d00; text-decoration: none;
+  font-family: "Nunito", "Trebuchet MS", ui-rounded, system-ui, sans-serif;
+  font-weight: 800; font-size: 1.35rem; letter-spacing: .02em;
+}
+.gracia-logo:hover { color: #3d2900; background: linear-gradient(135deg, #fff9d6, #ffcf2e); }
+.gracia-logo .wave { display: inline-block; transform-origin: 70% 75%; font-size: 1.5rem; }
+.gracia-logo:hover .wave { animation: gracia-wave 1.1s ease-in-out 2; }
+@keyframes gracia-wave {
+  0%, 60%, 100% { transform: rotate(0); }
+  10%, 30%, 50% { transform: rotate(16deg); }
+  20%, 40% { transform: rotate(-10deg); }
+}
+@media (prefers-reduced-motion: reduce) { .gracia-logo:hover .wave { animation: none; } }
+
+/* a progress bar that does not know how far it is: a piece that slides from left to right */
+.progress-bar.indeterminate {
+  width: 35%; animation: gracia-slide 1.5s ease-in-out infinite;
+}
+@keyframes gracia-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(286%); } /* 35% wide: 100 / 35 of itself is the whole track */
+}
+@media (prefers-reduced-motion: reduce) {
+  .progress-bar.indeterminate { animation: none; width: 100%; opacity: .5; }
+}
+
+/* A horizontal form, as Bootstrap 3 had it (`.form-horizontal`; Bootstrap 5 does not): the label in
+   a column in front of the input, right-aligned, and the help or error text under the input. Put the
+   class on a form, or on a Deform form with css_class="deform form-horizontal". `.form-row` is the
+   same for a row that is written by hand. Set --form-label-width on the form to change the column. */
+.form-horizontal { --form-label-width: 11rem; --label-width: var(--form-label-width); container-type: inline-size; }
+.form-horizontal .deform-form-fieldset > div.mb-3:not(.card, .deform-form-buttons),
+.form-horizontal .card-body > div.mb-3:not(.card),
+.form-horizontal .tab-pane > div.mb-3:not(.card),
+.form-horizontal .form-row {
+  display: grid; grid-template-columns: var(--label-width) minmax(0, 1fr);
+  column-gap: 1rem; align-items: start;
+}
+.form-horizontal .mb-3 > label.form-label {
+  grid-column: 1; margin: 0; padding-top: .4rem; text-align: right;
+}
+.form-horizontal .mb-3 > :not(label) { grid-column: 2; }
+/* A subform (a Deform mapping, or one item of a sequence) is a box of its own with a narrower label
+   column of its own. A sequence has no box around the list: the label of the field stands in front
+   of the items, and "Add ..." under them, in line with the inputs. */
+.form-horizontal .card-body { --label-width: 8rem; }
+/* A mapping on the first level (the content of a page, under its own heading) is not a subform: its
+   fields are in line with the others, and its title is a heading over them. */
+.form-horizontal .deform-form-fieldset > .card { border: 0; background: none; border-radius: 0; }
+.form-horizontal .deform-form-fieldset > .card > .card-header {
+  background: none; padding: 0 0 .35rem; margin: 0 0 1rem; border-bottom: 1px solid var(--bs-border-color);
+}
+.form-horizontal .deform-form-fieldset > .card > .card-body { padding: 0; --label-width: var(--form-label-width); }
+.form-horizontal .card > .card-header { font-variant: small-caps; padding: .35rem .75rem; }
+.form-horizontal .deform-seq > .card { border: 0; background: none; margin-bottom: 0 !important; }
+.form-horizontal .deform-seq > .card > .card-header { display: none; }
+.form-horizontal .deform-seq > .card > .card-body { padding: 0; }
+.form-horizontal .deform-seq > .card > .card-footer { border: 0; background: none; padding: 0; }
+.form-horizontal .deform-seq .deform-seq-item { margin-bottom: 0; }
+.form-horizontal .deform-seq-item .card-body { padding: 1.25rem 1rem .25rem; }
+/* a required input marks its label (Deform's form.css does it for a bare input; this also for a
+   select, a textarea and an input in a group) */
+.form-horizontal label.form-label:has(+ :is(input, select, textarea)[required])::after,
+.form-horizontal label.form-label:has(+ .input-group :is(input, select, textarea)[required])::after {
+  content: " *"; color: #dc3545;
+}
+/* the buttons: under a rule, in line with the inputs */
+.form-horizontal .deform-form-buttons,
+.form-horizontal .form-buttons {
+  display: block; margin-top: 1.25rem; padding: 1rem 0 0 calc(var(--label-width) + 1rem);
+  border-top: 1px solid var(--bs-border-color);
+}
+@container (max-width: 36rem) { /* a narrow form (not just a narrow screen: also a modal or a column):
+                                   the label goes back above the input */
+  .form-horizontal .deform-form-fieldset > div.mb-3:not(.card, .deform-form-buttons),
+  .form-horizontal .card-body > div.mb-3:not(.card), .form-horizontal .tab-pane > div.mb-3:not(.card),
+  .form-horizontal .form-row { display: block; }
+  .form-horizontal .mb-3 > label.form-label { text-align: left; padding-top: 0; margin-bottom: .5rem; }
+  .form-horizontal .deform-form-buttons, .form-horizontal .form-buttons { padding-left: 0; }
+}
+
+/* The code editors (CodeMirror, see scripts/editor.js) look like the other inputs of a form. */
+.CodeMirror {
+  height: auto; font-size: .875rem; color: var(--bs-body-color); background: var(--bs-body-bg);
+  border: var(--bs-border-width) solid var(--bs-border-color); border-radius: var(--bs-border-radius);
+}
+.CodeMirror-scroll { min-height: 6rem; max-height: 28rem; }
+.CodeMirror-focused { border-color: #86b7fe; box-shadow: 0 0 0 .25rem rgba(13, 110, 253, .25); }
+.is-invalid + .CodeMirror { border-color: var(--bs-form-invalid-border-color); }
+.CodeMirror-gutters { background: var(--bs-tertiary-bg); border-right: 1px solid var(--bs-border-color); }
+
+/* a mapping on one line (templates/deform/mapping_inline.pt): the first field is narrow */
+.mapping-inline > :first-child { flex: 0 0 9rem; }
+.mapping-inline > :not(:first-child) { flex: 1 1 0; min-width: 0; }

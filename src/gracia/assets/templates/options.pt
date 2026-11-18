@@ -1,0 +1,1 @@
+<option tal:repeat="item options" value="${item[0]}">${item[1]}</option>

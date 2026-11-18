@@ -1,0 +1,24 @@
+<!-- The Jobs tab of the manage page of a repository: the jobs that are about the repository as a whole,
+     each with a Start button (it posts to the jobs node, see static/scripts/jobs.js), and the table
+     of the jobs of that kind with the dialog that follows one. -->
+<div tal:omit-tag="">
+  <div class="alert alert-danger d-none" id="repository-jobs-problem" role="alert"></div>
+  <div class="list-group mb-4">
+    <form tal:repeat="item jobs" id="repository-job-${item['name']}"
+          class="list-group-item d-flex flex-wrap align-items-center gap-3">
+      <div class="flex-grow-1">
+        <div class="fw-semibold">${item['title']}</div>
+        <div class="small text-muted">${item['description']}</div>
+      </div>
+      <button type="button" class="btn btn-outline-primary" data-start-job="${item['url']}"
+              data-start-fields="" data-start-error="#repository-jobs-problem">Start</button>
+    </form>
+    <div tal:condition="not jobs" class="list-group-item text-muted">
+      You may not start any job here.
+    </div>
+  </div>
+  <div tal:define="panel_list_url string:${list_url}; panel_watch string:; panel_compact string:;
+                   panel_filter string:job=${job_filter}"
+       tal:condition="can_list"
+       metal:use-macro="panel.macros['panel']"></div>
+</div>

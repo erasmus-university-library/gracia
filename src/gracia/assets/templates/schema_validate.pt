@@ -1,0 +1,18 @@
+<!-- The field of `gracia:schemaTemplate` of a type: the select, and Validate at the end of the same group
+     (it starts the validate job with the file chosen, before anything is saved). The hidden
+     `res_type` is what the job asks for. The dialog that follows the validation is the job panel
+     in compact mode: the history of the jobs is not shown. -->
+<div tal:omit-tag="">
+  <div class="input-group">
+    <span tal:replace="structure select">select</span>
+    <button type="button" class="btn btn-outline-primary" data-start-job="${validate_url}"
+            data-start-fields="res_type,schema"
+            data-start-error="#validate-problem">Validate</button>
+  </div>
+  <input type="hidden" name="res_type" value="${res_type}" />
+  <div class="alert alert-danger d-none mt-2" id="validate-problem" role="alert"></div>
+  <div tal:condition="can_list"
+       tal:define="panel_list_url string:${list_url}; panel_watch string:; panel_compact string:true;
+               panel_filter string:job=validate&subject=${res_type}"
+       metal:use-macro="panel.macros['panel']"></div>
+</div>
