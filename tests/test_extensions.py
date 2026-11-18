@@ -25,7 +25,7 @@ POSTING = {
 
 
 class DemoSettings(colander.MappingSchema):
-    schema_type = functools.partial(colander.Mapping, unknown="raise")
+    schema_type = staticmethod(functools.partial(colander.Mapping, unknown="raise"))
 
     greeting = colander.SchemaNode(
         colander.String(), title="Greeting", default="hello", missing="hello"

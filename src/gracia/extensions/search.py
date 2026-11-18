@@ -111,7 +111,7 @@ class IndexSettings(colander.MappingSchema):
 
 
 class SearchSettings(colander.MappingSchema):
-    schema_type = functools.partial(colander.Mapping, unknown="raise")
+    schema_type = staticmethod(functools.partial(colander.Mapping, unknown="raise"))
 
     indexes = colander.SchemaNode(
         colander.Sequence(),

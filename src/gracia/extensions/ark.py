@@ -10,7 +10,7 @@ from gracia.resources import Repository
 
 
 class ArkSettings(colander.MappingSchema):
-    schema_type = functools.partial(colander.Mapping, unknown="raise")
+    schema_type = staticmethod(functools.partial(colander.Mapping, unknown="raise"))
 
     naan = colander.SchemaNode(
         colander.String(),
