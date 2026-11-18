@@ -153,7 +153,7 @@ class RepositoryApiTest(WebCase):
         super().setUp()
         self.application.create_repository("library")
         self.application.create_repository("archive")
-        self.settings["gracia.security_policy"] = HeaderPolicy()
+        self.settings["gracia.security_policy"] = HeaderPolicy()  # ty: ignore[invalid-assignment]
 
     def test_every_repository_has_an_api_document(self):
         web = self.client()

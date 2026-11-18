@@ -47,7 +47,7 @@ class ProcessCase(JobsCase):
         )
         # a run in this process forks workers too: they reach the database through the
         # owner
-        self.settings = {
+        self.settings = {  # ty: ignore[invalid-attribute-access]
             "gracia.db": self.uri,
             "gracia.db.token": self.token,
             "gracia.stages": "jobs_support",
@@ -300,7 +300,8 @@ class StopTest(ProcessCase):
             with self.assertRaises(RuntimeError):
                 procs.stop_job(db, job_id)
             self.assertEqual(
-                db.get(job_id)["state"], "stopping"
+                db.get(job_id)["state"],  # ty: ignore[not-subscriptable]
+                "stopping",
             )  # honest: it was being stopped
 
 
@@ -319,9 +320,9 @@ class ReconcileTest(ProcessCase):
         with JobsDb(self.application) as db:
             self.assertEqual(procs.reconcile(db, self.jobs_dir), [job_id])
             job = db.get(job_id)
-        self.assertEqual(job["state"], "failed")
-        self.assertEqual(job["error_msg"], "the process disappeared")
-        self.assertIsNotNone(job["finished_at"])
+        self.assertEqual(job["state"], "failed")  # ty: ignore[not-subscriptable]
+        self.assertEqual(job["error_msg"], "the process disappeared")  # ty: ignore[not-subscriptable]
+        self.assertIsNotNone(job["finished_at"])  # ty: ignore[not-subscriptable]
         # its workers are still there, holding: end them, and it can be started again
         with contextlib.suppress(ProcessLookupError):
             os.killpg(pid, signal.SIGKILL)
@@ -347,7 +348,7 @@ class ReconcileTest(ProcessCase):
                 },
             )
             procs.reconcile(db, self.jobs_dir)
-            self.assertEqual(db.get(job_id)["error_msg"], "it ran out of room")
+            self.assertEqual(db.get(job_id)["error_msg"], "it ran out of room")  # ty: ignore[not-subscriptable]
 
     def test_a_live_job_a_young_job_and_a_job_of_another_host_are_left_alone(self):
         live = self.make(self.held(n_items=1, size=1))
@@ -382,9 +383,10 @@ class ReconcileTest(ProcessCase):
             self.assertEqual(
                 procs.reconcile(db, self.jobs_dir), [young]
             )  # now it is old enough
-            self.assertEqual(db.get(live)["state"], "running")
+            self.assertEqual(db.get(live)["state"], "running")  # ty: ignore[not-subscriptable]
             self.assertEqual(
-                db.get(elsewhere)["state"], "running"
+                db.get(elsewhere)["state"],  # ty: ignore[not-subscriptable]
+                "running",
             )  # a pid of another host means nothing
 
     def test_a_process_that_has_ended_but_is_not_yet_collected_counts_as_gone(self):

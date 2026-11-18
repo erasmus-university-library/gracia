@@ -97,8 +97,8 @@ class SlugSqlTest(unittest.TestCase):
 
     def test_a_long_label_is_cut_and_does_not_end_in_a_dash(self):
         made = self.slugged({"rec:person:1": ("word " * 40, None)})["rec:person:1"]
-        self.assertLessEqual(len(made), 80)
-        self.assertRegex(made, r"^word(-word)*$")
+        self.assertLessEqual(len(made), 80)  # ty: ignore[invalid-argument-type]
+        self.assertRegex(made, r"^word(-word)*$")  # ty: ignore[invalid-argument-type]
 
     def test_a_slug_that_is_given_is_cleaned_and_used_instead_of_the_label(self):
         made = self.slugged(
@@ -214,7 +214,7 @@ class SlugSqlTest(unittest.TestCase):
 class SlugCase(WebCase):
     def setUp(self):
         super().setUp()
-        self.settings["gracia.security_policy"] = HeaderPolicy()
+        self.settings["gracia.security_policy"] = HeaderPolicy()  # ty: ignore[invalid-assignment]
         self.config = make_config(self.settings)
         self.config.commit()
         self.config.begin()
@@ -226,7 +226,7 @@ class SlugCase(WebCase):
         )
         self.web = self.client(self.config)  # goes on to where a record has moved
         self.raw = self.client(self.config)  # shows the redirect
-        self.raw.follow = False
+        self.raw.follow = False  # ty: ignore[missing-attribute]
 
     def add(self, name: str, **fields) -> int:
         form = self.web.get("/library/person/add", headers=ADMIN).forms[0]
@@ -239,7 +239,7 @@ class SlugCase(WebCase):
         if name.isdigit():
             return int(name)
         with self.application.open_repository("library") as store:
-            return int(store.slug_lookup("person", name)[0].rsplit(":", 1)[1])
+            return int(store.slug_lookup("person", name)[0].rsplit(":", 1)[1])  # ty: ignore[not-subscriptable]
 
     def slugs(self, record_uri: str):
         with self.application.open_repository("library") as store:

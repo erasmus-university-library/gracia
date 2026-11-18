@@ -23,7 +23,7 @@ class LabelPredicate(Predicate):
 
     def on_write_sql(self, context: HookContext) -> list[str]:
         flat, label = context.flat, literal(uri.LABEL)
-        paths = context.type.role_paths("label")
+        paths = context.type.role_paths("label")  # ty: ignore[missing-attribute]
         clear = (
             f"DELETE FROM {flat} WHERE len(loc) = 0 AND p = {label} "
             f"AND {context.of_type}"

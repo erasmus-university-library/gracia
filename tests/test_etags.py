@@ -68,7 +68,7 @@ class EtagCase(DbTestCase):
         found = self.store.etag_info(rec_uri)
         return found[0] if found else None
 
-    def rows(self) -> list[tuple]:
+    def rows(self) -> list[tuple]:  # ty: ignore[incompatible-method-override]
         return [
             tuple(r)
             for r in self.store.con.execute(
@@ -151,7 +151,7 @@ class EtagTest(EtagCase):
                     "types",
                     "backrefs",
                 ),
-                self.store.con.execute(
+                self.store.con.execute(  # ty: ignore[invalid-argument-type]
                     "SELECT * FROM etags WHERE record_uri = 'rec:work:1'"
                 ).fetchone(),
                 strict=False,
@@ -542,7 +542,7 @@ class WhenTheyAreMadeTest(EtagCase):
             *[record(f"rec:work:{n}", refs=["rec:org:1"]) for n in range(1, 6)],
         )
         old = store_module.ETAGS_CONTAINS_UP_TO
-        store_module.ETAGS_CONTAINS_UP_TO = 0
+        store_module.ETAGS_CONTAINS_UP_TO = 0  # ty: ignore[invalid-assignment]
         self.addCleanup(setattr, store_module, "ETAGS_CONTAINS_UP_TO", old)
         before = {r[1]: r[6] for r in self.rows()}
         self.put(record("rec:org:1", stamp="2027-01-01T00:00:00.000000Z"))
@@ -1040,7 +1040,7 @@ class DeltaTest(EtagCase):
     def setUp(self):
         super().setUp()
         old = store_module.ETAGS_DELTA_ABOVE
-        store_module.ETAGS_DELTA_ABOVE = 3  # "many" is more than three
+        store_module.ETAGS_DELTA_ABOVE = 3  # "many" is more than three  # ty: ignore[invalid-assignment]
         self.addCleanup(setattr, store_module, "ETAGS_DELTA_ABOVE", old)
         # org 1 is the hub; person 1 is in it; work n is by person 1 and in org 1 too (a
         # shared
@@ -1066,7 +1066,7 @@ class DeltaTest(EtagCase):
             )
             real(store)
 
-        Store._closure_etags = spy
+        Store._closure_etags = spy  # ty: ignore[invalid-assignment]
         self.addCleanup(setattr, Store, "_closure_etags", real)
 
     def etags_of_works(self):
@@ -1195,7 +1195,7 @@ class DeltaOracleTest(OracleTest):
     def setUp(self):
         super().setUp()
         old = store_module.ETAGS_DELTA_ABOVE
-        store_module.ETAGS_DELTA_ABOVE = 0
+        store_module.ETAGS_DELTA_ABOVE = 0  # ty: ignore[invalid-assignment]
         self.addCleanup(setattr, store_module, "ETAGS_DELTA_ABOVE", old)
 
 

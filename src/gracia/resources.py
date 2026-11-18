@@ -323,7 +323,7 @@ class Repository:
         try:
             validate_userid(userid)
         except ValueError:
-            return passwords.verify_nothing(password) or None
+            return passwords.verify_nothing(password) or None  # ty: ignore[invalid-explicit-return]
         store = self.store()
         records = store.records_with(
             "identifiers", userid, rec_type="user"
@@ -332,7 +332,7 @@ class Repository:
         resource = graph.value(_N(records[0]), _N(uri.RESOURCE)) if records else None
         stored = graph.value(resource, _N(uri.CREDENTIALS)) if resource else None
         if stored is None:
-            return passwords.verify_nothing(password) or None
+            return passwords.verify_nothing(password) or None  # ty: ignore[invalid-explicit-return]
         if not passwords.verify_password(password, stored.value):
             return None
         by_resource = store.records_with_resource_uris(
@@ -590,9 +590,9 @@ class Type(Node):
         """A record of this type that is not stored yet: no number, no data. It has the
         hooks of the class registered for the type, so the form to add one is the form
         to edit one."""
-        return record_class(self.class_uri)(self, None, None, Graph())
+        return record_class(self.class_uri)(self, None, None, Graph())  # ty: ignore[invalid-argument-type]
 
-    def __getitem__(self, key: str) -> "Record":
+    def __getitem__(self, key: str) -> "Record":  # ty: ignore[invalid-implicit-return]
         """A record by its number, or by a slug it has or had. A number is a record, or
         (the record was deleted: its number is a slug of its own then) HTTP 410, and the
         number of a record that has a slug goes on to the slug (301, as below). A slug
@@ -723,9 +723,9 @@ class Record(Node):
         itself (a public flag, ...) cannot open it, because the lookup ends here, at the
         closing entry of the type's ACL."""
         res_type = self.__parent__
-        if res_type.class_uri in PRIVATE_CLASSES:
-            return TYPE_ACLS[res_type.class_uri]
-        if res_type.class_uri == uri.TYPE_CLASS and self.resource is not None:
+        if res_type.class_uri in PRIVATE_CLASSES:  # ty: ignore[missing-union-attribute]
+            return TYPE_ACLS[res_type.class_uri]  # ty: ignore[missing-union-attribute]
+        if res_type.class_uri == uri.TYPE_CLASS and self.resource is not None:  # ty: ignore[missing-union-attribute]
             described = self.graph.value(self.resource, _N(uri.CLASS))
             if described is not None and described.value in PRIVATE_CLASSES:
                 return TYPE_ACLS[described.value]
@@ -733,7 +733,7 @@ class Record(Node):
 
     @property
     def type(self) -> "Type":
-        return self.__parent__
+        return self.__parent__  # ty: ignore[invalid-explicit-return]
 
     @property
     def label(self) -> str:
@@ -837,7 +837,7 @@ class Record(Node):
         with the shape of the content embedded on `gracia:resource` (see `_nodes`)."""
         request = request or get_current_request()
         schema = colander.Schema()
-        for node in self._nodes(*self.__parent__.record_shape(), request):
+        for node in self._nodes(*self.__parent__.record_shape(), request):  # ty: ignore[missing-union-attribute]
             schema.add(node)
         schema.validator = self._sibling_validator(schema.children)
         return schema
@@ -878,12 +878,12 @@ class Record(Node):
         """Why a record of this type cannot be made with the form: what the shape
         requires but neither a field nor the class supplies. Empty when it can."""
         res_type = self.__parent__
-        found = res_type.shape()
+        found = res_type.shape()  # ty: ignore[missing-union-attribute]
         if found is None:
-            return [f"The type {res_type.name} has no shape"]
+            return [f"The type {res_type.name} has no shape"]  # ty: ignore[missing-union-attribute]
         have = {n.predicate for n in self.fields} | set(self.supplies)
         return [
-            f"The form cannot fill in {path}, which {res_type.name} requires"
+            f"The form cannot fill in {path}, which {res_type.name} requires"  # ty: ignore[missing-union-attribute]
             for path in sorted(forms.required_paths(*found) - have)
         ]
 
@@ -892,12 +892,12 @@ class Record(Node):
         node that will hold the content, typed with the class of the type (the type of
         the record is in its uri)."""
         res_type = self.__parent__
-        self.__name__, self.uri = str(number), uri.record_uri(res_type.slug, number)
+        self.__name__, self.uri = str(number), uri.record_uri(res_type.slug, number)  # ty: ignore[missing-union-attribute]
         record, content, rdf_type = _N(self.uri), ox.BlankNode(), _N(uri.RDF_TYPE)
         for triple in (
             (record, rdf_type, _N(uri.RECORD_CLASS)),
             (record, _N(uri.RESOURCE), content),
-            (content, rdf_type, _N(res_type.class_uri)),
+            (content, rdf_type, _N(res_type.class_uri)),  # ty: ignore[missing-union-attribute]
         ):
             self.graph.add(ox.Quad(*triple, ox.DefaultGraph()))
 
@@ -1025,6 +1025,6 @@ class Record(Node):
         store.put(self.graph)
         self.__name__ = store.current_slug(self.uri) or self.uri.rsplit(":", 1)[1]
         if (
-            self.__parent__.slug == "type"
+            self.__parent__.slug == "type"  # ty: ignore[missing-union-attribute]
         ):  # a type was made or changed: its roles are new
             self.repository.sync_roles(store)

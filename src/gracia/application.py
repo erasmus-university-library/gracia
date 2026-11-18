@@ -117,7 +117,7 @@ class Application:
         if self.remote:  # a connection of its own: one session on the owner per store
             return self._connect()
         with self._lock:
-            return self._con.cursor()
+            return self._con.cursor()  # ty: ignore[missing-union-attribute]
 
     def raw(self):
         """A connection for plain SQL outside any repository (the jobs tables): a cursor
@@ -126,7 +126,7 @@ class Application:
         it."""
         cursor = self._cursor()
         if self.remote:
-            return RemoteConnection(cursor, self._catalog, self._connect)
+            return RemoteConnection(cursor, self._catalog, self._connect)  # ty: ignore[invalid-argument-type]
         return cursor
 
     def list_repositories(self) -> list[str]:

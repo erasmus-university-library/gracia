@@ -69,7 +69,7 @@ class HookContext:
     @property
     def of_type(self) -> str:
         """The SQL condition that the subject `s` is a record of the type."""
-        return f"starts_with(s, {literal('rec:' + self.type.slug + ':')})"
+        return f"starts_with(s, {literal('rec:' + self.type.slug + ':')})"  # ty: ignore[missing-attribute]
 
 
 def predicate(predicate_uri: str):
@@ -94,9 +94,9 @@ def add_gracia_predicate(config, cls: type) -> None:
     include."""
 
     def register():
-        config.registry.registerUtility(cls(), IPredicate, name=cls.uri)
+        config.registry.registerUtility(cls(), IPredicate, name=cls.uri)  # ty: ignore[missing-attribute]
 
-    config.action(("gracia predicate", cls.uri), register)
+    config.action(("gracia predicate", cls.uri), register)  # ty: ignore[missing-attribute]
 
 
 def find(predicate_uri: str) -> Predicate | None:

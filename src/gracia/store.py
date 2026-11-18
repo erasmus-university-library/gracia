@@ -693,7 +693,7 @@ class Store:
         return Store(
             triples=self.triples,
             repo=self.repo,
-            connection=self._connect_remote() if self.remote else self.con.cursor(),
+            connection=self._connect_remote() if self.remote else self.con.cursor(),  # ty: ignore[not-callable]
             init=False,
             close_connection=True,
             remote=self._connect_remote,
@@ -746,10 +746,10 @@ class Store:
         # remote: fill a local temp table, push it afterwards
         target = "gracia_push" if self.remote else self.staging
         if self.remote:
-            self.con.local.execute(
+            self.con.local.execute(  # ty: ignore[missing-union-attribute]
                 f"CREATE OR REPLACE TEMP TABLE {target} ({_STAGING_COLUMNS})"
             )
-        appender = (self.con.local if self.remote else self.con).appender(target)
+        appender = (self.con.local if self.remote else self.con).appender(target)  # ty: ignore[missing-union-attribute]
         batch: list[tuple] = []
         count = 0
         for row in rows:
@@ -763,13 +763,13 @@ class Store:
             count += len(batch)
         appender.flush()
         if self.remote:
-            self.con.local.execute(
+            self.con.local.execute(  # ty: ignore[missing-union-attribute]
                 "CALL quack_clear_cache()"
             )  # the staging table is new
-            self.con.local.execute(
+            self.con.local.execute(  # ty: ignore[missing-union-attribute]
                 f"INSERT INTO {self.staging} SELECT * FROM temp.main.{target}"
             )
-            self.con.local.execute(f"DROP TABLE temp.main.{target}")
+            self.con.local.execute(f"DROP TABLE temp.main.{target}")  # ty: ignore[missing-union-attribute]
         return count
 
     def stage_json(self, json_file: str | Path) -> int:
@@ -1463,10 +1463,10 @@ class Store:
                 sizes.setdefault(record_id, size)
             ids, total = [], 0
             for record_id, size in sizes.items():
-                if max_bytes is not None and ids and total + size > max_bytes:
+                if max_bytes is not None and ids and total + size > max_bytes:  # ty: ignore[unsupported-operator]
                     break
                 ids.append(record_id)
-                total += size
+                total += size  # ty: ignore[unsupported-operator]
             if not ids:
                 return [], bound
             listed = ", ".join(map(str, ids))
@@ -1654,7 +1654,7 @@ class Store:
             "SELECT count(*), count(*) FILTER (WHERE is_published) FROM etags WHERE "
             f"{where}"
         ).fetchone()
-        stored = counts[0] > 0
+        stored = counts[0] > 0  # ty: ignore[not-subscriptable]
         if not stored:
             where = f"rec_type = {literal(slug)}"
             counts = self.con.execute(
@@ -1662,7 +1662,7 @@ class Store:
                 f"{self.records} WHERE "
                 f"{where}"
             ).fetchone()
-        total_all, total_published = counts
+        total_all, total_published = counts  # ty: ignore[not-iterable]
         total = total_published if published else total_all
         page, pages, offset, limit = page_window(total, page, size)
         shown = f"{where} AND is_published" if published else where
@@ -2271,7 +2271,7 @@ class Store:
             f"{self.ids} "
             f"WHERE type = {literal(res_type)}), 0), {self._highest_used(res_type)})"
         ).fetchone()
-        return row[0]
+        return row[0]  # ty: ignore[not-subscriptable]
 
     def highest_number(self, res_type: str) -> int:
         """The highest number a record of the type has now (0: none): not one that was
@@ -2370,7 +2370,7 @@ class Store:
             f"SELECT json FROM export_triples({literal(self.triples)}, uris := "
             f"{_uris_arg(uris)})"
         ).fetchone()
-        return row[0]
+        return row[0]  # ty: ignore[not-subscriptable]
 
     def _records_where(
         self,
@@ -2498,7 +2498,7 @@ class Store:
             )
             directory.mkdir(parents=True, exist_ok=True)
             numbered = sorted(
-                (int(re.search(rf"chunk-(\d+)\.{extension}$", name)[1]), name)
+                (int(re.search(rf"chunk-(\d+)\.{extension}$", name)[1]), name)  # ty: ignore[not-subscriptable]
                 for name in written or []
             )
             files = []

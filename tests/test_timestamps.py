@@ -24,7 +24,7 @@ XSD = "http://www.w3.org/2001/XMLSchema#"
 class TimesCase(WebCase):
     def setUp(self):
         super().setUp()
-        self.settings["gracia.security_policy"] = HeaderPolicy()
+        self.settings["gracia.security_policy"] = HeaderPolicy()  # ty: ignore[invalid-assignment]
         self.config = make_config(self.settings)
         self.config.commit()
         self.config.begin()
@@ -61,7 +61,7 @@ class TimesCase(WebCase):
                 "SELECT * FROM records WHERE record_id = record_id(?)", [record]
             )
             row = cursor.fetchone()
-            return dict(zip([d[0] for d in cursor.description], row, strict=False))
+            return dict(zip([d[0] for d in cursor.description], row, strict=False))  # ty: ignore[invalid-argument-type]
 
     def set_timezone(self, name):
         form = self.web.get("/library/manage?tab=settings", headers=ADMIN).forms[
@@ -139,7 +139,8 @@ class ModifiedAtIsNeverGivenTest(TimesCase):
         ):
             self.import_person("Ada", given, number)
             self.assertLess(
-                abs((self.modified(number) - datetime.utcnow()).total_seconds()), 60
+                abs((self.modified(number) - datetime.utcnow()).total_seconds()),  # ty: ignore[deprecated]
+                60,
             )
             [(text, _)] = self.triples(f"rec:person:{number}", uri.MODIFIED_AT)
             self.assertEqual(naive_utc(text), self.modified(number))
@@ -157,7 +158,7 @@ class ModifiedAtIsNeverGivenTest(TimesCase):
         self.import_person("Ada King", "2999-01-01T00:00:00.000000Z")  # a later one
         third = self.modified()
         self.assertGreater(third, second)
-        self.assertLess(abs((third - datetime.utcnow()).total_seconds()), 60)
+        self.assertLess(abs((third - datetime.utcnow()).total_seconds()), 60)  # ty: ignore[deprecated]
 
     def test_a_text_that_changes_nothing_keeps_the_time_whatever_it_says(self):
         self.import_person("Ada", "2001-01-01T00:00:00.000000Z")

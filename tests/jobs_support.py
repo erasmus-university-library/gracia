@@ -232,7 +232,7 @@ class JobsCase(unittest.TestCase):
 
     def job(self, job_id: str) -> dict:
         with JobsDb(self.application) as db:
-            return db.get(job_id)
+            return db.get(job_id)  # ty: ignore[invalid-explicit-return]
 
     def stage(self, job_id: str, name: str) -> dict:
         """The snapshot of one stage, from the job row."""

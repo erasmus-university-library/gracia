@@ -74,7 +74,7 @@ class ServeDbProcessTest(DbTestCase):
         watchdog = threading.Timer(60, proc.kill)  # never hang the suite
         watchdog.start()
         try:
-            self.first_line = proc.stdout.readline()
+            self.first_line = proc.stdout.readline()  # ty: ignore[missing-union-attribute]
         finally:
             watchdog.cancel()
         return proc

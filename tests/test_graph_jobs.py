@@ -51,8 +51,8 @@ class GraphJobsCase(JobsCase):
     def kept(self, rec_uri: str) -> bytes | None:
         """What the graph cache has for a record, at the etag it has now."""
         record_id = self.store.record_id_of(rec_uri)
-        etag = self.application.cache.etags("library", [record_id])[record_id][0]
-        return self.application.cache._graph_store().get("library", record_id, etag)
+        etag = self.application.cache.etags("library", [record_id])[record_id][0]  # ty: ignore[invalid-argument-type, not-subscriptable]
+        return self.application.cache._graph_store().get("library", record_id, etag)  # ty: ignore[invalid-argument-type, missing-union-attribute]
 
 
 class ExportGraphsTest(GraphJobsCase):
@@ -68,7 +68,7 @@ class ExportGraphsTest(GraphJobsCase):
             record_id = self.store.record_id_of(item["id"])
             self.assertEqual(
                 item["etag"],
-                self.application.cache.etags("library", [record_id])[record_id][0],
+                self.application.cache.etags("library", [record_id])[record_id][0],  # ty: ignore[invalid-argument-type, not-subscriptable]
             )
             quads = list(
                 ox.parse(item["source"].encode(), format=ox.RdfFormat.N_TRIPLES)
@@ -147,7 +147,7 @@ class ExportGraphsTest(GraphJobsCase):
         )
         from gracia.jobs.builtin import Export
 
-        name, content_type = Export.offer(self.jobs_dir / job_id, [], 0)
+        name, content_type = Export.offer(self.jobs_dir / job_id, [], 0)  # ty: ignore[not-iterable]
         self.assertEqual((name, content_type), ("export.trig", "application/trig"))
 
 
@@ -174,7 +174,7 @@ class ExportQueueTest(GraphJobsCase):
             (waiting, waiting, self.store.last_transaction()),
         )
         record_id = self.store.record_id_of("rec:person:14")
-        etag = self.application.cache.etags("library", [record_id])[record_id][0]
+        etag = self.application.cache.etags("library", [record_id])[record_id][0]  # ty: ignore[invalid-argument-type, not-subscriptable]
         self.assertEqual(
             (items["rec:person:14"]["etag"], items["rec:person:14"]["action"]),
             (etag, "insert"),
@@ -235,11 +235,11 @@ class UpdateCacheTest(GraphJobsCase):
             dataset.canonicalize(ox.CanonicalizationAlgorithm.RDFC_1_0)
             return {str(q) for q in dataset}
 
-        made = self.application.cache.graph("library", record_id)  # a hit: the kept one
+        made = self.application.cache.graph("library", record_id)  # a hit: the kept one  # ty: ignore[invalid-argument-type]
         self.assertEqual(made, kept)
         from gracia.cache import rdfxml
 
-        _etag, text = self.store.closure_source(record_id)
+        _etag, text = self.store.closure_source(record_id)  # ty: ignore[invalid-argument-type, not-iterable]
         self.assertEqual(triples(rdfxml(text)), triples(kept))
 
     def test_a_graph_is_made_again_only_when_the_record_changed(self):

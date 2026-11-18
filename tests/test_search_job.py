@@ -205,22 +205,22 @@ class FromTheSettingsTest(GraphJobsCase):
 
         directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, directory, True)
-        self.settings = {"gracia.index_dir": directory}
+        self.settings = {"gracia.index_dir": directory}  # ty: ignore[invalid-attribute-access]
         self.assertIsNone(self.application.indexes)  # nothing has set it
         job_id = self.make(*RebuildSearchJob().spec("library", {})["stages"])
         self.assertEqual(
             self.run_job(job_id), runner.EXIT_DONE, self.job(job_id)["error_msg"]
         )
         indexes = self.application.indexes
-        self.assertEqual(indexes.directory.as_posix(), directory)
-        self.assertEqual(indexes.stats("library")[0]["state"], "ok")
+        self.assertEqual(indexes.directory.as_posix(), directory)  # ty: ignore[missing-union-attribute]
+        self.assertEqual(indexes.stats("library")[0]["state"], "ok")  # ty: ignore[missing-union-attribute]
         self.assertEqual(
-            indexes.stats("library")[0]["documents"],
+            indexes.stats("library")[0]["documents"],  # ty: ignore[missing-union-attribute]
             fetch_one(self.store.con.execute("SELECT count(*) FROM etags"))[0],
         )
 
     def test_without_the_setting_the_job_says_what_to_set(self):
-        self.settings = {}
+        self.settings = {}  # ty: ignore[invalid-attribute-access]
         job_id = self.make(*RebuildSearchJob().spec("library", {})["stages"])
         self.assertEqual(self.run_job(job_id), runner.EXIT_FAILED)
         self.assertIn("gracia.index_dir", self.job(job_id)["error_msg"])
@@ -253,13 +253,14 @@ class FromTheSettingsTest(GraphJobsCase):
             json.dumps({"batches": 1, "bound": self.store.last_transaction()})
         )
         stage = IndexRecords(
-            job_dir=str(job_dir),
-            repo="library",
-            n=0,
-            chain=dumps([{"stage": "IndexRecords"}]),
+            job_dir=str(job_dir),  # ty: ignore[unknown-argument]
+            repo="library",  # ty: ignore[unknown-argument]
+            n=0,  # ty: ignore[unknown-argument]
+            chain=dumps([{"stage": "IndexRecords"}]),  # ty: ignore[unknown-argument]
         )
         passed, rejected = stage.process(items)
         self.assertEqual((len(passed), rejected), (len(items), []))
         self.assertEqual(
-            self.application.indexes.stats("library")[0]["documents"], len(items)
+            self.application.indexes.stats("library")[0]["documents"],  # ty: ignore[missing-union-attribute]
+            len(items),
         )

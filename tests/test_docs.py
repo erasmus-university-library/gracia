@@ -83,7 +83,7 @@ class DocsCase(WebCase):
 
     def rid(self, rec_uri: str) -> int:
         with self.application.open_repository("library") as store:
-            return store.record_id_of(rec_uri)
+            return store.record_id_of(rec_uri)  # ty: ignore[invalid-explicit-return]
 
     def library(self):
         repository = self.application["library"]
@@ -94,7 +94,7 @@ class DocsCase(WebCase):
         return self.cache.docs.compiled(self.library())
 
     def doc(self, rec_uri: str) -> dict:
-        return self.cache.doc("library", self.rid(rec_uri), rec_uri)
+        return self.cache.doc("library", self.rid(rec_uri), rec_uri)  # ty: ignore[invalid-explicit-return]
 
 
 class DocTest(DocsCase):
@@ -173,7 +173,7 @@ class DocTest(DocsCase):
     def test_a_record_that_is_not_in_the_input_is_an_error_and_the_others_are_made(
         self,
     ):
-        xml = self.cache.graph("library", self.rid("rec:thing:1")).decode()
+        xml = self.cache.graph("library", self.rid("rec:thing:1")).decode()  # ty: ignore[missing-union-attribute]
         made = self.cache.docs.bulk_update(
             self.library(), {"rec:thing:1": 1, "rec:thing:99": 2}, xml
         )
@@ -182,7 +182,7 @@ class DocTest(DocsCase):
 
     def person_doc(self, repository) -> dict:
         rid = self.rid("rec:person:1")
-        xml = self.cache.graph("library", rid).decode()
+        xml = self.cache.graph("library", rid).decode()  # ty: ignore[missing-union-attribute]
         return self.cache.docs.bulk_update(repository, {"rec:person:1": rid}, xml)[
             "rec:person:1"
         ]
@@ -233,7 +233,7 @@ class DocCacheTest(DocsCase):
         store = self.cache.docs
         rid, etag = (
             self.rid("rec:person:1"),
-            self.cache.etags("library", [self.rid("rec:person:1")])[
+            self.cache.etags("library", [self.rid("rec:person:1")])[  # ty: ignore[not-subscriptable]
                 self.rid("rec:person:1")
             ][0],
         )
@@ -251,13 +251,13 @@ class DocCacheTest(DocsCase):
         self.addCleanup(app.close)
         self.assertFalse(app.cache.keeps_docs)
         rid = self.rid("rec:thing:1")
-        self.assertEqual(app.cache.doc("library", rid, "rec:thing:1")["slug"], "gear")
+        self.assertEqual(app.cache.doc("library", rid, "rec:thing:1")["slug"], "gear")  # ty: ignore[not-subscriptable]
 
     def test_a_deleted_record_loses_its_doc(self):
         self.doc("rec:thing:1")
         rid = self.rid("rec:thing:1")
         self.cache.forget("library", [rid])
-        etag = self.cache.etags("library", [rid])[rid][0]
+        etag = self.cache.etags("library", [rid])[rid][0]  # ty: ignore[not-subscriptable]
         self.assertIsNone(
             self.cache.docs.get("library", rid, etag, self.compiled().fingerprint)
         )
@@ -290,9 +290,9 @@ class WorkerTest(DocsCase):
         self.assertEqual(docs_["rec:thing:1"]["type"], "thing")
         self.assertTrue(all("error" not in d for d in docs_.values()))
         rid = self.rid("rec:person:1")
-        etag = self.cache.etags("library", [rid])[rid][0]
+        etag = self.cache.etags("library", [rid])[rid][0]  # ty: ignore[not-subscriptable]
         kept = self.cache.docs.get("library", rid, etag, self.compiled().fingerprint)
-        self.assertEqual(json.loads(kept), docs_["rec:person:1"])
+        self.assertEqual(json.loads(kept), docs_["rec:person:1"])  # ty: ignore[invalid-argument-type]
 
     def test_the_view_then_serves_what_the_worker_made(self):
         self.run_worker()

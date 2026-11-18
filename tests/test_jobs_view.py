@@ -56,7 +56,7 @@ class JobsViewCase(JobsCase):
         super().setUp()
         self.web = self.client()
 
-    def settings(self) -> dict:
+    def settings(self) -> dict:  # ty: ignore[incompatible-attribute-override]
         return {
             "gracia.application": self.application,
             "gracia.jobs_dir": str(self.jobs_dir),
@@ -229,7 +229,7 @@ class AccessTest(JobsViewCase):
         found = {j.name: j.start_permission for j in all_jobs(self.config.registry)}
         self.assertEqual(found["validate"], "start_validate_job")
         self.assertIs(
-            self.config.registry.queryUtility(IJob, "validate"),
+            self.config.registry.queryUtility(IJob, "validate"),  # ty: ignore[missing-union-attribute]
             all_jobs(self.config.registry)[
                 [j.name for j in all_jobs(self.config.registry)].index("validate")
             ],
@@ -727,8 +727,8 @@ class FormTest(JobsViewCase):
         # traversal asks the registry of the application what is below a repository
         self.config.begin()
         self.addCleanup(self.config.end)
-        job = self.config.registry.queryUtility(IJob, "validate")
-        repository = self.config.registry["application"]["library"]
+        job = self.config.registry.queryUtility(IJob, "validate")  # ty: ignore[missing-union-attribute]
+        repository = self.config.registry["application"]["library"]  # ty: ignore[not-subscriptable]
         schema = job.params_schema().bind(
             repository=repository,
             request=mock.Mock(registry=self.config.registry),

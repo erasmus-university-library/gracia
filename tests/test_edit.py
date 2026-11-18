@@ -124,7 +124,7 @@ class EditCase(WebCase):
     def number_of(self, slug: str, res_type: str = "person") -> str:
         """The number of the record of a type that has (or had) this slug."""
         with self.application.open_repository("library") as store:
-            return store.slug_lookup(res_type, slug)[0].rsplit(":", 1)[1]
+            return store.slug_lookup(res_type, slug)[0].rsplit(":", 1)[1]  # ty: ignore[not-subscriptable]
 
     def values(self, uri):
         with self.application.open_repository("library") as store:
@@ -147,7 +147,7 @@ class RegistryTest(EditCase):
         imported by name."""
         config = make_config(self.settings)
         config.commit()
-        return config.registry.queryUtility(IGraciaType, slug).record_class
+        return config.registry.queryUtility(IGraciaType, slug).record_class  # ty: ignore[missing-union-attribute]
 
     def context_class(self, path):
         seen = []

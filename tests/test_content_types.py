@@ -136,7 +136,7 @@ class DescriptorTest(WebCase):
     def test_a_missing_schema_file_is_said(self):
         package = make_content_type(self)
         module = importlib.import_module(package)
-        module.TYPE = {**module.TYPE, "schema": "Widget-full-09.ttl"}
+        module.TYPE = {**module.TYPE, "schema": "Widget-full-09.ttl"}  # ty: ignore[missing-attribute]
         with self.assertRaises(ValueError) as caught:
             types.describe(package)
         self.assertIn("not a file of it", str(caught.exception))

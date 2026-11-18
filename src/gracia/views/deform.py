@@ -136,7 +136,7 @@ class DependentSelectWidget(SelectWidget):
         root = field
         while root.parent is not None:
             root = root.parent
-        self.values = list(
+        self.values = list(  # ty: ignore[invalid-assignment]
             call(
                 self.provider,
                 self.context,

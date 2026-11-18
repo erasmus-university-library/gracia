@@ -26,7 +26,7 @@ class MboxPredicate(Predicate):
     is stored is the address in lower case."""
 
     def schema_node(self, record, request, schema_node=None):
-        schema_node.description = "in lower case"
+        schema_node.description = "in lower case"  # ty: ignore[invalid-assignment]
         return schema_node
 
     def on_write_sql(self, context):

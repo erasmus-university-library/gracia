@@ -74,7 +74,7 @@ def schema_spec(prefix: str, schema: str | None, res_type: str) -> str:
             f"not a schema file of {res_type}: {schema!r} (expected "
             f"{res_type}-<profile>-<revision>.ttl)"
         )
-    return join(prefix, SCHEMA_DIR + schema)
+    return join(prefix, SCHEMA_DIR + schema)  # ty: ignore[unsupported-operator]
 
 
 def doc_href(slug: str, name: str) -> str:

@@ -40,7 +40,7 @@ def as_(*principals):
 class PermissionsCase(EditCase):
     def setUp(self):
         super().setUp()
-        self.settings["gracia.security_policy"] = PrincipalsPolicy()
+        self.settings["gracia.security_policy"] = PrincipalsPolicy()  # ty: ignore[invalid-assignment]
 
     def can(self, path, *principals):
         response = self.client().get(path, headers=as_(*principals), expect_errors=True)
@@ -257,7 +257,7 @@ class TheClosedNodesDoNotAnswerForUnknownThingsTest(PermissionsCase):
     """404 for what is not there and 403 for what is would list the users to the
     public."""
 
-    def status(self, path, *principals):
+    def status(self, path, *principals):  # ty: ignore[incompatible-method-override]
         return (
             self.client()
             .get(path, headers=as_(*principals), expect_errors=True)

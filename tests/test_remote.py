@@ -239,7 +239,7 @@ class OwnerDiscoveryTest(DbTestCase):
         self.addCleanup(thread.join)
         self.addCleanup(stop.set)
         self.assertTrue(ready.wait(30))
-        uri, token_file = store.read_owner(db)
+        uri, token_file = store.read_owner(db)  # ty: ignore[not-iterable]
         self.assertEqual(uri, f"quack:localhost:{port}")
         self.assertEqual(token_file, str((self.tmp / "s.db.token").resolve()))
         stop.set()

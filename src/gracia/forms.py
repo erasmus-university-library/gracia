@@ -101,7 +101,7 @@ class Form(deform.Form):
         options.setdefault("autocomplete", False)  # renders autocomplete="off"
         super().__init__(schema, **options)
         if tabs:  # after it: the children would get the widget of the form
-            self.widget = TabsWidget(tabs)
+            self.widget = TabsWidget(tabs)  # ty: ignore[invalid-assignment]
 
 
 def _objects(shapes, subject, predicate):

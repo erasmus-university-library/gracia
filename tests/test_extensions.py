@@ -75,7 +75,7 @@ class Child:
 class ExtensionsCase(WebCase):
     def setUp(self):
         super().setUp()
-        self.settings["gracia.security_policy"] = HeaderPolicy()
+        self.settings["gracia.security_policy"] = HeaderPolicy()  # ty: ignore[invalid-assignment]
         self.application.create_repository("library")
         self.config = make_config(self.settings)
         self.config.add_gracia_extension("demo", Demo)

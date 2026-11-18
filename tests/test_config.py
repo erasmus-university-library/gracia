@@ -14,7 +14,7 @@ pyramid.reload = true
 
 
 class ConfigTest(DbTestCase):
-    def write(self, text=INI):
+    def write(self, text=INI):  # ty: ignore[incompatible-method-override]
         path = self.tmp / "config.ini"
         path.write_text(text)
         return path

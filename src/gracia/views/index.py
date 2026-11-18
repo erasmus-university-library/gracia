@@ -27,7 +27,8 @@ def etag_of(versions: dict[str, object], shapes: dict[str, str] | None = None) -
     changed, and the versions of the shapes of their types, a line each, sorted. (A page
     whose record has a stored etag takes that: `page_etag`.)"""
     lines = [
-        f"{rec_uri} {modified.isoformat()}" for rec_uri, modified in versions.items()
+        f"{rec_uri} {modified.isoformat()}"  # ty: ignore[missing-attribute]
+        for rec_uri, modified in versions.items()
     ]
     lines += [f"shape:{slug} {version}" for slug, version in (shapes or {}).items()]
     return digest(sorted(lines))

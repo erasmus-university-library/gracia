@@ -47,7 +47,7 @@ class ServeProcessTest(DbTestCase):
         try:
             line = ""
             for _ in range(20):  # skip anything else printed first (warnings)
-                line = proc.stdout.readline()
+                line = proc.stdout.readline()  # ty: ignore[missing-union-attribute]
                 if "serving" in line or not line:
                     break
             self.assertIn("serving", line)

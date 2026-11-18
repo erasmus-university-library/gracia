@@ -18,12 +18,12 @@ class FieldsCase(WebCase):
     def setUp(self):
         super().setUp()
         self.application.create_repository("library")
-        self.settings["gracia.security_policy"] = HeaderPolicy()
+        self.settings["gracia.security_policy"] = HeaderPolicy()  # ty: ignore[invalid-assignment]
         self.config = make_config(self.settings)
         self.config.scan("deform_views_support")
         self.config.commit()
         self.web = self.client(self.config)
-        self.node = self.config.registry["application"]["library"]
+        self.node = self.config.registry["application"]["library"]  # ty: ignore[not-subscriptable]
         self.addCleanup(self.node.close)
 
     def form(self) -> deform.Form:
@@ -54,7 +54,7 @@ class DeclaredTest(FieldsCase):
         self.assertNotIn("<select", got.text)
         from deform_views_support import shades
 
-        self.assertIs(self.config.registry.queryUtility(IDeformView, "shades"), shades)
+        self.assertIs(self.config.registry.queryUtility(IDeformView, "shades"), shades)  # ty: ignore[missing-union-attribute]
 
     def test_a_view_that_answers_a_string_is_html_as_it_is(self):
         got = self.web.get("/library/deform/palette?family=blue")
@@ -121,7 +121,7 @@ class DeclaredTest(FieldsCase):
 
     def test_a_deform_view_must_say_which_form_it_belongs_to(self):
         with self.assertRaises(TypeError):
-            deform_views.deform_view("x", context=object)
+            deform_views.deform_view("x", context=object)  # ty: ignore[missing-argument, unknown-argument]
 
     def test_the_views_live_in_one_namespace_so_they_cannot_clash_with_a_type(self):
         from gracia import uri

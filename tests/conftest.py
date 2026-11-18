@@ -22,7 +22,7 @@ def _connect_with_few_threads(*args, **kwargs):
     return _connect(*args, config=config, **kwargs)
 
 
-duckdb.connect = _connect_with_few_threads
+duckdb.connect = _connect_with_few_threads  # ty: ignore[invalid-assignment]
 
 
 # Making a repository is 127 statements of DDL, triggers and first records: 200 to 300
@@ -178,7 +178,7 @@ Application.__init__, Application.close, Application.create_repository = (
 # unchanged.
 from gracia.utils import passwords  # noqa: E402
 
-passwords.N = 2**4
+passwords.N = 2**4  # ty: ignore[invalid-assignment]
 
 
 # The ids of the records are made of the number of their type (`record_id`), and a

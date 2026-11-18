@@ -153,7 +153,7 @@ def triples_from_file(path):
 def flat_rdfxml_from_file(path, prefixes: dict[str, str] | None = None) -> str:
     """The graph of an RDF file as flat RDF/XML, the way the Dataset serializer writes
     it (bnodes keep their sharing: no unsharing as in the database)."""
-    return streaming_serialize(streaming_parse(path), "rdfxml", prefixes=prefixes)
+    return streaming_serialize(streaming_parse(path), "rdfxml", prefixes=prefixes)  # ty: ignore[invalid-explicit-return]
 
 
 def triples_from_rdfxml(text: str):

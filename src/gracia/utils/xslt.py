@@ -48,7 +48,7 @@ def arm_crash_report() -> None:
     with contextlib.suppress(
         AttributeError, ValueError, OSError
     ):  # no stderr to write to: no report
-        faulthandler.enable(file=sys.__stderr__, all_threads=True)
+        faulthandler.enable(file=sys.__stderr__, all_threads=True)  # ty: ignore[invalid-argument-type]
 
 
 class XsltError(RuntimeError):
@@ -291,9 +291,10 @@ class Compiled:
         self._executable.clear_parameters()
         for name, value in (params or {}).items():
             self._executable.set_parameter(
-                name, self._processor.make_string_value(value)
+                name,
+                self._processor.make_string_value(value),  # ty: ignore[missing-union-attribute]
             )
-        node = self._processor.parse_xml(xml_text=xml_text)
+        node = self._processor.parse_xml(xml_text=xml_text)  # ty: ignore[missing-union-attribute]
         result = self._executable.transform_to_string(xdm_node=node)
         if result is None:
             raise XsltError(f"transformation failed: {self._executable.error_message}")

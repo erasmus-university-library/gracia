@@ -89,7 +89,7 @@ class WrittenTest(QueueCase):
 
     def test_the_same_with_the_delta_that_does_not_walk_the_pages(self):
         old = store_module.ETAGS_DELTA_ABOVE
-        store_module.ETAGS_DELTA_ABOVE = 0
+        store_module.ETAGS_DELTA_ABOVE = 0  # ty: ignore[invalid-assignment]
         self.addCleanup(setattr, store_module, "ETAGS_DELTA_ABOVE", old)
         self.put(
             record("rec:org:1"),
@@ -234,7 +234,7 @@ class SizeTest(QueueCase):
         self,
     ):
         old = store_module.ETAGS_DELTA_ABOVE
-        store_module.ETAGS_DELTA_ABOVE = 0
+        store_module.ETAGS_DELTA_ABOVE = 0  # ty: ignore[invalid-assignment]
         self.addCleanup(setattr, store_module, "ETAGS_DELTA_ABOVE", old)
         before = self.sizes()
         self.put(
@@ -293,8 +293,8 @@ class BatchCase(QueueCase):
 
     def kept(self, rec_uri: str):
         record_id = self.store.record_id_of(rec_uri)
-        etag = self.app.cache.etags("main", [record_id])[record_id][0]
-        return self.app.cache._graph_store().get("main", record_id, etag)
+        etag = self.app.cache.etags("main", [record_id])[record_id][0]  # ty: ignore[invalid-argument-type, not-subscriptable]
+        return self.app.cache._graph_store().get("main", record_id, etag)  # ty: ignore[invalid-argument-type, missing-union-attribute]
 
 
 class BatchTest(BatchCase):
@@ -329,7 +329,8 @@ class BatchTest(BatchCase):
         first = self.kept("rec:work:1")
         self.assertIsNotNone(first)
         self.assertEqual(
-            self.app.cache.graph("main", self.store.record_id_of("rec:work:1")), first
+            self.app.cache.graph("main", self.store.record_id_of("rec:work:1")),  # ty: ignore[invalid-argument-type]
+            first,
         )  # a hit
         self.put(
             record("rec:org:1", refs=["rec:org:9"], stamp=STAMP2)
@@ -342,11 +343,11 @@ class BatchTest(BatchCase):
         self.drain()
         self.assertEqual([c.action for c in self.events[-1].changes], ["delete"])
         self.assertIsNone(
-            self.app.cache._graph_store().get("main", record_id, "0" * 16)
+            self.app.cache._graph_store().get("main", record_id, "0" * 16)  # ty: ignore[invalid-argument-type, missing-union-attribute]
         )
-        with self.app.cache._graph_store()._env.begin() as txn:
+        with self.app.cache._graph_store()._env.begin() as txn:  # ty: ignore[missing-union-attribute]
             self.assertIsNone(
-                txn.get(self.app.cache._graph_store()._key("main", record_id))
+                txn.get(self.app.cache._graph_store()._key("main", record_id))  # ty: ignore[invalid-argument-type, missing-union-attribute]
             )
 
     def test_a_record_that_is_gone_when_the_batch_gets_to_it_is_a_delete(self):
@@ -487,12 +488,12 @@ class ManualTest(BatchCase):
 
     def test_the_locks_go_in_the_cache_directory_or_next_to_the_database(self):
         self.assertEqual(
-            lock_dir_for({"gracia.cache_dir": "/c", "gracia.db": "/d/x.db"}).as_posix(),
+            lock_dir_for({"gracia.cache_dir": "/c", "gracia.db": "/d/x.db"}).as_posix(),  # ty: ignore[missing-union-attribute]
             "/c",
         )
-        self.assertEqual(lock_dir_for({"gracia.db": "/d/x.db"}).as_posix(), "/d")
+        self.assertEqual(lock_dir_for({"gracia.db": "/d/x.db"}).as_posix(), "/d")  # ty: ignore[missing-union-attribute]
         self.assertEqual(
-            lock_dir_for(
+            lock_dir_for(  # ty: ignore[missing-union-attribute]
                 {"gracia.db": "quack:h:1", "gracia.db.file": "/e/y.db"}
             ).as_posix(),
             "/e",
@@ -761,11 +762,11 @@ class WiringTest(BatchCase):
         config.add_subscriber(seen.append, RecordsChanged)
         app = config.make_wsgi_app()  # ApplicationCreated: the thread starts
         worker = self.app.cache.worker
-        self.addCleanup(worker.stop)
-        self.assertTrue(worker.alive)
+        self.addCleanup(worker.stop)  # ty: ignore[missing-union-attribute]
+        self.assertTrue(worker.alive)  # ty: ignore[missing-union-attribute]
         self.assertIsNotNone(app)
         self.put(record("rec:org:1"))
-        worker.wake()
+        worker.wake()  # ty: ignore[missing-union-attribute]
         deadline = time.monotonic() + 10
         while not seen and time.monotonic() < deadline:
             time.sleep(0.02)
@@ -785,11 +786,12 @@ class WiringTest(BatchCase):
             }
         ).make_wsgi_app()
         worker = self.app.cache.worker
-        self.addCleanup(worker.stop)
+        self.addCleanup(worker.stop)  # ty: ignore[missing-union-attribute]
         self.assertEqual(
-            (worker.batch, worker.batch_bytes, worker.poll), (7, 123456, 0.25)
+            (worker.batch, worker.batch_bytes, worker.poll),  # ty: ignore[missing-union-attribute]
+            (7, 123456, 0.25),
         )
-        self.assertEqual(worker.lock_dir, self.db.parent)  # next to the database
+        self.assertEqual(worker.lock_dir, self.db.parent)  # next to the database  # ty: ignore[missing-union-attribute]
 
     def test_without_the_setting_there_is_no_worker(self):
         from gracia.main import make_config

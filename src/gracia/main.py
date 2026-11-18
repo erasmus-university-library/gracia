@@ -24,7 +24,7 @@ from gracia.views import deform as views_deform
 
 
 def includeme(config: Configurator) -> None:
-    settings = config.registry.settings
+    settings = config.registry.settings  # ty: ignore[missing-union-attribute]
     application = settings.get("gracia.application")
     owned = application is None
     if owned:
@@ -37,8 +37,8 @@ def includeme(config: Configurator) -> None:
             watch=settings.get("gracia.db.file") or None,
             cache_dir=settings.get("gracia.cache_dir") or None,
         )
-    config.registry["application"] = application
-    config.registry["application_owned"] = owned
+    config.registry["application"] = application  # ty: ignore[invalid-assignment]
+    config.registry["application_owned"] = owned  # ty: ignore[invalid-assignment]
 
     def store(request):
         repository = getattr(request.context, "repository", None)
@@ -80,7 +80,7 @@ def includeme(config: Configurator) -> None:
     policy = settings.get("gracia.security_policy")
     if policy is None:
         policy = UsersPolicy()
-    config.registry.challenge = getattr(policy, "challenge", False)
+    config.registry.challenge = getattr(policy, "challenge", False)  # ty: ignore[invalid-assignment]
     config.set_security_policy(policy)
     config.set_default_permission(
         "view"

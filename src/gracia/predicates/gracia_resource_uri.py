@@ -28,8 +28,8 @@ class ResourceUriPredicate(Predicate):
         )
 
     def on_write_sql(self, context: HookContext) -> list[str]:
-        settings = context.repository.extension("ark").settings
-        ark = f"ark:/{settings['naan']}/{settings['root_prefix']}/{context.type.slug}/"
+        settings = context.repository.extension("ark").settings  # ty: ignore[missing-attribute]
+        ark = f"ark:/{settings['naan']}/{settings['root_prefix']}/{context.type.slug}/"  # ty: ignore[missing-attribute]
         flat, path = context.flat, literal(uri.RESOURCE_URI)
         return [
             f"""INSERT INTO {flat}

@@ -87,7 +87,7 @@ class SlugPredicate(Predicate):
     def on_write_sql(self, context: HookContext) -> list[str]:
         flat, of_type = context.flat, context.of_type
         slug, label = literal(uri.SLUG), literal(uri.LABEL)
-        rec_type = literal(context.type.slug)
+        rec_type = literal(context.type.slug)  # ty: ignore[missing-attribute]
         reserved = ", ".join(literal(name) for name in RESERVED)
         work = f"{flat}_slug"
         return [

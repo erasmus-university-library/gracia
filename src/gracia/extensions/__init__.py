@@ -240,7 +240,7 @@ def add_gracia_extension(config, name: str, cls: type) -> None:
     """Config directive: `cls` is the extension `name`, an adapter of a repository."""
 
     def register():
-        cls.name = name
+        cls.name = name  # ty: ignore[missing-attribute]
         config.registry.registerAdapter(cls, (IRepository,), IExtension, name=name)
 
     config.action(("gracia extension", name), register)

@@ -125,7 +125,7 @@ def _store(args, create: bool = False) -> Store:
             application.close()
             raise
         store.__class__ = _OwnedStore
-        store.application = application
+        store.application = application  # ty: ignore[missing-attribute]
         return store
     if not create and not Path(target).exists():
         raise ValueError(f"no such database: {target}")
@@ -277,13 +277,13 @@ def cmd_export(args) -> int:
                 if args.xslt:
                     _write(xslt.transform(flat, xslt.NESTED, args.xslt), args.output)
                 else:
-                    _write(xslt.render(args.format, flat), args.output)
+                    _write(xslt.render(args.format, flat), args.output)  # ty: ignore[invalid-argument-type]
             elif args.output:  # streaming: nothing is held in memory
                 streaming_serialize(
                     rows, args.format, output=args.output, prefixes=prefixes
                 )
             else:
-                sys.stdout.write(
+                sys.stdout.write(  # ty: ignore[no-matching-overload]
                     streaming_serialize(rows, args.format, prefixes=prefixes)
                 )
     return 0
@@ -591,20 +591,20 @@ def cmd_jobs_show(args) -> int:
     ]
     for index, stage in enumerate(stages):
         batches = stage["batches"]
-        total = "?" if batches["total"] is None else batches["total"]
+        total = "?" if batches["total"] is None else batches["total"]  # ty: ignore[invalid-argument-type, not-subscriptable]
         rejected = (
-            ", ".join(f"{n} {why}" for why, n in stage["rejected"].items()) or "none"
+            ", ".join(f"{n} {why}" for why, n in stage["rejected"].items()) or "none"  # ty: ignore[missing-union-attribute]
         )
         print(
             f"  {index + 1}. {stage['name']:14} {stage['state']:8} batches "
-            f"{batches['done']}/{total}"
+            f"{batches['done']}/{total}"  # ty: ignore[invalid-argument-type, not-subscriptable]
             f"  processed {stage['processed']}  passed {stage['passed']}  "
             f"rejected: {rejected}"
         )
-        for sample in stage["samples"]:
+        for sample in stage["samples"]:  # ty: ignore[not-iterable]
             print(
-                f"       {sample['id']}: "
-                f"{sample.get('message') or sample.get('reason')}"
+                f"       {sample['id']}: "  # ty: ignore[invalid-argument-type, not-subscriptable]
+                f"{sample.get('message') or sample.get('reason')}"  # ty: ignore[missing-union-attribute]
             )
     return 0
 

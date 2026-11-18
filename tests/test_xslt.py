@@ -41,7 +41,7 @@ class NestedRdfXmlTest(DbTestCase):
                     }
                 ),
             )
-        return xslt.nest(flat)
+        return xslt.nest(flat)  # ty: ignore[invalid-argument-type]
 
     def test_same_graph_for_every_data_file(self):
         """The nested RDF/XML, parsed again, is the same graph as the database holds."""

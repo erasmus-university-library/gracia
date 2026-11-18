@@ -26,7 +26,7 @@ class CacheCase(EtagCase):
         self.cache = self.app.cache
 
     def rid(self, rec_uri: str) -> int:
-        return self.store.record_id_of(rec_uri)
+        return self.store.record_id_of(rec_uri)  # ty: ignore[invalid-explicit-return]
 
     def queries(self, cache: Cache | None = None) -> list[str]:
         """Count what the cache asks the database from here on: the repository stores it
@@ -86,7 +86,7 @@ class EtagsTest(CacheCase):
             record("rec:org:1", refs=["rec:org:2"], stamp="2026-06-01T00:00:00.000000Z")
         )  # something work 1 is made of
         after = self.cache.etags("main", [work])[work]
-        self.assertNotEqual(after[0], before[0])
+        self.assertNotEqual(after[0], before[0])  # ty: ignore[not-subscriptable]
         self.assertEqual(after, (self.etag("rec:work:1"), ("org", "person", "work")))
         self.assertIsNot(self.cache._generations["main"], generation)
         self.assertEqual(generation[1][work], before)  # the old generation is as it was
@@ -123,7 +123,7 @@ class EtagsTest(CacheCase):
             (),
         )  # what the late request writes: into the generation it took
         self.assertNotIn(work, new)
-        self.assertNotEqual(self.cache.etags("main", [work])[work][0], "stale")
+        self.assertNotEqual(self.cache.etags("main", [work])[work][0], "stale")  # ty: ignore[not-subscriptable]
 
     def test_without_a_file_the_table_is_read_every_time(self):
         cache = Application(":memory:").cache
@@ -164,10 +164,11 @@ class GraphTest(CacheCase):
     def test_the_graph_is_rdfxml_of_the_record_and_everything_it_is_made_of(self):
         xml = self.cache.graph("main", self.rid("rec:work:1"))
         self.assertEqual(
-            self.subjects(xml), {"rec:work:1", "rec:person:1", "rec:org:1"}
+            self.subjects(xml),  # ty: ignore[invalid-argument-type]
+            {"rec:work:1", "rec:person:1", "rec:org:1"},
         )
         self.assertEqual(
-            self.subjects(self.cache.graph("main", self.rid("rec:person:2"))),
+            self.subjects(self.cache.graph("main", self.rid("rec:person:2"))),  # ty: ignore[invalid-argument-type]
             {"rec:person:2"},
         )
 
@@ -194,7 +195,7 @@ class GraphTest(CacheCase):
         second = self.cache.graph("main", work)
         self.assertNotEqual(second, first)
         self.assertEqual(
-            self.subjects(second),
+            self.subjects(second),  # ty: ignore[invalid-argument-type]
             {"rec:work:1", "rec:person:1", "rec:org:1", "rec:person:2"},
         )
 
@@ -222,8 +223,8 @@ class GraphTest(CacheCase):
         cache = Cache(self.app)
         work = self.rid("rec:work:1")
         self.assertEqual(
-            self.subjects(cache.graph("main", work)),
-            self.subjects(cache.graph("main", work)),
+            self.subjects(cache.graph("main", work)),  # ty: ignore[invalid-argument-type]
+            self.subjects(cache.graph("main", work)),  # ty: ignore[invalid-argument-type]
         )
         self.assertIsNone(cache._graph_store())
 
@@ -278,7 +279,7 @@ class GraphStoreTest(CacheCase):
         self.assertIsNone(graphs.get("main", 1, etag))
 
     def test_the_labels_of_the_sources_are_valid_nodeids_and_are_kept(self):
-        _, text = self.store.closure_source(self.rid("rec:work:1"))
+        _, text = self.store.closure_source(self.rid("rec:work:1"))  # ty: ignore[not-iterable]
         xml = rdfxml(
             text
         )  # not canonicalized: the labels are the ones the database made
@@ -320,7 +321,7 @@ class ClosureSourceTest(CacheCase):
     def test_the_etag_and_the_sources_of_the_record_first_and_then_what_it_is_made_of(
         self,
     ):
-        etag, text = self.store.closure_source(self.rid("rec:work:1"))
+        etag, text = self.store.closure_source(self.rid("rec:work:1"))  # ty: ignore[not-iterable]
         self.assertEqual(etag, self.etag("rec:work:1"))
         sources = dict(
             self.store.con.execute(

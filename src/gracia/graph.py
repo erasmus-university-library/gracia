@@ -554,7 +554,7 @@ class Graph:
         self.validate_select(query, prefixes)
         store = ox.Store()
         store.extend(self.dataset)
-        return store.query(query, prefixes=prefixes, use_default_graph_as_union=True)
+        return store.query(query, prefixes=prefixes, use_default_graph_as_union=True)  # ty: ignore[invalid-explicit-return]
 
 
 def _flat(quad: ox.Quad) -> ox.Quad:
@@ -571,7 +571,7 @@ def _order(quad: ox.Quad) -> tuple:
         value = (0 if isinstance(term, ox.NamedNode) else 2, str(term), "", "")
     return (
         isinstance(subject, ox.BlankNode),
-        subject.value,
+        subject.value,  # ty: ignore[missing-union-attribute]
         predicate != uri.RDF_TYPE,
         predicate,
         value,

@@ -39,7 +39,7 @@ class RecordsTest(DbTestCase):
         found = con.execute(
             "SELECT * FROM records WHERE record_id = record_id(?)", [uri]
         ).fetchone()
-        names = [d[0] for d in con.description]
+        names = [d[0] for d in con.description]  # ty: ignore[missing-union-attribute]
         return dict(zip(names, found, strict=False)) if found else {}
 
     def test_a_subject_that_is_not_a_record_is_refused(self):

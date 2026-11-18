@@ -32,16 +32,16 @@ class EtagTest(unittest.TestCase):
             "rec:a:2": datetime(2026, 1, 1),
             "rec:a:1": self.NOW,
         }  # in another order
-        self.assertEqual(etag_of(versions), etag_of(same))
-        self.assertRegex(etag_of(versions), r"^[0-9a-f]{16}$")
+        self.assertEqual(etag_of(versions), etag_of(same))  # ty: ignore[invalid-argument-type]
+        self.assertRegex(etag_of(versions), r"^[0-9a-f]{16}$")  # ty: ignore[invalid-argument-type]
         later = {**versions, "rec:a:2": datetime(2026, 1, 2)}
-        self.assertNotEqual(etag_of(versions), etag_of(later))
+        self.assertNotEqual(etag_of(versions), etag_of(later))  # ty: ignore[invalid-argument-type]
         more = {**versions, "rec:a:3": self.NOW}
-        self.assertNotEqual(etag_of(versions), etag_of(more))
-        shaped = etag_of(versions, {"person": "v1", "type": "v7"})
-        self.assertNotEqual(etag_of(versions), shaped)  # the shapes of the types count
-        self.assertEqual(shaped, etag_of(versions, {"type": "v7", "person": "v1"}))
-        self.assertNotEqual(shaped, etag_of(versions, {"person": "v2", "type": "v7"}))
+        self.assertNotEqual(etag_of(versions), etag_of(more))  # ty: ignore[invalid-argument-type]
+        shaped = etag_of(versions, {"person": "v1", "type": "v7"})  # ty: ignore[invalid-argument-type]
+        self.assertNotEqual(etag_of(versions), shaped)  # the shapes of the types count  # ty: ignore[invalid-argument-type]
+        self.assertEqual(shaped, etag_of(versions, {"type": "v7", "person": "v1"}))  # ty: ignore[invalid-argument-type]
+        self.assertNotEqual(shaped, etag_of(versions, {"person": "v2", "type": "v7"}))  # ty: ignore[invalid-argument-type]
 
 
 class IndexCase(EditCase):

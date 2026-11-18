@@ -16,7 +16,7 @@ POSTING = {**ADMIN, "Origin": "http://localhost:80"}
 class LabelCase(WebCase):
     def setUp(self):
         super().setUp()
-        self.settings["gracia.security_policy"] = HeaderPolicy()
+        self.settings["gracia.security_policy"] = HeaderPolicy()  # ty: ignore[invalid-assignment]
         self.config = make_config(self.settings)
         self.config.commit()
         self.config.begin()  # the registry, for code that runs outside a request
@@ -306,4 +306,4 @@ class CodeWidgetTest(LabelCase):
     def test_xml_mode_is_shipped(self):
         from gracia import static
 
-        self.assertIn(static.codemirror_xml_js, static.editor_js.depends)
+        self.assertIn(static.codemirror_xml_js, static.editor_js.depends)  # ty: ignore[invalid-argument-type]

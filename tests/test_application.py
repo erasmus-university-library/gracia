@@ -74,7 +74,7 @@ class ApplicationTest(unittest.TestCase):
 
     def test_a_repository_is_a_duckdb_schema_with_its_own_tables_and_macros(self):
         self.app.create_repository("library")
-        cursor = self.app._con.cursor()
+        cursor = self.app._con.cursor()  # ty: ignore[missing-union-attribute]
         tables = {
             r[0]
             for r in cursor.execute(

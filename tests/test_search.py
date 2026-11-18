@@ -84,7 +84,9 @@ class SearchCase(BatchCase):
         `rec:person:<n>`."""
         changes = [
             Change(
-                self.store.record_id_of(f"rec:person:{n}"), f"rec:person:{n}", "insert"
+                self.store.record_id_of(f"rec:person:{n}"),  # ty: ignore[invalid-argument-type]
+                f"rec:person:{n}",
+                "insert",
             )
             for n in numbers
         ]
@@ -92,7 +94,7 @@ class SearchCase(BatchCase):
             q
             for c in changes
             for q in ox.parse(
-                self.store.closure_source(c.record_id)[1].encode(),
+                self.store.closure_source(c.record_id)[1].encode(),  # ty: ignore[not-subscriptable]
                 format=ox.RdfFormat.N_TRIPLES,
             )
         )
@@ -304,14 +306,14 @@ class HandlerTest(SearchCase):
         changes, docs = self.docs_of(1, 2)
         asked = []
         real = self.app.cache.docs.bulk_update
-        self.app.cache.docs.bulk_update = lambda repo, ids, xml: (
+        self.app.cache.docs.bulk_update = lambda repo, ids, xml: (  # ty: ignore[invalid-assignment]
             asked.append(sorted(ids)),
             real(repo, ids, xml),
         )[1]
         graphs = {
             c.record: ox.Dataset(
                 ox.parse(
-                    self.store.closure_source(c.record_id)[1].encode(),
+                    self.store.closure_source(c.record_id)[1].encode(),  # ty: ignore[not-subscriptable]
                     format=ox.RdfFormat.N_TRIPLES,
                 )
             )
@@ -350,12 +352,12 @@ class WiringTest(BatchCase):
             {"gracia.application": self.app, "gracia.index_dir": str(self.tmp / "idx")}
         )
         config.make_wsgi_app()
-        self.assertEqual(self.app.indexes.directory, self.tmp / "idx")
+        self.assertEqual(self.app.indexes.directory, self.tmp / "idx")  # ty: ignore[missing-union-attribute]
         self.store.put(person(1, "Ada Lovelace"))
         process_pending(
             self.app, config.registry
         )  # the registry of the application: it has the subscriber
-        self.assertEqual(self.app.indexes.stats("main")[0]["documents"], 1)
+        self.assertEqual(self.app.indexes.stats("main")[0]["documents"], 1)  # ty: ignore[missing-union-attribute]
 
     def test_without_the_setting_there_are_none(self):
         from gracia.main import make_config
@@ -410,7 +412,7 @@ class ExtensionCase(ManageCase):
 
         self.index_dir = tempfile.mkdtemp()
         self.addCleanup(__import__("shutil").rmtree, self.index_dir, True)
-        self.settings["gracia.index_dir"] = self.index_dir
+        self.settings["gracia.index_dir"] = self.index_dir  # ty: ignore[invalid-assignment]
         self.config = make_config(self.settings)
         self.config.commit()
         self.config.begin()
@@ -443,7 +445,7 @@ class SearchExtensionTest(ExtensionCase):
             definition, RECORDS
         )  # the fields of the default, as `search.RECORDS` has them
         self.assertEqual(
-            [f["name"] for f in DEFAULT_INDEXES[0]["fields"]],
+            [f["name"] for f in DEFAULT_INDEXES[0]["fields"]],  # ty: ignore[invalid-argument-type]
             [
                 "record_id",
                 "record",
@@ -595,7 +597,7 @@ class SearchPageTest(ManageCase):
 
         self.index_dir = tempfile.mkdtemp()
         self.addCleanup(__import__("shutil").rmtree, self.index_dir, True)
-        self.settings["gracia.index_dir"] = self.index_dir
+        self.settings["gracia.index_dir"] = self.index_dir  # ty: ignore[invalid-assignment]
         self.config = make_config(self.settings)
         self.config.commit()
         self.config.begin()
@@ -685,7 +687,9 @@ class SearchPageTest(ManageCase):
             {
                 **DEFAULT_INDEXES[0],
                 "fields": [
-                    f for f in DEFAULT_INDEXES[0]["fields"] if f["name"] != "modified"
+                    f
+                    for f in DEFAULT_INDEXES[0]["fields"]
+                    if f["name"] != "modified"  # ty: ignore[invalid-argument-type]
                 ],
             }
         ]
@@ -763,7 +767,7 @@ OFFERED = [{**f.as_dict(), "types": ["person", "work"]} for f in RECORDS.fields]
 
 
 class CompareTest(SearchCase):
-    def rows(self, definition=RECORDS) -> dict[str, dict]:
+    def rows(self, definition=RECORDS) -> dict[str, dict]:  # ty: ignore[incompatible-method-override]
         return {row["name"]: row for row in compare(OFFERED, definition)}
 
     def test_a_field_in_both_is_indexed_and_one_only_the_docs_have_is_available(self):
@@ -848,7 +852,7 @@ class SearchTabTest(ManageCase):
 
         self.index_dir = tempfile.mkdtemp()
         self.addCleanup(__import__("shutil").rmtree, self.index_dir, True)
-        self.settings["gracia.index_dir"] = self.index_dir
+        self.settings["gracia.index_dir"] = self.index_dir  # ty: ignore[invalid-assignment]
         self.config = make_config(self.settings)
         self.config.commit()
         self.config.begin()
@@ -991,7 +995,9 @@ class RestartTest(ExtensionCase):
             {
                 **DEFAULT_INDEXES[0],
                 "fields": [
-                    f for f in DEFAULT_INDEXES[0]["fields"] if f["name"] != "text"
+                    f
+                    for f in DEFAULT_INDEXES[0]["fields"]
+                    if f["name"] != "text"  # ty: ignore[invalid-argument-type]
                 ],
             }
         ]
@@ -1002,6 +1008,7 @@ class RestartTest(ExtensionCase):
         node, indexes = self.new_process()
         (definition,) = search.definitions_for(node)
         self.assertEqual(
-            [f.name for f in definition.fields], [f["name"] for f in fewer[0]["fields"]]
+            [f.name for f in definition.fields],
+            [f["name"] for f in fewer[0]["fields"]],  # ty: ignore[invalid-argument-type]
         )
         self.assertEqual(indexes.status("archive", definition), "ok")

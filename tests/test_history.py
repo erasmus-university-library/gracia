@@ -23,7 +23,7 @@ class HistoryTest(DbTestCase):
         self.store = Store(self.db)
         self.addCleanup(self.store.close)
 
-    def rows(self):
+    def rows(self):  # ty: ignore[incompatible-method-override]
         return self.store.con.execute(
             "SELECT txn_id, record_uri(record_id), is_deleted, source FROM history "
             "ORDER BY "

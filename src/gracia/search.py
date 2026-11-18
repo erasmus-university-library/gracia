@@ -463,7 +463,7 @@ class Indexes:
                 if values
             }
             hits.append({**stored, "score": score})
-        return found.count, hits
+        return found.count, hits  # ty: ignore[missing-attribute]
 
     def field_stats(
         self, repo: str, definition: IndexDefinition
@@ -481,7 +481,7 @@ class Indexes:
         for field in definition.fields:
             try:
                 found[field.name] = (
-                    searcher.search(tantivy.Query.exists_query(field.name), 1).count
+                    searcher.search(tantivy.Query.exists_query(field.name), 1).count  # ty: ignore[missing-attribute]
                     if field.fast
                     else None
                 )

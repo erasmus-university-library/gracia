@@ -32,8 +32,8 @@ class AbsoluteUrlsTest(WebCase):
         super().setUp()
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
-        self.settings["gracia.security_policy"] = HeaderPolicy()
-        self.settings["gracia.jobs_dir"] = directory.name
+        self.settings["gracia.security_policy"] = HeaderPolicy()  # ty: ignore[invalid-assignment]
+        self.settings["gracia.jobs_dir"] = directory.name  # ty: ignore[invalid-assignment]
         self.application.create_repository(
             "library",
             admin=("admin", "correct horse battery"),

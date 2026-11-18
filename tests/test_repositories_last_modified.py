@@ -19,7 +19,7 @@ class RepositoriesLastModifiedTest(DbTestCase):
         self.store = Store(self.db)
         self.addCleanup(self.store.close)
 
-    def rows(self):
+    def rows(self):  # ty: ignore[incompatible-method-override]
         return dict(
             self.store.con.execute(
                 "SELECT repo_id, last_modified_at FROM "

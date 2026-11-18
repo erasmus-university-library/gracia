@@ -478,7 +478,7 @@ class RepositoryManage(Manage):
             cards.append(
                 {
                     "uri": code.uri,
-                    "title": title or code.uri.rsplit("/", 1)[-1].rsplit("#", 1)[-1],
+                    "title": title or code.uri.rsplit("/", 1)[-1].rsplit("#", 1)[-1],  # ty: ignore[missing-union-attribute]
                     "description": description,
                     "name": f"{type(code).__module__}.{type(code).__qualname__}",
                     # the class's own docstring (getdoc would take the base class's),
@@ -493,7 +493,7 @@ class RepositoryManage(Manage):
                     ],
                 }
             )
-        cards.sort(key=lambda card: card["uri"])
+        cards.sort(key=lambda card: card["uri"])  # ty: ignore[no-matching-overload]
         return fragment(
             self.request,
             "gracia:assets/templates/repository_tab_predicates.pt",

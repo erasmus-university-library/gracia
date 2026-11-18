@@ -146,7 +146,7 @@ class DbTest(JobsCase):
             self.assertFalse(
                 db.update_job(job_id, {"state": "stopped"}, only_states=("queued",))
             )
-            self.assertEqual(db.get(job_id)["state"], "running")
+            self.assertEqual(db.get(job_id)["state"], "running")  # ty: ignore[not-subscriptable]
             with self.assertRaises(ValueError):
                 db.update_job(job_id, {"stages": "[]"})  # the definition never changes
 
@@ -393,7 +393,7 @@ class StageTest(JobsCase):
 class FailureTest(JobsCase):
     """A job that fails says why, and goes on where it was when it is run again."""
 
-    def fail(self, **extra):
+    def fail(self, **extra):  # ty: ignore[incompatible-method-override]
         self.marker = self.tmp / "ran.txt"
         self.fail_file = self.tmp / "fail"
         self.fail_file.write_text("")
@@ -480,7 +480,7 @@ class StopTest(JobsCase):
         import jobs_support
 
         stop = runner.StopFlag()
-        jobs_support.STOP = stop
+        jobs_support.STOP = stop  # ty: ignore[invalid-assignment]
         self.addCleanup(setattr, jobs_support, "STOP", None)
         job_id = self.make(echo(stop_at=1), {"stage": "Keep"})
         self.assertEqual(self.run_job(job_id, stop), runner.EXIT_STOPPED)
@@ -874,7 +874,7 @@ class RewriteExportTest(JobsCase):
             ["rec:person:1", "rec:person:2"],
         )
         with self.application.open_repository("library") as store:
-            self.assertRegex(store.etag_info("rec:person:1")[0], r"^[0-9a-f]{16}$")
+            self.assertRegex(store.etag_info("rec:person:1")[0], r"^[0-9a-f]{16}$")  # ty: ignore[not-subscriptable]
 
     def test_the_export_job_offers_the_records_as_one_file_to_download(self):
         job_id = self.make({"stage": "Export", "params": {"res_type": "person"}})
@@ -947,7 +947,7 @@ class WriteConflictTest(JobsCase):
         job_id = self.make(ECHO)
         with JobsDb(self.application) as db:
             self.failing(db, 1)
-            original = db._conn.execute
+            original = db._conn.execute  # ty: ignore[missing-union-attribute]
 
             def finishes_first(sql, params=None):
                 try:
@@ -956,7 +956,7 @@ class WriteConflictTest(JobsCase):
                     with JobsDb(self.application) as other:
                         other.update_job(job_id, {"state": "done"})
 
-            db._conn.execute = finishes_first
+            db._conn.execute = finishes_first  # ty: ignore[invalid-assignment]
             with mock.patch.object(jobs_db.time, "sleep"):
                 self.assertFalse(
                     db.update_job(job_id, {"state": "stopped"}, only_states=("queued",))

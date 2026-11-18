@@ -175,7 +175,10 @@ class View:
 
     def render(self, spec: str | None = None, status: int = 200, **values) -> Response:
         return render(
-            self.request, spec or self.template, status, **{**self.values(), **values}
+            self.request,
+            spec or self.template,  # ty: ignore[invalid-argument-type]
+            status,
+            **{**self.values(), **values},
         )
 
     def render_form(

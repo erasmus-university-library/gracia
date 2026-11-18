@@ -62,7 +62,7 @@ class FormFromShapeTest(WebCase):
 class ManageCase(WebCase):
     def setUp(self):
         super().setUp()
-        self.settings["gracia.security_policy"] = HeaderPolicy()
+        self.settings["gracia.security_policy"] = HeaderPolicy()  # ty: ignore[invalid-assignment]
         self.application.create_repository("library")
 
     def tabs(self, path="/library/manage"):
@@ -366,7 +366,7 @@ class StatsTabTest(ManageCase):
     @staticmethod
     def text(pane: str, name: str) -> str:
         found = re.search(rf'id="{name}"[^>]*>(.*?)</(?:dd|tr|fieldset)>', pane, re.S)
-        return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", found[1])).strip()
+        return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", found[1])).strip()  # ty: ignore[not-subscriptable]
 
     def add_people(self, n: int = 3) -> None:
         text = (
@@ -435,7 +435,7 @@ class StatsTabTest(ManageCase):
         self.assertTrue(
             self.text(self.pane(), "stats-graphs").startswith("0 in this repository")
         )
-        self.application.cache.graph("library", record_id)
+        self.application.cache.graph("library", record_id)  # ty: ignore[invalid-argument-type]
         self.assertTrue(
             self.text(self.pane(), "stats-graphs").startswith(
                 "1 in this repository, 1 in all"
@@ -469,13 +469,13 @@ class StatsTabTest(ManageCase):
     def test_the_worker_is_off_when_the_setting_is_off_and_running_when_it_is_on(self):
         self.assertIn('data-state="off"', self.pane())
         self.assertIn("gracia.worker", self.text(self.pane(), "stats-worker"))
-        self.settings["gracia.worker"] = "true"
-        self.settings["gracia.db"] = ":memory:"
+        self.settings["gracia.worker"] = "true"  # ty: ignore[invalid-assignment]
+        self.settings["gracia.db"] = ":memory:"  # ty: ignore[invalid-assignment]
         _, page = self.tabs(
             "/library/manage?tab=stats"
         )  # a new app: its worker is started
         worker = self.application.cache.worker
-        self.addCleanup(worker.stop)
+        self.addCleanup(worker.stop)  # ty: ignore[missing-union-attribute]
         self.assertIn('data-state="running"', page)
 
     def test_a_worker_that_is_not_running_or_keeps_failing_says_so(self):
