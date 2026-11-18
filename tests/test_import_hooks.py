@@ -1,5 +1,3 @@
-"""An import goes through the same write hooks as a form: the label and the resource URI."""
-
 import re
 
 from base import DbTestCase
@@ -35,7 +33,9 @@ class ImportHooksTest(DbTestCase):
         self.assertEqual(code, 0, err)
         first = self.export("rec:person:1")
         self.assertIn('<https://gracia.pub/ns/label> "Ada Lovelace"', first)
-        self.assertIn("<https://gracia.pub/ns/resource_uri> <ark:/99999/ir/person/1>", first)
+        self.assertIn(
+            "<https://gracia.pub/ns/resource_uri> <ark:/99999/ir/person/1>", first
+        )
 
     def test_a_resource_uri_that_was_given_is_kept(self):
         self.gracia("-r", "lib", "import", str(self.records))
@@ -46,7 +46,9 @@ class ImportHooksTest(DbTestCase):
 
     def test_what_is_not_a_record_is_refused(self):
         other = self.tmp / "other.ttl"
-        other.write_text('<http://example.org/other> <http://example.org/p> "not a record" .\n')
+        other.write_text(
+            '<http://example.org/other> <http://example.org/p> "not a record" .\n'
+        )
         code, _, err = self.gracia("-r", "lib", "import", str(other))
         self.assertEqual(code, 1)
         self.assertIn("only records are stored", err)
@@ -62,7 +64,9 @@ class ImportHooksTest(DbTestCase):
     @staticmethod
     def normalised(text: str) -> list[str]:
         """The lines, blank nodes all called the same."""
-        return sorted(re.sub(r"_:b\d+_\d+(_c\d+)?", "_:b", line) for line in text.splitlines())
+        return sorted(
+            re.sub(r"_:b\d+_\d+(_c\d+)?", "_:b", line) for line in text.splitlines()
+        )
 
 
 class PlainStoreTest(DbTestCase):

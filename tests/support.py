@@ -1,17 +1,20 @@
-"""Graph comparison for the tests: bnodes are compared up to isomorphism, not by label.
-
-`prune` applies the import semantics to an expected graph (every bnode occurrence becomes its
-own copy, bnodes without a leaf are dropped); `canonical` relabels bnodes by iterated
-neighbourhood hashing and returns a Counter of triples. The colour refinement is exact for
-the tree-like graphs in data/, but it is not a general graph isomorphism algorithm.
-"""
-
 import hashlib
 import json
+import re
 from collections import Counter
 from pathlib import Path
 
 from gracia.graph import Graph, streaming_parse, streaming_serialize
+
+
+def must_search(pattern: str, text: str, flags: int = 0) -> re.Match:
+    """`re.search`, but a page that lacks what the test looks for is a failure that says
+    so."""
+    found = re.search(pattern, text, flags)
+    if found is None:
+        raise AssertionError(f"{pattern!r} not found in: {text[:300]!r}")
+    return found
+
 
 RDF = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
 
@@ -22,7 +25,17 @@ def parse_json(text):
     out = []
     for t in json.loads(text)["triples"]:
         s, p, o = t["subject"], t["predicate"], t["object"]
-        out.append((s["type"], s["value"], p["value"], o["type"], o["value"], o.get("lang"), o.get("datatype")))
+        out.append(
+            (
+                s["type"],
+                s["value"],
+                p["value"],
+                o["type"],
+                o["value"],
+                o.get("lang"),
+                o.get("datatype"),
+            )
+        )
     return out
 
 
@@ -61,7 +74,17 @@ def prune(triples):
         for t in by_s.get(b, []):
             if t[3] == "bnode":
                 if t[4] in live:
-                    out.append(("bnode", new, t[2], "bnode", copy(t[4], stack | {b}), None, None))
+                    out.append(
+                        (
+                            "bnode",
+                            new,
+                            t[2],
+                            "bnode",
+                            copy(t[4], stack | {b}),
+                            None,
+                            None,
+                        )
+                    )
             else:
                 out.append(("bnode", new, *t[2:]))
         return new
@@ -85,7 +108,9 @@ def _term(color: dict, res_type: str, value: str):
 
 def canonical(triples):
     """Relabel bnodes by iterated neighbourhood hashing; return a Counter."""
-    bn = {t[1] for t in triples if t[0] == "bnode"} | {t[4] for t in triples if t[3] == "bnode"}
+    bn = {t[1] for t in triples if t[0] == "bnode"} | {
+        t[4] for t in triples if t[3] == "bnode"
+    }
     color = dict.fromkeys(bn, "0")
     for rnd in range(len(bn) + 2):
         sig = {b: [] for b in bn}
@@ -111,7 +136,10 @@ def canonical(triples):
 
 def triples_from_rows(rows):
     """Staging rows (`Graph.rows`) as test triples."""
-    return [(s_type, s, p, o_type, o, lang, dt) for s, s_type, p, o, o_type, lang, dt in rows]
+    return [
+        (s_type, s, p, o_type, o, lang, dt)
+        for s, s_type, p, o, o_type, lang, dt in rows
+    ]
 
 
 def triples_from_file(path):
@@ -123,8 +151,8 @@ def triples_from_file(path):
 
 
 def flat_rdfxml_from_file(path, prefixes: dict[str, str] | None = None) -> str:
-    """The graph of an RDF file as flat RDF/XML, the way the Dataset serializer writes it
-    (bnodes keep their sharing: no unsharing as in the database)."""
+    """The graph of an RDF file as flat RDF/XML, the way the Dataset serializer writes
+    it (bnodes keep their sharing: no unsharing as in the database)."""
     return streaming_serialize(streaming_parse(path), "rdfxml", prefixes=prefixes)
 
 
@@ -143,7 +171,8 @@ def diff(expected, actual, unshare_expected: bool = True) -> str:
         expected = prune(expected)
     a, b = canonical(expected), canonical(actual)
     return "\n".join(
-        [f"missing: {t}" for t in list(a - b)[:10]] + [f"extra: {t}" for t in list(b - a)[:10]]
+        [f"missing: {t}" for t in list(a - b)[:10]]
+        + [f"extra: {t}" for t in list(b - a)[:10]]
     )
 
 

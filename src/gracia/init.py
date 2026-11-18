@@ -1,10 +1,3 @@
-"""The data a repository starts with: its resource, the types Type, User and UserGroup, the groups
-`admin`, `editor` and `manager`, and, when asked for, an admin user in the group `admin`, as Turtle
-built from `assets/model/repository.ttl` and the helpers below (a type record, a user record, what a
-repository says of an extension). The names of records are in `gracia.uri` (`record_uri`) and the
-checks of what a person types in `gracia.utils.validate`.
-"""
-
 import json
 import re
 from collections.abc import Callable
@@ -24,9 +17,8 @@ TYPES_AT_START = (
     ("User", "user", uri.USER_CLASS),
     ("UserGroup", "group", uri.GROUP_CLASS),
 )
-TYPE_ASSETS = (
-    "gracia.types:{slug}/"  # shacl/, view.xsl and the code of a type that comes with gracia
-)
+# shacl/, view.xsl and the code of a type that comes with gracia
+TYPE_ASSETS = "gracia.types:{slug}/"
 GROUPS_AT_START = ("admin", "editor", "manager")
 
 _TYPE_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9]{0,62}$")
@@ -45,10 +37,11 @@ def _turtle_text(text: str) -> str:
 def extension_turtle(
     subject: str, name: str, settings: dict | None = None, enabled: bool | None = None
 ) -> str:
-    """The Turtle that says something of an extension on the content of the repository record
-    (`subject` is a Turtle term for it: `_:content` in the initial data, a placeholder when the
-    quads are moved to the real node): its name, whether it is enabled (when that is said) and its
-    settings as JSON text (a cstruct, see gracia.forms)."""
+    """The Turtle that says something of an extension on the content of the repository
+    record (`subject` is a Turtle term for it: `_:content` in the initial data, a
+    placeholder when the quads are moved to the real node): its name, whether it is
+    enabled (when that is said) and its settings as JSON text (a cstruct, see
+    gracia.forms)."""
 
     lines = [f"gracia:extension_name {_turtle_text(name)}"]
     if enabled is not None:
@@ -56,7 +49,9 @@ def extension_turtle(
         lines.append(f'gracia:extension_is_enabled "{flag}"^^xsd:boolean')
     if settings is not None:
         lines.append(
-            f"gracia:extension_settings {_turtle_text(json.dumps(settings, ensure_ascii=False))}^^<{uri.RDF_JSON}>"
+            "gracia:extension_settings "
+            f"{_turtle_text(json.dumps(settings, ensure_ascii=False))}"
+            f"^^<{uri.RDF_JSON}>"
         )
     return (
         "@prefix gracia: <https://gracia.pub/ns/> .\n"
@@ -68,18 +63,21 @@ def extension_turtle(
 def user_turtle(
     record: str, userid: str, password: str, groups=(), resource_uri: str = ""
 ) -> str:
-    """The Turtle of a user record: `userid` with a salted hash of `password`, in `groups` (the
-    resource uris of the group records: the content of a record points at resources, never at
-    records). Both are checked here, so nothing can break the Turtle."""
+    """The Turtle of a user record: `userid` with a salted hash of `password`, in
+    `groups` (the resource uris of the group records: the content of a record points at
+    resources, never at records). Both are checked here, so nothing can break the
+    Turtle."""
     validate_userid(userid)
     validate_password(password)
     member = "".join(f" ;\n        gracia:memberOf <{group}>" for group in groups)
     return (
         f"\n<{record}> a gracia:Record ;\n"
-        f"    gracia:resource_uri <{resource_uri or uri.default_resource_uri(record)}> ;\n"
+        f"    gracia:resource_uri <{resource_uri or uri.default_resource_uri(record)}> "
+        ";\n"
         f'    gracia:label "{userid}" ;\n'
         f'    gracia:resource [ a gracia:User ; gracia:userid "{userid}" ;\n'
-        f'        gracia:credentials "{passwords.hash_password(password)}"{member} ] .\n'
+        f'        gracia:credentials "{passwords.hash_password(password)}"{member} ] '
+        ".\n"
     )
 
 
@@ -96,10 +94,11 @@ _CLASS_URI = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:[^\s<>\"{}|\\^`]+$")
 
 
 def type_turtle(record: str, content_type, resource_uri: str = "") -> str:
-    """The Turtle of a type record for a content type (anything with `name`, `slug`, `class_uri`,
-    `assets`, `schema` and perhaps `doc`, see gracia.types). Its resource uri is the class of the type (`class_uri`),
-    which is how the types list of the repository, and the `rdf:type` of a record, point at it.
-    Everything that goes into the Turtle is checked here, so a descriptor cannot break it."""
+    """The Turtle of a type record for a content type (anything with `name`, `slug`,
+    `class_uri`, `assets`, `schema` and perhaps `doc`, see gracia.types). Its resource
+    uri is the class of the type (`class_uri`), which is how the types list of the
+    repository, and the `rdf:type` of a record, point at it. Everything that goes into
+    the Turtle is checked here, so a descriptor cannot break it."""
     for label, text, pattern in (
         ("name", content_type.name, _TYPE_NAME),
         ("slug", content_type.slug, uri.SLUG_PATTERN),
@@ -117,9 +116,15 @@ def type_turtle(record: str, content_type, resource_uri: str = "") -> str:
         f"    gracia:resource_uri <{resource_uri or content_type.class_uri}> ;\n"
         f'    gracia:label "{content_type.name}" ;\n'
         f'    gracia:resource [ a gracia:Type ; gracia:name "{content_type.name}" ;\n'
-        f'        gracia:slug "{content_type.slug}" ; gracia:class <{content_type.class_uri}> ;\n'
-        f'        gracia:assets "{content_type.assets}" ; gracia:schemaTemplate "{content_type.schema}"'
-        + (f' ; gracia:docTemplate "{content_type.doc}"' if getattr(content_type, "doc", None) else "")
+        f'        gracia:slug "{content_type.slug}" ; gracia:class '
+        f"<{content_type.class_uri}> ;\n"
+        f'        gracia:assets "{content_type.assets}" ; gracia:schemaTemplate '
+        f'"{content_type.schema}"'
+        + (
+            f' ; gracia:docTemplate "{content_type.doc}"'
+            if getattr(content_type, "doc", None)
+            else ""
+        )
         + " ] .\n"
     )
 
@@ -131,14 +136,17 @@ def initial_dataset(
     content_types=(),
     ark: tuple[str, str] = (uri.DEFAULT_NAAN, uri.DEFAULT_ROOT_PREFIX),
 ) -> Graph:
-    """The RDF a new repository starts with. `mint(type)` gives the next number for a type;
-    `admin` is (userid, password) of the first user, who joins the group `admin`;
-    `content_types` (see gracia.types) are types besides the three it cannot work without."""
+    """The RDF a new repository starts with. `mint(type)` gives the next number for a
+    type; `admin` is (userid, password) of the first user, who joins the group `admin`;
+    `content_types` (see gracia.types) are types besides the three it cannot work
+    without."""
     if admin:
         validate_userid(admin[0])
         validate_password(admin[1])
     naan, root_prefix = validate_ark(*ark)
-    text = (files("gracia") / "assets" / "model" / "repository.ttl").read_text(encoding="utf-8")
+    text = (files("gracia") / "assets" / "model" / "repository.ttl").read_text(
+        encoding="utf-8"
+    )
     repository_record = uri.record_uri("repository", mint("repository"))
     type_records = [uri.record_uri("type", mint("type")) for _ in TYPES_AT_START]
     group_records = [uri.record_uri("group", mint("group")) for _ in GROUPS_AT_START]
@@ -148,7 +156,9 @@ def initial_dataset(
         raise ValueError(f"two types with the same slug: {sorted(slugs)}")
     extra = [uri.record_uri("type", mint("type")) for _ in content_types]
     values = {
-        "@EXTRA_TYPES@": "".join(f" <{content_type.class_uri}>" for content_type in content_types),
+        "@EXTRA_TYPES@": "".join(
+            f" <{content_type.class_uri}>" for content_type in content_types
+        ),
         "@REPO@": repository_record,
         "@TITLE@": repo_id,  # an id is lowercase letters, digits and _ only
         "@A1@": TYPE_ASSETS.format(slug=TYPES_AT_START[0][1]),
@@ -159,7 +169,11 @@ def initial_dataset(
         "@K2@": type_records[1],
         "@K3@": type_records[2],
         "@K4@": type_records[3],
-        "@C1@": TYPES_AT_START[0][2],  # the classes of the types: their resource uris, as the list of types has them
+        "@C1@": TYPES_AT_START[0][
+            2
+            # the classes of the types: their resource uris, as the list of types has
+            # them
+        ],
         "@C2@": TYPES_AT_START[1][2],
         "@C3@": TYPES_AT_START[2][2],
         "@C4@": TYPES_AT_START[3][2],
@@ -168,10 +182,14 @@ def initial_dataset(
         "@G3@": group_records[2],
     }
     everything = (repository_record, *type_records, *group_records)
-    for name, record in zip(("REPO", "K1", "K2", "K3", "K4", "G1", "G2", "G3"), everything):
+    for name, record in zip(
+        ("REPO", "K1", "K2", "K3", "K4", "G1", "G2", "G3"), everything, strict=False
+    ):
         values[f"@{name}U@"] = uri.default_resource_uri(record, naan, root_prefix)
     for number, (_name, _slug, class_uri) in enumerate(TYPES_AT_START, 1):
-        values[f"@K{number}U@"] = class_uri  # a type record is published under the class of its type
+        values[f"@K{number}U@"] = (
+            class_uri  # a type record is published under the class of its type
+        )
     for placeholder, replacement in sorted(values.items(), key=lambda kv: -len(kv[0])):
         text = text.replace(placeholder, replacement)
     for record, content_type in zip(extra, content_types, strict=True):
@@ -186,5 +204,7 @@ def initial_dataset(
             uri.default_resource_uri(user_record, naan, root_prefix),
         )
     # the ARK settings are fixed when the repository is made (see gracia.extensions.ark)
-    text += extension_turtle("_:content", "ark", {"naan": naan, "root_prefix": root_prefix})
+    text += extension_turtle(
+        "_:content", "ark", {"naan": naan, "root_prefix": root_prefix}
+    )
     return Graph(ox.Dataset(ox.parse(text.encode("utf-8"), format=ox.RdfFormat.TURTLE)))

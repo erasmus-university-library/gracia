@@ -1,5 +1,3 @@
-"""`gracia serve-db`: the database as its own process, served over Quack."""
-
 import signal
 import socket
 import subprocess
@@ -101,7 +99,9 @@ class ServeDbProcessTest(DbTestCase):
 
         con = self.attach(token)
         self.assertEqual(con.execute("SELECT 42").fetchone()[0], 42)
-        con.execute("CREATE SCHEMA demo")  # a write through Quack lands in the served file
+        con.execute(
+            "CREATE SCHEMA demo"
+        )  # a write through Quack lands in the served file
         con.execute("DISCONNECT")
 
         out = self.stop(proc)
@@ -110,7 +110,10 @@ class ServeDbProcessTest(DbTestCase):
         # the file is free again at once, and holds what was written through Quack
         reopened = duckdb.connect(str(self.db))
         schemas = {
-            r[0] for r in reopened.execute("SELECT schema_name FROM duckdb_schemas()").fetchall()
+            r[0]
+            for r in reopened.execute(
+                "SELECT schema_name FROM duckdb_schemas()"
+            ).fetchall()
         }
         self.assertIn("demo", schemas)
         reopened.close()
@@ -135,5 +138,7 @@ class ServeDbProcessTest(DbTestCase):
         self.stop(proc)
         proc = self.start()
         self.assertEqual(self.token_file.read_text(), token)
-        self.assertEqual(self.attach(token.strip()).execute("SELECT 1").fetchone()[0], 1)
+        self.assertEqual(
+            self.attach(token.strip()).execute("SELECT 1").fetchone()[0], 1
+        )
         self.stop(proc)

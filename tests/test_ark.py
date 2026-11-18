@@ -1,6 +1,3 @@
-"""The ARK a record's resource is published under: made from two settings of the repository (the
-authority number and the root prefix), stored with the record, resolved by the repository."""
-
 import unittest
 
 from extension_support import put_extension_state
@@ -14,14 +11,18 @@ from gracia.utils.validate import validate_ark
 
 class ModelTest(unittest.TestCase):
     def test_the_ark_of_a_record_is_made_from_its_type_and_number(self):
-        self.assertEqual(uri.default_resource_uri("rec:person:34"), "ark:/99999/ir/person/34")
         self.assertEqual(
-            uri.default_resource_uri("rec:person:34", "12345", "x"), "ark:/12345/x/person/34"
+            uri.default_resource_uri("rec:person:34"), "ark:/99999/ir/person/34"
+        )
+        self.assertEqual(
+            uri.default_resource_uri("rec:person:34", "12345", "x"),
+            "ark:/12345/x/person/34",
         )
 
     def test_what_is_not_a_record_is_named_with_a_fragment(self):
         self.assertEqual(
-            uri.default_resource_uri("rec:repository:library"), "rec:repository:library#resource"
+            uri.default_resource_uri("rec:repository:library"),
+            "rec:repository:library#resource",
         )
 
     def test_the_settings_are_letters_and_digits(self):
@@ -57,7 +58,9 @@ class RepositoryTest(WebCase):
 
     def test_a_new_repository_has_the_test_authority_and_ir(self):
         self.application.create_repository("library", admin=ADMIN)
-        self.assertEqual(self.settings_of("library"), {"naan": "99999", "root_prefix": "ir"})
+        self.assertEqual(
+            self.settings_of("library"), {"naan": "99999", "root_prefix": "ir"}
+        )
 
     def test_the_system_records_get_their_arks_and_the_types_their_classes(self):
         self.application.create_repository("library", admin=ADMIN)
@@ -68,7 +71,8 @@ class RepositoryTest(WebCase):
                 "rec:group:2": "ark:/99999/ir/group/2",
                 "rec:group:3": "ark:/99999/ir/group/3",
                 "rec:repository:1": "ark:/99999/ir/repository/1",
-                "rec:type:1": "https://gracia.pub/ns/Repository",  # a type is published as its class
+                # a type is published as its class
+                "rec:type:1": "https://gracia.pub/ns/Repository",
                 "rec:type:2": "https://gracia.pub/ns/Type",
                 "rec:type:3": "https://gracia.pub/ns/User",
                 "rec:type:4": "https://gracia.pub/ns/UserGroup",
@@ -78,8 +82,12 @@ class RepositoryTest(WebCase):
 
     def test_a_repository_can_be_made_with_its_own_authority(self):
         self.application.create_repository("library", admin=ADMIN, ark=("12345", "lib"))
-        self.assertEqual(self.settings_of("library"), {"naan": "12345", "root_prefix": "lib"})
-        self.assertEqual(self.resource_uris("library")["rec:user:1"], "ark:/12345/lib/user/1")
+        self.assertEqual(
+            self.settings_of("library"), {"naan": "12345", "root_prefix": "lib"}
+        )
+        self.assertEqual(
+            self.resource_uris("library")["rec:user:1"], "ark:/12345/lib/user/1"
+        )
 
     def test_wrong_settings_make_nothing(self):
         with self.assertRaises(ValueError):
@@ -94,7 +102,9 @@ class RepositoryTest(WebCase):
             person = types.available()["person"]
             record = types.add_content_type(store, "library", person)
             self.assertEqual(record, "rec:type:5")
-        self.assertEqual(self.resource_uris("library")["rec:type:5"], person.class_uri)  # the settings are for the other records
+        self.assertEqual(
+            self.resource_uris("library")["rec:type:5"], person.class_uri
+        )  # the settings are for the other records
 
 
 class ResolveTest(EditCase):
@@ -130,19 +140,25 @@ class ResolveTest(EditCase):
         form.submit("save", headers=self.admin)
         response = self.get("/library/ark:/12345/own/ada")
         self.assertEqual(
-            (response.status_int, response.location), (302, "http://localhost/library/person/ada/")
+            (response.status_int, response.location),
+            (302, "http://localhost/library/person/ada/"),
         )
         self.assertEqual(self.get("/library/ark:/12345/own/nobody").status_int, 404)
 
     def test_the_settings_of_the_repository_decide_what_a_new_record_is_called(self):
-        put_extension_state(self.application, "ark", {"naan": "12345", "root_prefix": "lib"})
+        put_extension_state(
+            self.application, "ark", {"naan": "12345", "root_prefix": "lib"}
+        )
         form = self.client().get("/library/person/add", headers=self.admin).forms[0]
         form["name"] = "Grace"
         self.assertEqual(form.submit("save", headers=self.admin).status_int, 302)
-        self.assertIn((uri.RESOURCE_URI, "ark:/12345/lib/person/2"), self.values("rec:person:2"))
+        self.assertIn(
+            (uri.RESOURCE_URI, "ark:/12345/lib/person/2"), self.values("rec:person:2")
+        )
         self.assertEqual(
             self.get("/library/ark:/12345/lib/person/2").location,
             "http://localhost/library/person/grace/",
         )
-        # the record made before keeps the name it was given, and is not found by another one
+        # the record made before keeps the name it was given, and is not found by
+        # another one
         self.assertEqual(self.get("/library/ark:/99999/ir/person/1").status_int, 404)

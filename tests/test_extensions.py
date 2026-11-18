@@ -1,6 +1,3 @@
-"""Extensions: what an extension decides, what is stored for it, what is below a repository because
-the registry says so, and the Extensions tab."""
-
 import datetime
 import functools
 import json
@@ -11,6 +8,7 @@ from base import DbTestCase
 from extension_support import put_extension_state
 from pyramid.exceptions import ConfigurationError
 from pyramid.response import Response
+from support import must_search
 from test_web import HeaderPolicy, WebCase
 
 from gracia import extensions, uri
@@ -20,7 +18,10 @@ from gracia.main import make_config
 from gracia.resources import Repository
 
 ADMIN = {"X-User": "admin"}
-POSTING = {**ADMIN, "Origin": "http://localhost:80"}  # a post has to come from this site
+POSTING = {
+    **ADMIN,
+    "Origin": "http://localhost:80",
+}  # a post has to come from this site
 
 
 class DemoSettings(colander.MappingSchema):
@@ -51,7 +52,8 @@ class Demo(Extension):
 
 
 class OnlyWithPerson(Extension):
-    """On only when the repository has the type `person`: the stored flag is not what decides."""
+    """On only when the repository has the type `person`: the stored flag is not what
+    decides."""
 
     title = "Only with person"
     description = "Depends on the repository."
@@ -115,7 +117,8 @@ class ExtensionsCase(WebCase):
 class ExtensionTest(ExtensionsCase):
     def test_every_extension_there_is_is_known_by_title(self):
         self.assertEqual(
-            [e.name for e in self.repo().extensions()], ["ark", "demo", "ns_prefix", "depends", "search"]
+            [e.name for e in self.repo().extensions()],
+            ["ark", "demo", "ns_prefix", "depends", "search"],
         )
         self.assertEqual(self.repo().extension("ark").title, "ARK")
 
@@ -127,7 +130,9 @@ class ExtensionTest(ExtensionsCase):
         repo = self.repo()
         self.assertTrue(repo.extension("ark").enabled)  # always
         self.assertFalse(repo.extension("demo").enabled)  # off until it is enabled
-        self.assertFalse(repo.extension("depends").enabled)  # the repository has no person type
+        self.assertFalse(
+            repo.extension("depends").enabled
+        )  # the repository has no person type
 
     def test_one_object_per_name_for_a_request(self):
         repo = self.repo()
@@ -176,7 +181,8 @@ class ExtensionTest(ExtensionsCase):
             {"greeting": "hi", "count": 5, "since": datetime.date(2021, 2, 3)}
         )
         self.assertEqual(
-            self.stored()["demo"][1], {"greeting": "hi", "count": "5", "since": "2021-02-03"}
+            self.stored()["demo"][1],
+            {"greeting": "hi", "count": "5", "since": "2021-02-03"},
         )
         back = self.ext("demo").settings
         self.assertEqual(back["since"], datetime.date(2021, 2, 3))
@@ -189,7 +195,9 @@ class ExtensionTest(ExtensionsCase):
         )
         with self.application.open_repository("library") as store:
             data = store.get(uri.repository_uri())
-        literals = [q.object for q in data if q.predicate.value == uri.EXTENSION_SETTINGS]
+        literals = [
+            q.object for q in data if q.predicate.value == uri.EXTENSION_SETTINGS
+        ]
         demo = [lit for lit in literals if '"greeting"' in lit.value]
         self.assertEqual(len(demo), 1)
         self.assertEqual(demo[0].datatype.value, uri.RDF_JSON)
@@ -198,7 +206,8 @@ class ExtensionTest(ExtensionsCase):
         put_extension_state(self.application, name, settings, enabled, turtle)
 
     def test_a_setting_that_is_not_there_is_its_default_and_nothing_older_breaks(self):
-        # what an older version stored: a key the schema no longer has, a value it no longer takes,
+        # what an older version stored: a key the schema no longer has, a value it no
+        # longer takes,
         # and nothing of the newer settings
         self.put_state("demo", {"colour": "red", "count": "not a number"}, True)
         self.assertEqual(
@@ -222,10 +231,14 @@ class ExtensionTest(ExtensionsCase):
             demo.import_json("[1]")
         with self.assertRaisesRegex(ExtensionError, "count"):
             demo.import_json('{"count": "0"}')
-        with self.assertRaisesRegex(ExtensionError, "colour"):  # a key the schema does not know
+        with self.assertRaisesRegex(
+            ExtensionError, "colour"
+        ):  # a key the schema does not know
             demo.import_json('{"colour": "red"}')
         with self.assertRaisesRegex(ExtensionError, "count"):
-            demo.save_settings({"greeting": "x", "count": 0, "since": datetime.date(2020, 1, 1)})
+            demo.save_settings(
+                {"greeting": "x", "count": 0, "since": datetime.date(2020, 1, 1)}
+            )
         self.assertNotIn("demo", self.stored())
 
     def test_json_may_leave_a_setting_out_and_it_is_the_default(self):
@@ -238,8 +251,12 @@ class ExtensionTest(ExtensionsCase):
         self.assertEqual(self.ext("depends").settings, {})
 
     def test_the_ark_settings_are_the_ones_the_repository_was_made_with(self):
-        self.assertEqual(self.ext("ark").settings, {"naan": "99999", "root_prefix": "ir"})
-        self.assertEqual(self.stored()["ark"][1], {"naan": "99999", "root_prefix": "ir"})
+        self.assertEqual(
+            self.ext("ark").settings, {"naan": "99999", "root_prefix": "ir"}
+        )
+        self.assertEqual(
+            self.stored()["ark"][1], {"naan": "99999", "root_prefix": "ir"}
+        )
 
     def test_for_now_only_99999_and_ir_are_taken_for_the_ark_settings(self):
         with self.assertRaisesRegex(ExtensionError, "Only 99999 for now"):
@@ -248,14 +265,21 @@ class ExtensionTest(ExtensionsCase):
             self.ext("ark").import_json('{"naan": "99999", "root_prefix": "lib"}')
         self.ext("ark").import_json('{"naan": "99999", "root_prefix": "ir"}')
         self.ext("ark").import_json("{}")  # left out: the defaults, which are the same
-        self.assertEqual(self.ext("ark").settings, {"naan": "99999", "root_prefix": "ir"})
+        self.assertEqual(
+            self.ext("ark").settings, {"naan": "99999", "root_prefix": "ir"}
+        )
 
 
 class RegistryTest(ExtensionsCase):
     def test_what_is_below_a_repository_comes_from_the_registry_by_prefix(self):
-        for name in ("jobs", "deform"):  # the core registers its own children the same way
+        for name in (
+            "jobs",
+            "deform",
+        ):  # the core registers its own children the same way
             self.assertEqual(
-                self.web.get(f"/library/{name}", headers=ADMIN, expect_errors=True).status_int
+                self.web.get(
+                    f"/library/{name}", headers=ADMIN, expect_errors=True
+                ).status_int
                 in (200, 404),
                 True,
             )
@@ -264,31 +288,41 @@ class RegistryTest(ExtensionsCase):
         node = self.application["library"]
         self.addCleanup(node.close)
         self.assertEqual(node["hello:there"].__name__, "hello:there")
-        self.assertEqual(node["hello:longer"].__name__, "hello:longer")  # the longest prefix
+        self.assertEqual(
+            node["hello:longer"].__name__, "hello:longer"
+        )  # the longest prefix
         with self.assertRaises(KeyError):
             node["nope:anything"]
         with self.assertRaises(KeyError):
             node["nothing"]
-        self.assertEqual(node["person"].slug if "person" in node.res_types else "x", "x")
+        self.assertEqual(
+            node["person"].slug if "person" in node.res_types else "x", "x"
+        )
 
     def test_a_key_that_a_type_could_have_is_refused(self):
         config = make_config(self.settings)
         with self.assertRaises(ConfigurationError):
             config.add_gracia_repository_child("person", lambda r, n: None)
         config = make_config(self.settings)
-        config.add_gracia_repository_child("ark:", lambda r, n: None)  # a colon: no type has it
-        config.add_gracia_repository_child("jobs", lambda r, n: None)  # reserved on purpose
+        config.add_gracia_repository_child(
+            "ark:", lambda r, n: None
+        )  # a colon: no type has it
+        config.add_gracia_repository_child(
+            "jobs", lambda r, n: None
+        )  # reserved on purpose
 
     def test_a_view_of_an_extension_is_there_only_where_it_is_on(self):
         self.assertEqual(
-            self.web.get("/library/demo", headers=ADMIN, expect_errors=True).status_int, 404
+            self.web.get("/library/demo", headers=ADMIN, expect_errors=True).status_int,
+            404,
         )
         self.ext("demo").enable()
         response = self.web.get("/library/demo", headers=ADMIN)
         self.assertEqual(response.text, "the demo")
         self.ext("demo").disable()
         self.assertEqual(
-            self.web.get("/library/demo", headers=ADMIN, expect_errors=True).status_int, 404
+            self.web.get("/library/demo", headers=ADMIN, expect_errors=True).status_int,
+            404,
         )
 
 
@@ -308,8 +342,10 @@ class TabTest(ExtensionsCase):
         )
 
     def card(self, page, name):
-        return re.search(
-            rf'<div class="extension[^"]*" id="extension-{name}">.*?(?=<div class="extension|<p class="text-muted"|\Z)',
+        return must_search(
+            rf'<div class="extension[^"]*" id="extension-{name}">.*?(?=<div '
+            r'class="extension|<p '
+            r'class="text-muted"|\Z)',
             page,
             re.S,
         )[0]
@@ -317,31 +353,52 @@ class TabTest(ExtensionsCase):
     def test_there_is_a_card_for_each_extension_and_the_tab_is_after_settings(self):
         page = self.page()
         tabs = re.findall(r'data-tab="([a-z]+)"', page)
-        self.assertEqual(tabs, ["types", "settings", "extensions", "search", "predicates", "stats", "jobs"])
-        for name, title in (("ark", "ARK"), ("demo", "Demo"), ("depends", "Only with person")):
+        self.assertEqual(
+            tabs,
+            [
+                "types",
+                "settings",
+                "extensions",
+                "search",
+                "predicates",
+                "stats",
+                "jobs",
+            ],
+        )
+        for name, title in (
+            ("ark", "ARK"),
+            ("demo", "Demo"),
+            ("depends", "Only with person"),
+        ):
             self.assertIn(f'id="extension-{name}"', page)
             self.assertIn(title, self.card(page, name))
 
     def test_ark_cannot_be_turned_off_and_its_form_is_a_normal_form(self):
         card = self.card(self.page(), "ark")
         self.assertIn("enabled", card)
-        button = re.search(r'<button[^>]*name="disable"[^>]*>', card)[0]  # there, and greyed out
+        button = must_search(r'<button[^>]*name="disable"[^>]*>', card)[
+            0
+        ]  # there, and greyed out
         self.assertIn('disabled="disabled"', button)
         self.assertIn("cannot be disabled", button)
         self.assertNotIn('name="enable"', card)
         self.assertIn(">Settings</button>", card)
-        update = re.search(r'<button[^>]*name="update"[^>]*>', card)[0]
+        update = must_search(r'<button[^>]*name="update"[^>]*>', card)[0]
         self.assertNotIn("disabled=", update)
         self.assertIn('name="import_json"', card)
         for name, value in (("naan", "99999"), ("root_prefix", "ir")):
-            field = re.search(rf'<input[^>]*name="{name}"[^>]*>', card)[0]
+            field = must_search(rf'<input[^>]*name="{name}"[^>]*>', card)[0]
             self.assertIn(f'value="{value}"', field)
             self.assertNotIn("readonly", field)
-        refused = self.post("ark", "disable")  # refused, and said so in the dialog's tab
+        refused = self.post(
+            "ark", "disable"
+        )  # refused, and said so in the dialog's tab
         self.assertEqual(refused.status_int, 200)
         self.assertIn("cannot be disabled", refused.text)
 
-    def test_what_is_typed_for_the_ark_settings_is_refused_unless_it_is_99999_and_ir(self):
+    def test_what_is_typed_for_the_ark_settings_is_refused_unless_it_is_99999_and_ir(
+        self,
+    ):
         form = self.web.get(self.URL, headers=ADMIN).forms["form-extension-ark"]
         form["naan"], form["root_prefix"] = "12345", "lib"
         response = form.submit("update", headers=POSTING)
@@ -350,14 +407,18 @@ class TabTest(ExtensionsCase):
         self.assertIn('data-open="true"', card)
         self.assertIn("Only 99999 for now", card)
         self.assertIn("Only ir for now", card)
-        self.assertEqual(self.ext("ark").settings, {"naan": "99999", "root_prefix": "ir"})
+        self.assertEqual(
+            self.ext("ark").settings, {"naan": "99999", "root_prefix": "ir"}
+        )
         form = self.web.get(self.URL, headers=ADMIN).forms["form-extension-ark"]
-        self.assertEqual(form.submit("update", headers=POSTING).status_int, 302)  # as it is: fine
+        self.assertEqual(
+            form.submit("update", headers=POSTING).status_int, 302
+        )  # as it is: fine
 
     def test_a_disabled_extension_has_an_enable_button_and_no_settings(self):
         card = self.card(self.page(), "demo")
         self.assertIn("disabled", card)
-        button = re.search(r'<button[^>]*name="enable"[^>]*>', card)[0]
+        button = must_search(r'<button[^>]*name="enable"[^>]*>', card)[0]
         self.assertNotIn("disabled=", button)  # it can be enabled
         self.assertNotIn('name="disable"', card)
         self.assertNotIn(">Settings</button>", card)
@@ -365,11 +426,13 @@ class TabTest(ExtensionsCase):
     def test_enabling_and_disabling(self):
         response = self.post("demo", "enable")
         self.assertEqual(response.status_int, 302)
-        self.assertEqual(response.location, "http://localhost/library/manage?tab=extensions")
+        self.assertEqual(
+            response.location, "http://localhost/library/manage?tab=extensions"
+        )
         page = response.follow(headers=ADMIN).text
         self.assertIn("Demo is enabled", page)
         card = self.card(page, "demo")
-        button = re.search(r'<button[^>]*name="disable"[^>]*>', card)[0]
+        button = must_search(r'<button[^>]*name="disable"[^>]*>', card)[0]
         self.assertNotIn("disabled=", button)  # it can be disabled
         self.assertNotIn('name="enable"', card)
         self.assertIn(">Settings</button>", card)
@@ -384,7 +447,9 @@ class TabTest(ExtensionsCase):
         self.assertIn('name="update"', card)
         self.assertRegex(card, r">\s*Update settings\s*<")
         self.assertIn(">Import / Export<", card)
-        text = re.search(r'<textarea[^>]*name="json"[^>]*>(.*?)</textarea>', card, re.S)[1]
+        text = must_search(
+            r'<textarea[^>]*name="json"[^>]*>(.*?)</textarea>', card, re.S
+        )[1]
         self.assertEqual(
             json.loads(text.replace("&quot;", '"')),
             {"greeting": "hello", "count": "3", "since": "2020-01-01"},
@@ -402,7 +467,9 @@ class TabTest(ExtensionsCase):
         )  # Deform's date widget
         response = form.submit("update", headers=POSTING)
         self.assertEqual(response.status_int, 302)
-        self.assertIn("The settings of Demo are updated", response.follow(headers=ADMIN).text)
+        self.assertIn(
+            "The settings of Demo are updated", response.follow(headers=ADMIN).text
+        )
         self.assertEqual(
             self.ext("demo").settings,
             {"greeting": "hi", "count": 7, "since": datetime.date(2022, 5, 6)},
@@ -417,7 +484,8 @@ class TabTest(ExtensionsCase):
         card = self.card(response.text, "demo")
         self.assertIn('data-open="true"', card)
         self.assertIn("0 is less than minimum value 1", card)
-        # the form that comes back is the form: it has its button and posts to the same address
+        # the form that comes back is the form: it has its button and posts to the same
+        # address
         self.assertRegex(card, r'name="update"[^>]*>\s*Update settings')
         self.assertIn('action="http://localhost/library/manage?tab=extensions"', card)
         self.assertEqual(self.ext("demo").settings["count"], 3)  # nothing stored
@@ -458,7 +526,8 @@ class TabTest(ExtensionsCase):
 
 class IncludemeTest(WebCase):
     def test_the_includeme_of_an_extension_module_is_called(self):
-        # the module is named in the setting: it is scanned (the class) and included (its includeme)
+        # the module is named in the setting: it is scanned (the class) and included
+        # (its includeme)
         self.application.create_repository("library")
         config = make_config({**self.settings, "gracia.extensions": "ext_with_include"})
         config.commit()
@@ -484,9 +553,13 @@ class IncludemeTest(WebCase):
 
 class JsonNumbersTest(ExtensionsCase):
     def test_a_json_number_is_taken_for_a_number_field(self):
-        self.ext("demo").import_json('{"greeting": "hi", "count": 9, "since": "2022-05-06"}')
+        self.ext("demo").import_json(
+            '{"greeting": "hi", "count": 9, "since": "2022-05-06"}'
+        )
         self.assertEqual(self.ext("demo").settings["count"], 9)
-        with self.assertRaisesRegex(ExtensionError, "count"):  # still checked: 0 is below 1
+        with self.assertRaisesRegex(
+            ExtensionError, "count"
+        ):  # still checked: 0 is below 1
             self.ext("demo").import_json('{"count": 0}')
         with self.assertRaisesRegex(ExtensionError, "count"):
             self.ext("demo").import_json('{"count": "many"}')
@@ -518,11 +591,17 @@ class CommandTest(DbTestCase):
 
     def test_export_and_import_the_settings(self):
         code, out, err = self.run_cli("export", "ark")
-        self.assertEqual((code, json.loads(out)), (0, {"naan": "99999", "root_prefix": "ir"}), err)
+        self.assertEqual(
+            (code, json.loads(out)), (0, {"naan": "99999", "root_prefix": "ir"}), err
+        )
         target = self.tmp / "ark.json"
         self.assertEqual(self.run_cli("export", "ark", "-o", str(target))[0], 0)
-        self.assertEqual(json.loads(target.read_text()), {"naan": "99999", "root_prefix": "ir"})
-        code, out, err = self.run_cli("import", "ark", str(target))  # the same: accepted
+        self.assertEqual(
+            json.loads(target.read_text()), {"naan": "99999", "root_prefix": "ir"}
+        )
+        code, out, err = self.run_cli(
+            "import", "ark", str(target)
+        )  # the same: accepted
         self.assertEqual((code, out.strip()), (0, "ark: settings updated"), err)
 
     def test_an_import_that_is_not_right_is_refused_with_the_reason(self):
@@ -539,7 +618,9 @@ class CommandTest(DbTestCase):
 
 class NsPrefixTest(ExtensionsCase):
     def prefixes(self, name="ns_prefix"):
-        return {i["prefix"]: i["namespace"] for i in self.ext(name).settings["prefixes"]}
+        return {
+            i["prefix"]: i["namespace"] for i in self.ext(name).settings["prefixes"]
+        }
 
     def test_it_is_always_on_and_a_new_repository_has_the_default_prefixes(self):
         from gracia.extensions.ns_prefix import DEFAULT_PREFIXES
@@ -571,7 +652,9 @@ class NsPrefixTest(ExtensionsCase):
             [("1x", "http://a/")],
             [("xmlx", "http://a/")],
         ):
-            text = to_json({"prefixes": [{"prefix": p, "namespace": n} for p, n in items]})
+            text = to_json(
+                {"prefixes": [{"prefix": p, "namespace": n} for p, n in items]}
+            )
             with self.assertRaises(ExtensionError):
                 ext.import_json(text)
 

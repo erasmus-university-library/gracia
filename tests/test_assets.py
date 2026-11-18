@@ -1,5 +1,3 @@
-"""Files of a type on disk, named by asset specs: loading, caching, overriding."""
-
 import contextlib
 import hashlib
 import io
@@ -49,7 +47,11 @@ class SchemaNameTest(unittest.TestCase):
     """`<Type>-<profile>-<revision>.ttl`, of the type that asks for it."""
 
     def test_a_schema_file_of_the_type(self):
-        for name in ("Person-full-03.ttl", "Person-minimal-01.ttl", "Person-short_form-120.ttl"):
+        for name in (
+            "Person-full-03.ttl",
+            "Person-minimal-01.ttl",
+            "Person-short_form-120.ttl",
+        ):
             self.assertEqual(
                 assets.schema_spec("gracia.types:person/", name, "Person"),
                 f"gracia.types:person/shacl/{name}",
@@ -103,17 +105,25 @@ class ShapeLoadingTest(unittest.TestCase):
             ("group", "UserGroup", uri.GROUP_CLASS),
         ):
             prefix = init.TYPE_ASSETS.format(slug=slug)
-            self.assertIsNotNone(assets.shape(prefix, f"{name}-full-01.ttl", class_uri, name), slug)
+            self.assertIsNotNone(
+                assets.shape(prefix, f"{name}-full-01.ttl", class_uri, name), slug
+            )
 
     def test_a_missing_or_wrong_shape_is_none_not_an_error(self):
         self.assertIsNone(assets.shape(None, "Thing-full-01.ttl", THING, "Thing"))
-        self.assertIsNone(assets.shape(f"{self.dir}/", None, THING, "Thing"))  # no schema named
-        self.assertIsNone(self.shape())  # the file is not there (not even logged as an error)
+        self.assertIsNone(
+            assets.shape(f"{self.dir}/", None, THING, "Thing")
+        )  # no schema named
+        self.assertIsNone(
+            self.shape()
+        )  # the file is not there (not even logged as an error)
         self.write()
         with self.assertLogs("gracia.utils.assets", "WARNING"):
             self.assertIsNone(self.shape(class_uri="http://example.org/Other"))
         with self.assertLogs("gracia.utils.assets", "WARNING"):
-            self.assertIsNone(self.shape(schema="Other-full-01.ttl"))  # another type's name
+            self.assertIsNone(
+                self.shape(schema="Other-full-01.ttl")
+            )  # another type's name
         self.write().write_text("this is not turtle")
         with self.assertLogs("gracia.utils.assets", "WARNING"):
             self.assertIsNone(self.shape())
@@ -122,7 +132,9 @@ class ShapeLoadingTest(unittest.TestCase):
                 assets.shape("no.such.package:x/", "Thing-full-01.ttl", THING, "Thing")
             )
 
-    def test_a_changed_file_is_read_again_and_an_unchanged_one_is_not_parsed_twice(self):
+    def test_a_changed_file_is_read_again_and_an_unchanged_one_is_not_parsed_twice(
+        self,
+    ):
         path = self.write(label="First")
         first = self.shape()
         self.assertIs(self.shape(), first)  # cached
@@ -130,7 +142,9 @@ class ShapeLoadingTest(unittest.TestCase):
         os.utime(path, ns=(10**18, 10**18))  # a different modification time
         second = self.shape()
         self.assertIsNot(second, first)
-        names = [q.object.value for q in second[0] if q.predicate.value.endswith("#name")]
+        names = [
+            q.object.value for q in second[0] if q.predicate.value.endswith("#name")
+        ]
         self.assertEqual(names, ["Second"])
 
     def test_a_directory_is_not_an_asset(self):
@@ -166,16 +180,24 @@ class ProfilesTest(unittest.TestCase):
         prefix = f"{self.dir}/"
         versions = {
             name: assets.version(prefix, name, "Thing")
-            for name in ("Thing-full-01.ttl", "Thing-full-02.ttl", "Thing-minimal-01.ttl")
+            for name in (
+                "Thing-full-01.ttl",
+                "Thing-full-02.ttl",
+                "Thing-minimal-01.ttl",
+            )
         }
         self.assertEqual(len(set(versions.values())), 3)
         # the others files of the directory do not count: only the one the type is on
-        (self.dir / "shacl" / "Thing-full-03.ttl").write_text(SHAPE.replace("@NAME@", "New"))
+        (self.dir / "shacl" / "Thing-full-03.ttl").write_text(
+            SHAPE.replace("@NAME@", "New")
+        )
         self.assertEqual(
-            assets.version(prefix, "Thing-full-01.ttl", "Thing"), versions["Thing-full-01.ttl"]
+            assets.version(prefix, "Thing-full-01.ttl", "Thing"),
+            versions["Thing-full-01.ttl"],
         )
         self.assertNotEqual(
-            assets.version(prefix, "Thing-full-03.ttl", "Thing"), versions["Thing-full-01.ttl"]
+            assets.version(prefix, "Thing-full-03.ttl", "Thing"),
+            versions["Thing-full-01.ttl"],
         )
 
     def test_a_schema_that_does_not_exist_leaves_only_the_stylesheet(self):
@@ -184,7 +206,9 @@ class ProfilesTest(unittest.TestCase):
         (self.dir / "view.xsl").write_text("view")
         only_view = assets.version(prefix, "Thing-full-09.ttl", "Thing")
         self.assertNotEqual(only_view, "")
-        self.assertEqual(assets.version(prefix, "Other-full-01.ttl", "Thing"), only_view)  # invalid
+        self.assertEqual(
+            assets.version(prefix, "Other-full-01.ttl", "Thing"), only_view
+        )  # invalid
 
 
 class OverrideTest(unittest.TestCase):
@@ -200,10 +224,14 @@ class OverrideTest(unittest.TestCase):
         schema = "shacl/Thing-full-01.ttl"
         (root / "base_types/thing" / schema).write_text(SHAPE.replace("@NAME@", "Base"))
         (root / "base_types/thing/view.xsl").write_text("base view")
-        (root / "custom_types/thing" / schema).write_text(SHAPE.replace("@NAME@", "Custom"))
+        (root / "custom_types/thing" / schema).write_text(
+            SHAPE.replace("@NAME@", "Custom")
+        )
         sys.path.insert(0, str(root))
         self.addCleanup(sys.path.remove, str(root))
-        self.addCleanup(lambda: [sys.modules.pop(m, None) for m in ("base_types", "custom_types")])
+        self.addCleanup(
+            lambda: [sys.modules.pop(m, None) for m in ("base_types", "custom_types")]
+        )
 
     def label(self):
         data, _ = assets.shape("base_types:thing/", "Thing-full-01.ttl", THING, "Thing")
@@ -232,7 +260,8 @@ class OverrideTest(unittest.TestCase):
 
 
 class InfoTest(unittest.TestCase):
-    """What the application knows about a file, computed in the process from the file."""
+    """What the application knows about a file, computed in the process from the
+    file."""
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -242,20 +271,28 @@ class InfoTest(unittest.TestCase):
     def test_checksum_size_and_media_type_of_a_file(self):
         (self.dir / "shape.ttl").write_text("<a> <b> <c> .")
         item = assets.info(f"{self.dir}/shape.ttl")
-        self.assertEqual(item.checksum, "md5:" + hashlib.md5(b"<a> <b> <c> .").hexdigest())
+        self.assertEqual(
+            item.checksum, "md5:" + hashlib.md5(b"<a> <b> <c> .").hexdigest()
+        )
         self.assertEqual((item.size, item.media_type), (13, "text/turtle"))
         (self.dir / "view.xsl").write_text("x")
-        self.assertEqual(assets.info(f"{self.dir}/view.xsl").media_type, "application/xslt+xml")
+        self.assertEqual(
+            assets.info(f"{self.dir}/view.xsl").media_type, "application/xslt+xml"
+        )
         (self.dir / "other.bin").write_text("x")
         self.assertEqual(
             assets.info(f"{self.dir}/other.bin").media_type, "application/octet-stream"
         )
 
-    def test_the_checksum_follows_the_file_and_is_not_computed_twice_for_one_version(self):
+    def test_the_checksum_follows_the_file_and_is_not_computed_twice_for_one_version(
+        self,
+    ):
         path = self.dir / "shape.ttl"
         path.write_text("one")
         first = assets.info(f"{self.dir}/shape.ttl")
-        with mock.patch.object(assets, "_checksum", side_effect=AssertionError("computed again")):
+        with mock.patch.object(
+            assets, "_checksum", side_effect=AssertionError("computed again")
+        ):
             self.assertEqual(assets.info(f"{self.dir}/shape.ttl"), first)  # cached
         path.write_text("two!")
         second = assets.info(f"{self.dir}/shape.ttl")
@@ -300,7 +337,9 @@ class InfoTest(unittest.TestCase):
         (root / "vcustom/type/view.xsl").write_text("custom")
         sys.path.insert(0, str(root))
         self.addCleanup(sys.path.remove, str(root))
-        self.addCleanup(lambda: [sys.modules.pop(m, None) for m in ("vbase", "vcustom")])
+        self.addCleanup(
+            lambda: [sys.modules.pop(m, None) for m in ("vbase", "vcustom")]
+        )
         plain = assets.version("vbase:type/")
         config = Configurator()
         config.override_asset("vbase:type/", "vcustom:type/")

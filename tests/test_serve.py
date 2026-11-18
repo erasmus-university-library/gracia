@@ -1,5 +1,3 @@
-"""`gracia serve`: the web application as a real process (waitress)."""
-
 import json
 import socket
 import subprocess
@@ -20,7 +18,9 @@ class ServeProcessTest(DbTestCase):
 
     def get(self, port: int, path: str):
         try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=5) as response:
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{port}{path}", timeout=5
+            ) as response:
                 return response.status, json.loads(response.read())
         except urllib.error.HTTPError as err:
             return err.code, json.loads(err.read())
@@ -29,7 +29,16 @@ class ServeProcessTest(DbTestCase):
         self.create_repositories("library")
         port = self.free_port()
         proc = subprocess.Popen(
-            [sys.executable, "-m", "gracia", "-d", str(self.db), "serve", "--port", str(port)],
+            [
+                sys.executable,
+                "-m",
+                "gracia",
+                "-d",
+                str(self.db),
+                "serve",
+                "--port",
+                str(port),
+            ],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
         )  # fmt: skip
         self.addCleanup(lambda: proc.poll() is None and proc.kill())

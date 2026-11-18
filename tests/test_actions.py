@@ -1,5 +1,3 @@
-"""The queue of what follows the data (`actions_queue`), the batches that take it off, and the worker."""
-
 import threading
 import time
 
@@ -18,7 +16,7 @@ from gracia.actions import (
     repository_lock,
 )
 from gracia.application import Application
-from gracia.store import Store
+from gracia.store import Store, fetch_one
 
 STAMP2 = "2026-06-01T00:00:00.000000Z"
 
@@ -37,7 +35,9 @@ class WrittenTest(QueueCase):
 
     def test_a_new_record_is_an_insert_and_a_changed_one_an_update(self):
         self.put(record("rec:org:1"), record("rec:org:2"))
-        self.assertEqual(self.queue(), [(1, "rec:org:1", "insert"), (1, "rec:org:2", "insert")])
+        self.assertEqual(
+            self.queue(), [(1, "rec:org:1", "insert"), (1, "rec:org:2", "insert")]
+        )
         self.put(record("rec:org:1", refs=["rec:org:2"], stamp=STAMP2))
         self.assertIn((2, "rec:org:1", "update"), self.queue(1))
 
@@ -49,12 +49,18 @@ class WrittenTest(QueueCase):
         self.assertEqual(self.queue(2), [(3, "rec:org:1", "insert")])
 
     def test_a_replace_is_one_row_for_the_record_and_the_transaction(self):
-        """The store replaces a record by deleting it and inserting it: two statements, one `update`."""
+        """The store replaces a record by deleting it and inserting it: two statements,
+        one `update`."""
         self.put(record("rec:org:1"))
         self.put(record("rec:org:1", refs=["rec:org:9"], stamp=STAMP2))
-        self.assertEqual([r for r in self.queue(1) if r[1] == "rec:org:1"], [(2, "rec:org:1", "update")])
+        self.assertEqual(
+            [r for r in self.queue(1) if r[1] == "rec:org:1"],
+            [(2, "rec:org:1", "update")],
+        )
 
-    def test_the_rows_are_in_the_transaction_that_wrote_them_and_a_rollback_leaves_none(self):
+    def test_the_rows_are_in_the_transaction_that_wrote_them_and_a_rollback_leaves_none(
+        self,
+    ):
         self.put(record("rec:org:1"))
         before = self.queue()
         self.store.con.begin()
@@ -62,47 +68,84 @@ class WrittenTest(QueueCase):
         self.store.con.rollback()
         self.assertEqual(self.queue(), before)
 
-    def test_the_pages_made_of_a_changed_record_are_ref_updates_and_nothing_else_is(self):
-        self.put(record("rec:org:1"), record("rec:person:1", refs=["rec:org:1"]),
-                 record("rec:work:1", refs=["rec:person:1"]), record("rec:work:2"))
+    def test_the_pages_made_of_a_changed_record_are_ref_updates_and_nothing_else_is(
+        self,
+    ):
+        self.put(
+            record("rec:org:1"),
+            record("rec:person:1", refs=["rec:org:1"]),
+            record("rec:work:1", refs=["rec:person:1"]),
+            record("rec:work:2"),
+        )
         self.put(record("rec:org:1", stamp=STAMP2, refs=["rec:org:2"]))
         self.assertEqual(
             self.queue(1),
-            [(2, "rec:org:1", "update"), (2, "rec:person:1", "ref_update"), (2, "rec:work:1", "ref_update")],
+            [
+                (2, "rec:org:1", "update"),
+                (2, "rec:person:1", "ref_update"),
+                (2, "rec:work:1", "ref_update"),
+            ],
         )  # work 2 is not made of org 1
 
     def test_the_same_with_the_delta_that_does_not_walk_the_pages(self):
         old = store_module.ETAGS_DELTA_ABOVE
         store_module.ETAGS_DELTA_ABOVE = 0
         self.addCleanup(setattr, store_module, "ETAGS_DELTA_ABOVE", old)
-        self.put(record("rec:org:1"), record("rec:person:1", refs=["rec:org:1"]),
-                 *[record(f"rec:work:{n}", refs=["rec:person:1"]) for n in range(1, 6)])
-        self.put(record("rec:org:1", stamp=STAMP2))  # its references are the same: the pages are moved, not walked
+        self.put(
+            record("rec:org:1"),
+            record("rec:person:1", refs=["rec:org:1"]),
+            *[record(f"rec:work:{n}", refs=["rec:person:1"]) for n in range(1, 6)],
+        )
+        self.put(
+            record("rec:org:1", stamp=STAMP2)
+        )  # its references are the same: the pages are moved, not walked
         self.assertEqual(
             {r[1] for r in self.queue(1) if r[2] == "ref_update"},
             {"rec:person:1", *(f"rec:work:{n}" for n in range(1, 6))},
         )
 
-    def test_a_record_that_was_written_and_made_of_something_that_changed_is_one_row(self):
+    def test_a_record_that_was_written_and_made_of_something_that_changed_is_one_row(
+        self,
+    ):
         self.put(record("rec:org:1"), record("rec:person:1", refs=["rec:org:1"]))
-        self.put(record("rec:org:1", stamp=STAMP2), record("rec:person:1", refs=["rec:org:1"], stamp=STAMP2))
-        self.assertEqual(self.queue(1), [(2, "rec:org:1", "update"), (2, "rec:person:1", "update")])
+        self.put(
+            record("rec:org:1", stamp=STAMP2),
+            record("rec:person:1", refs=["rec:org:1"], stamp=STAMP2),
+        )
+        self.assertEqual(
+            self.queue(1), [(2, "rec:org:1", "update"), (2, "rec:person:1", "update")]
+        )
 
-    def test_a_write_outside_the_store_is_queued_by_the_triggers_and_its_pages_when_made_up_for(self):
+    def test_a_write_outside_the_store_is_queued_by_the_triggers_and_its_pages_when_made_up_for(  # noqa: E501
+        self,
+    ):
         self.put(record("rec:org:1"), record("rec:work:1", refs=["rec:org:1"]))
         self.store.con.execute(
-            "INSERT INTO triples VALUES ('rec:org:1', [], ?, NULL, '2027-01-01T00:00:00.000000Z', NULL, ?)",
-            ["https://gracia.pub/ns/modified_at", "http://www.w3.org/2001/XMLSchema#dateTime"],
+            "INSERT INTO triples VALUES ('rec:org:1', [], ?, NULL, "
+            "'2027-01-01T00:00:00.000000Z', "
+            "NULL, ?)",
+            [
+                "https://gracia.pub/ns/modified_at",
+                "http://www.w3.org/2001/XMLSchema#dateTime",
+            ],
         )
-        self.assertEqual(next(r for r in self.queue(1) if r[1] == "rec:org:1")[2], "update")
-        self.assertFalse([r for r in self.queue(1) if r[1] == "rec:work:1"])  # no refresh yet
+        self.assertEqual(
+            next(r for r in self.queue(1) if r[1] == "rec:org:1")[2], "update"
+        )
+        self.assertFalse(
+            [r for r in self.queue(1) if r[1] == "rec:work:1"]
+        )  # no refresh yet
         self.assertTrue(self.store.catch_up_etags())
-        self.assertIn("ref_update", {r[2] for r in self.queue(1) if r[1] == "rec:work:1"})
+        self.assertIn(
+            "ref_update", {r[2] for r in self.queue(1) if r[1] == "rec:work:1"}
+        )
         self.assertFalse(self.store.catch_up_etags())  # and now there is nothing
 
     def test_a_rebuild_queues_the_pages_that_are_not_what_they_were(self):
         self.put(record("rec:org:1"), record("rec:work:1", refs=["rec:org:1"]))
-        self.store.con.execute("UPDATE etags SET etag = etag + 1 WHERE record_uri = 'rec:work:1'")
+        self.store.con.execute(
+            "UPDATE etags SET etag = etag + 1 WHERE record_uri = 'rec:work:1'"
+        )
         last = self.store.last_transaction()
         self.assertEqual(self.store.rebuild_etags(), ["rec:work:1"])
         self.assertEqual(self.queue(last - 1)[-1], (last, "rec:work:1", "ref_update"))
@@ -111,7 +154,9 @@ class WrittenTest(QueueCase):
 class TakeTest(QueueCase):
     def setUp(self):
         super().setUp()
-        self.put(*[record(f"rec:work:{n}") for n in range(1, 8)])  # transaction 1: seven inserts
+        self.put(
+            *[record(f"rec:work:{n}") for n in range(1, 8)]
+        )  # transaction 1: seven inserts
 
     def test_the_oldest_rows_in_the_order_they_were_queued_and_nothing_is_removed(self):
         taken, bound = self.store.take_actions(3)
@@ -130,66 +175,104 @@ class TakeTest(QueueCase):
 
     def test_what_was_queued_after_the_read_stays_when_the_rows_are_taken_off(self):
         taken, bound = self.store.take_actions(100)
-        self.put(record("rec:work:1", refs=["rec:org:9"], stamp=STAMP2))  # transaction 2, after the read
+        self.put(
+            record("rec:work:1", refs=["rec:org:9"], stamp=STAMP2)
+        )  # transaction 2, after the read
         self.store.actions_done([t[0] for t in taken], bound)
         self.assertEqual([r[:2] for r in self.queue()], [(2, "rec:work:1")])
         self.assertEqual(self.store.pending_actions(), (1, 2))
 
     def test_an_empty_queue_has_nothing(self):
         self.store.actions_done([t[0] for t in self.store.take_actions(100)[0]], 1)
-        self.assertEqual((self.store.take_actions(10)[0], self.store.pending_actions()), ([], (0, None)))
+        self.assertEqual(
+            (self.store.take_actions(10)[0], self.store.pending_actions()),
+            ([], (0, None)),
+        )
 
 
 class SizeTest(QueueCase):
-    """Batches are measured in bytes: the sizes are in the tables, and the queue is read by them."""
+    """Batches are measured in bytes: the sizes are in the tables, and the queue is read
+    by them."""
 
     def setUp(self):
         super().setUp()
-        self.put(record("rec:org:1"), record("rec:person:1", refs=["rec:org:1"]),
-                 record("rec:work:1", refs=["rec:person:1"]), record("rec:work:2"))
+        self.put(
+            record("rec:org:1"),
+            record("rec:person:1", refs=["rec:org:1"]),
+            record("rec:work:1", refs=["rec:person:1"]),
+            record("rec:work:2"),
+        )
 
     def sizes(self) -> dict[str, tuple[int, int]]:
-        return {u: (b, c) for u, b, c in self.store.con.execute(
-            "SELECT record_uri, bytes, closure_bytes FROM etags").fetchall()}
+        return {
+            u: (b, c)
+            for u, b, c in self.store.con.execute(
+                "SELECT record_uri, bytes, closure_bytes FROM etags"
+            ).fetchall()
+        }
 
-    def test_a_record_has_the_size_of_its_source_and_a_page_the_size_of_all_it_is_made_of(self):
-        own = dict(self.store.con.execute("SELECT record_uri(record_id), strlen(source) FROM records").fetchall())
+    def test_a_record_has_the_size_of_its_source_and_a_page_the_size_of_all_it_is_made_of(  # noqa: E501
+        self,
+    ):
+        own = dict(
+            self.store.con.execute(
+                "SELECT record_uri(record_id), strlen(source) FROM records"
+            ).fetchall()
+        )
         self.assertTrue(all(b > 0 for b in own.values()))
         sizes = self.sizes()
-        for uri_, (bytes_, closure) in sizes.items():
+        for uri_, (bytes_, _closure) in sizes.items():
             self.assertEqual(bytes_, own[uri_])
         self.assertEqual(sizes["rec:org:1"][1], own["rec:org:1"])
-        self.assertEqual(sizes["rec:work:1"][1], own["rec:work:1"] + own["rec:person:1"] + own["rec:org:1"])
+        self.assertEqual(
+            sizes["rec:work:1"][1],
+            own["rec:work:1"] + own["rec:person:1"] + own["rec:org:1"],
+        )
         self.assertEqual(sizes["rec:work:2"][1], own["rec:work:2"])
 
-    def test_the_size_of_a_page_follows_what_it_is_made_of_also_when_the_etags_are_moved_not_walked(self):
+    def test_the_size_of_a_page_follows_what_it_is_made_of_also_when_the_etags_are_moved_not_walked(  # noqa: E501
+        self,
+    ):
         old = store_module.ETAGS_DELTA_ABOVE
         store_module.ETAGS_DELTA_ABOVE = 0
         self.addCleanup(setattr, store_module, "ETAGS_DELTA_ABOVE", old)
         before = self.sizes()
-        self.put(record("rec:org:1", refs=["rec:org:9"], stamp=STAMP2))  # a bigger record, the same references
+        self.put(
+            record("rec:org:1", refs=["rec:org:9"], stamp=STAMP2)
+        )  # a bigger record, the same references
         after = self.sizes()
         grown = after["rec:org:1"][0] - before["rec:org:1"][0]
         self.assertGreater(grown, 0)
         self.assertEqual(after["rec:work:1"][1], before["rec:work:1"][1] + grown)
         self.assertEqual(after["rec:person:1"][1], before["rec:person:1"][1] + grown)
-        self.assertEqual(after["rec:work:2"][1], before["rec:work:2"][1])  # not made of it
+        self.assertEqual(
+            after["rec:work:2"][1], before["rec:work:2"][1]
+        )  # not made of it
         self.assert_made_again_equals_a_rebuild()  # and a rebuild says the same
 
     def test_a_batch_stops_at_the_bytes_but_always_has_one_record(self):
         sizes = self.sizes()
         everything, _ = self.store.take_actions(100)
-        two, _ = self.store.take_actions(100, max_bytes=sizes[everything[0][1]][1] + sizes[everything[1][1]][1])
+        two, _ = self.store.take_actions(
+            100, max_bytes=sizes[everything[0][1]][1] + sizes[everything[1][1]][1]
+        )
         self.assertEqual([t[1] for t in two], [t[1] for t in everything[:2]])
         tiny, _ = self.store.take_actions(100, max_bytes=1)
-        self.assertEqual(len(tiny), 1)  # the first is always taken: a batch is never empty
-        self.assertEqual(len(self.store.take_actions(100, max_bytes=10**9)[0]), len(everything))
+        self.assertEqual(
+            len(tiny), 1
+        )  # the first is always taken: a batch is never empty
+        self.assertEqual(
+            len(self.store.take_actions(100, max_bytes=10**9)[0]), len(everything)
+        )
 
     def test_the_work_of_the_queue_is_how_many_records_and_how_many_bytes(self):
         records, size = self.store.pending_size()
         self.assertEqual(records, 4)
         self.assertEqual(size, sum(c for _, c in self.sizes().values()))
-        self.store.actions_done([t[0] for t in self.store.take_actions(100)[0]], self.store.last_transaction())
+        self.store.actions_done(
+            [t[0] for t in self.store.take_actions(100)[0]],
+            self.store.last_transaction(),
+        )
         self.assertEqual(self.store.pending_size(), (0, 0))
 
 
@@ -215,24 +298,42 @@ class BatchCase(QueueCase):
 
 
 class BatchTest(BatchCase):
-    def test_a_batch_is_one_event_with_the_changes_and_a_dataset_of_every_record_that_is_there(self):
+    def test_a_batch_is_one_event_with_the_changes_and_a_dataset_of_every_record_that_is_there(  # noqa: E501
+        self,
+    ):
         self.put(record("rec:org:1"), record("rec:person:1", refs=["rec:org:1"]))
         self.assertEqual(self.drain(), [2])
         (event,) = self.events
         self.assertEqual((event.repo, event.application), ("main", self.app))
-        self.assertEqual({(c.record, c.action) for c in event.changes}, {("rec:org:1", "insert"), ("rec:person:1", "insert")})
-        subjects = lambda graph: {q.subject.value for q in graph if isinstance(q.subject, ox.NamedNode)}  # noqa: E731
-        self.assertEqual(subjects(event.graphs["rec:person:1"]), {"rec:person:1", "rec:org:1"})  # and what it is made of
+        self.assertEqual(
+            {(c.record, c.action) for c in event.changes},
+            {("rec:org:1", "insert"), ("rec:person:1", "insert")},
+        )
+
+        def subjects(graph):
+            return {
+                q.subject.value for q in graph if isinstance(q.subject, ox.NamedNode)
+            }
+
+        self.assertEqual(
+            subjects(event.graphs["rec:person:1"]), {"rec:person:1", "rec:org:1"}
+        )  # and what it is made of
         self.assertEqual(subjects(event.graphs["rec:org:1"]), {"rec:org:1"})
         self.assertEqual(self.store.pending_actions(), (0, None))
 
-    def test_the_graph_cache_is_made_by_the_batch_and_the_graph_of_a_gone_record_forgotten(self):
+    def test_the_graph_cache_is_made_by_the_batch_and_the_graph_of_a_gone_record_forgotten(  # noqa: E501
+        self,
+    ):
         self.put(record("rec:org:1"), record("rec:work:1", refs=["rec:org:1"]))
         self.drain()
         first = self.kept("rec:work:1")
         self.assertIsNotNone(first)
-        self.assertEqual(self.app.cache.graph("main", self.store.record_id_of("rec:work:1")), first)  # a hit
-        self.put(record("rec:org:1", refs=["rec:org:9"], stamp=STAMP2))  # work 1 is made of it
+        self.assertEqual(
+            self.app.cache.graph("main", self.store.record_id_of("rec:work:1")), first
+        )  # a hit
+        self.put(
+            record("rec:org:1", refs=["rec:org:9"], stamp=STAMP2)
+        )  # work 1 is made of it
         self.assertIsNone(self.kept("rec:work:1"))  # its entry is for the etag it had
         self.drain()
         self.assertIsNotNone(self.kept("rec:work:1"))  # the queue made the cache again
@@ -240,13 +341,19 @@ class BatchTest(BatchCase):
         self.store.delete(["rec:work:1"])
         self.drain()
         self.assertEqual([c.action for c in self.events[-1].changes], ["delete"])
-        self.assertIsNone(self.app.cache._graph_store().get("main", record_id, "0" * 16))
+        self.assertIsNone(
+            self.app.cache._graph_store().get("main", record_id, "0" * 16)
+        )
         with self.app.cache._graph_store()._env.begin() as txn:
-            self.assertIsNone(txn.get(self.app.cache._graph_store()._key("main", record_id)))
+            self.assertIsNone(
+                txn.get(self.app.cache._graph_store()._key("main", record_id))
+            )
 
     def test_a_record_that_is_gone_when_the_batch_gets_to_it_is_a_delete(self):
         self.put(record("rec:org:1"), record("rec:org:2"))
-        self.store.delete(["rec:org:2"])  # still queued as an insert first, then a delete: the newest is a delete
+        self.store.delete(
+            ["rec:org:2"]
+        )  # still queued as an insert first, then a delete: the newest is a delete
         self.drain()
         actions = {c.record: c.action for e in self.events for c in e.changes}
         self.assertEqual(actions, {"rec:org:1": "insert", "rec:org:2": "delete"})
@@ -270,20 +377,33 @@ class BatchTest(BatchCase):
     def test_a_record_changed_three_times_is_one_change(self):
         self.put(record("rec:org:1"))
         self.put(record("rec:org:1", refs=["rec:org:2"], stamp=STAMP2))
-        self.put(record("rec:org:1", refs=["rec:org:3"], stamp="2026-07-01T00:00:00.000000Z"))
+        self.put(
+            record("rec:org:1", refs=["rec:org:3"], stamp="2026-07-01T00:00:00.000000Z")
+        )
         self.drain()
-        self.assertEqual([(c.record, c.action) for e in self.events for c in e.changes], [("rec:org:1", "update")])
+        self.assertEqual(
+            [(c.record, c.action) for e in self.events for c in e.changes],
+            [("rec:org:1", "update")],
+        )
 
     def test_a_write_outside_the_store_is_made_up_for_before_it_is_read(self):
         self.put(record("rec:org:1"), record("rec:work:1", refs=["rec:org:1"]))
         self.drain()
         self.events.clear()
         self.store.con.execute(
-            "INSERT INTO triples VALUES ('rec:org:1', [], ?, NULL, '2027-01-01T00:00:00.000000Z', NULL, ?)",
-            ["https://gracia.pub/ns/modified_at", "http://www.w3.org/2001/XMLSchema#dateTime"],
+            "INSERT INTO triples VALUES ('rec:org:1', [], ?, NULL, "
+            "'2027-01-01T00:00:00.000000Z', "
+            "NULL, ?)",
+            [
+                "https://gracia.pub/ns/modified_at",
+                "http://www.w3.org/2001/XMLSchema#dateTime",
+            ],
         )
         self.drain()
-        self.assertEqual({c.record for e in self.events for c in e.changes}, {"rec:org:1", "rec:work:1"})
+        self.assertEqual(
+            {c.record for e in self.events for c in e.changes},
+            {"rec:org:1", "rec:work:1"},
+        )
 
     def test_without_a_graph_directory_the_events_still_come(self):
         app = Application(self.db)
@@ -296,8 +416,12 @@ class BatchTest(BatchCase):
 class ByteBatchTest(BatchCase):
     def test_an_event_is_as_many_records_as_fit_in_the_bytes(self):
         self.put(*[record(f"rec:work:{n}") for n in range(1, 11)])
-        one = self.store.con.execute("SELECT max(closure_bytes) FROM etags").fetchone()[0]
-        self.assertEqual(process_pending(self.app, self.registry, max_bytes=one * 4), 10)
+        one = fetch_one(self.store.con.execute("SELECT max(closure_bytes) FROM etags"))[
+            0
+        ]
+        self.assertEqual(
+            process_pending(self.app, self.registry, max_bytes=one * 4), 10
+        )
         self.assertEqual([len(e.changes) for e in self.events], [4, 4, 2])
 
     def test_a_record_bigger_than_a_batch_is_a_batch_of_its_own(self):
@@ -307,14 +431,17 @@ class ByteBatchTest(BatchCase):
 
 
 class ManualTest(BatchCase):
-    """`process_pending`: what a test, a script or a job calls instead of waiting for the worker."""
+    """`process_pending`: what a test, a script or a job calls instead of waiting for
+    the worker."""
 
     def test_it_handles_everything_that_is_queued_and_says_how_many_records(self):
         self.put(record("rec:org:1"), record("rec:work:1", refs=["rec:org:1"]))
         self.assertEqual(process_pending(self.app, self.registry), 2)
         self.assertEqual(self.store.pending_actions(), (0, None))
         self.assertEqual(sum(len(e.changes) for e in self.events), 2)
-        self.assertEqual(process_pending(self.app, self.registry), 0)  # and nothing the second time
+        self.assertEqual(
+            process_pending(self.app, self.registry), 0
+        )  # and nothing the second time
 
     def test_a_repository_can_be_named_and_the_others_are_left(self):
         other = Store(self.db, repo="other", create=True)
@@ -323,8 +450,12 @@ class ManualTest(BatchCase):
         other.put(record("rec:org:1", res="ark:/1/other/1"))
         self.put(record("rec:org:1"))
         self.assertEqual(process_pending(self.app, self.registry, "main"), 1)
-        self.assertEqual((self.store.pending_actions(), other.pending_actions()), ((0, None), (1, 1)))
-        self.assertEqual(process_pending(self.app, self.registry), 1)  # all: the other one now
+        self.assertEqual(
+            (self.store.pending_actions(), other.pending_actions()), ((0, None), (1, 1))
+        )
+        self.assertEqual(
+            process_pending(self.app, self.registry), 1
+        )  # all: the other one now
         self.assertEqual({e.repo for e in self.events}, {"main", "other"})
 
     def test_the_size_of_a_batch_is_the_size_of_an_event(self):
@@ -355,24 +486,41 @@ class ManualTest(BatchCase):
         thread.join()
 
     def test_the_locks_go_in_the_cache_directory_or_next_to_the_database(self):
-        self.assertEqual(lock_dir_for({"gracia.cache_dir": "/c", "gracia.db": "/d/x.db"}).as_posix(), "/c")
+        self.assertEqual(
+            lock_dir_for({"gracia.cache_dir": "/c", "gracia.db": "/d/x.db"}).as_posix(),
+            "/c",
+        )
         self.assertEqual(lock_dir_for({"gracia.db": "/d/x.db"}).as_posix(), "/d")
-        self.assertEqual(lock_dir_for({"gracia.db": "quack:h:1", "gracia.db.file": "/e/y.db"}).as_posix(), "/e")
+        self.assertEqual(
+            lock_dir_for(
+                {"gracia.db": "quack:h:1", "gracia.db.file": "/e/y.db"}
+            ).as_posix(),
+            "/e",
+        )
         self.assertIsNone(lock_dir_for({"gracia.db": "quack:h:1"}))
         self.assertIsNone(lock_dir_for({"gracia.db": ":memory:"}))
 
 
 class FanOutTest(BatchCase):
-    def test_a_change_with_many_dependents_is_a_few_events_of_a_hundred_and_one_statement(self):
-        self.put(record("rec:org:1"), *[record(f"rec:work:{n}", refs=["rec:org:1"]) for n in range(1, 251)])
+    def test_a_change_with_many_dependents_is_a_few_events_of_a_hundred_and_one_statement(  # noqa: E501
+        self,
+    ):
+        self.put(
+            record("rec:org:1"),
+            *[record(f"rec:work:{n}", refs=["rec:org:1"]) for n in range(1, 251)],
+        )
         self.drain()
         self.events.clear()
         last = self.store.last_transaction()
         self.put(record("rec:org:1", stamp=STAMP2))
-        self.assertEqual(self.store.pending_actions()[0], 251)  # the org and the 250 pages made of it
+        self.assertEqual(
+            self.store.pending_actions()[0], 251
+        )  # the org and the 250 pages made of it
         self.assertEqual(self.drain(100), [100, 100, 51])
         self.assertEqual([len(e.changes) for e in self.events], [100, 100, 51])
-        self.assertEqual(sum(c.action == "ref_update" for e in self.events for c in e.changes), 250)
+        self.assertEqual(
+            sum(c.action == "ref_update" for e in self.events for c in e.changes), 250
+        )
         self.assertEqual(self.queue(last), [])
         self.assertEqual(sum(len(e.graphs) for e in self.events), 251)
 
@@ -397,8 +545,17 @@ class WorkerTest(BatchCase):
         worker.start()
         self.assertTrue(self.wait_for(lambda: self.events))
         self.put(record("rec:org:2"))  # after
-        self.assertTrue(self.wait_for(lambda: {c.record for e in self.events for c in e.changes} >= {"rec:org:1", "rec:org:2"}))
-        self.assertTrue(self.wait_for(lambda: self.store.pending_actions() == (0, None)))
+        self.assertTrue(
+            self.wait_for(
+                lambda: (
+                    {c.record for e in self.events for c in e.changes}
+                    >= {"rec:org:1", "rec:org:2"}
+                )
+            )
+        )
+        self.assertTrue(
+            self.wait_for(lambda: self.store.pending_actions() == (0, None))
+        )
 
     def test_a_wake_up_makes_it_look_at_once(self):
         worker = self.worker()
@@ -413,9 +570,13 @@ class WorkerTest(BatchCase):
         app = Application(":memory:")
         self.addCleanup(app.close)
         self.assertIsNone(app.cache.signature())
-        self.assertEqual(Worker(app, self.registry).turn(), False)  # nothing to handle, nothing wrong
+        self.assertEqual(
+            Worker(app, self.registry).turn(), False
+        )  # nothing to handle, nothing wrong
 
-    def test_a_dead_thread_is_started_again_by_the_cache_and_a_stopped_worker_is_not(self):
+    def test_a_dead_thread_is_started_again_by_the_cache_and_a_stopped_worker_is_not(
+        self,
+    ):
         worker = self.worker()
         self.app.cache.worker = worker
         dead = threading.Thread(target=lambda: None)
@@ -442,12 +603,17 @@ class WorkerTest(BatchCase):
         self.put(record("rec:org:1"))
         worker = self.worker()
         worker.start()
-        self.assertTrue(self.wait_for(lambda: self.store.pending_actions() == (0, None), 30))
+        self.assertTrue(
+            self.wait_for(lambda: self.store.pending_actions() == (0, None), 30)
+        )
         self.assertGreaterEqual(len(calls), 3)
         self.assertTrue(worker.alive)
 
     def test_one_process_at_a_time_handles_a_repository(self):
-        first, second = self.worker(lock_dir=self.tmp / "locks"), self.worker(lock_dir=self.tmp / "locks")
+        first, second = (
+            self.worker(lock_dir=self.tmp / "locks"),
+            self.worker(lock_dir=self.tmp / "locks"),
+        )
         with first._lock("main") as held:
             self.assertTrue(held)
             with second._lock("main") as other:
@@ -459,10 +625,15 @@ class WorkerTest(BatchCase):
 
     def test_a_repository_that_another_process_has_is_looked_at_again(self):
         self.put(record("rec:org:1"))
-        first, second = self.worker(lock_dir=self.tmp / "locks"), self.worker(lock_dir=self.tmp / "locks")
+        first, second = (
+            self.worker(lock_dir=self.tmp / "locks"),
+            self.worker(lock_dir=self.tmp / "locks"),
+        )
         with first._lock("main"):
             self.assertFalse(second.turn())  # the other one is on it
-            self.assertIn("main", second._line)  # and it stays in line: the other may leave rows behind
+            self.assertIn(
+                "main", second._line
+            )  # and it stays in line: the other may leave rows behind
             self.assertEqual(self.store.pending_actions()[0], 1)
         while second.turn():
             pass
@@ -470,7 +641,8 @@ class WorkerTest(BatchCase):
 
 
 class LineTest(BatchCase):
-    """Several repositories: a turn is one batch of one of them, the others wait their turn."""
+    """Several repositories: a turn is one batch of one of them, the others wait their
+    turn."""
 
     def setUp(self):
         super().setUp()
@@ -483,7 +655,14 @@ class LineTest(BatchCase):
 
     def fill(self, n: int = 3) -> None:
         self.put(*[record(f"rec:work:{k}") for k in range(1, n + 1)])
-        self.other.put(self.graph_of([record(f"rec:work:{k}", res=f"ark:/1/other/{k}") for k in range(1, n + 1)]))
+        self.other.put(
+            self.graph_of(
+                [
+                    record(f"rec:work:{k}", res=f"ark:/1/other/{k}")
+                    for k in range(1, n + 1)
+                ]
+            )
+        )
 
     @staticmethod
     def graph_of(records):
@@ -504,10 +683,18 @@ class LineTest(BatchCase):
         self.fill(3)
         worker = self.worker(batch=1)  # a batch is one record
         self.assertEqual(self.run_turns(worker), 6)
-        self.assertEqual([e.repo for e in self.events], ["main", "other", "main", "other", "main", "other"])
-        self.assertEqual((self.store.pending_actions(), self.other.pending_actions()), ((0, None), (0, None)))
+        self.assertEqual(
+            [e.repo for e in self.events],
+            ["main", "other", "main", "other", "main", "other"],
+        )
+        self.assertEqual(
+            (self.store.pending_actions(), self.other.pending_actions()),
+            ((0, None), (0, None)),
+        )
 
-    def test_a_repository_that_has_nothing_leaves_the_line_and_comes_back_when_it_is_written(self):
+    def test_a_repository_that_has_nothing_leaves_the_line_and_comes_back_when_it_is_written(  # noqa: E501
+        self,
+    ):
         self.fill(2)
         worker = self.worker()
         self.run_turns(worker)
@@ -532,8 +719,13 @@ class LineTest(BatchCase):
         worker = self.worker()
         self.assertTrue(worker.turn())  # main fails, other is handled
         self.assertEqual(worker._retry["main"][1], 1)
-        self.assertEqual((self.store.pending_actions()[0], self.other.pending_actions()), (2, (0, None)))
-        self.assertFalse(worker.turn())  # main is waiting out its pause: nothing to do now
+        self.assertEqual(
+            (self.store.pending_actions()[0], self.other.pending_actions()),
+            (2, (0, None)),
+        )
+        self.assertFalse(
+            worker.turn()
+        )  # main is waiting out its pause: nothing to do now
         self.assertLess(worker._pause(), 3)  # and the wait is its, not a minute
         broken["main"] = False
         worker._retry["main"] = (0.0, 1)  # the pause is over
@@ -553,11 +745,19 @@ class LineTest(BatchCase):
 
 
 class WiringTest(BatchCase):
-    def test_the_setting_starts_a_worker_with_the_application_and_the_subscribers_hear_it(self):
+    def test_the_setting_starts_a_worker_with_the_application_and_the_subscribers_hear_it(  # noqa: E501
+        self,
+    ):
         from gracia.main import make_config
 
         seen = []
-        config = make_config({"gracia.application": self.app, "gracia.worker": "true", "gracia.db": str(self.db)})
+        config = make_config(
+            {
+                "gracia.application": self.app,
+                "gracia.worker": "true",
+                "gracia.db": str(self.db),
+            }
+        )
         config.add_subscriber(seen.append, RecordsChanged)
         app = config.make_wsgi_app()  # ApplicationCreated: the thread starts
         worker = self.app.cache.worker
@@ -575,12 +775,20 @@ class WiringTest(BatchCase):
         from gracia.main import make_config
 
         make_config(
-            {"gracia.application": self.app, "gracia.worker": "yes", "gracia.worker.batch": "7",
-             "gracia.worker.batch_bytes": "123456", "gracia.worker.poll": "0.25", "gracia.db": str(self.db)}
+            {
+                "gracia.application": self.app,
+                "gracia.worker": "yes",
+                "gracia.worker.batch": "7",
+                "gracia.worker.batch_bytes": "123456",
+                "gracia.worker.poll": "0.25",
+                "gracia.db": str(self.db),
+            }
         ).make_wsgi_app()
         worker = self.app.cache.worker
         self.addCleanup(worker.stop)
-        self.assertEqual((worker.batch, worker.batch_bytes, worker.poll), (7, 123456, 0.25))
+        self.assertEqual(
+            (worker.batch, worker.batch_bytes, worker.poll), (7, 123456, 0.25)
+        )
         self.assertEqual(worker.lock_dir, self.db.parent)  # next to the database
 
     def test_without_the_setting_there_is_no_worker(self):

@@ -1,7 +1,3 @@
-"""Every address in the user interface is absolute and made by `request.resource_url`, never a
-relative path or a string put together by hand: so that a virtual host can be put in front of the
-application and every link follows it."""
-
 import re
 import tempfile
 
@@ -9,7 +5,8 @@ from test_web import HeaderPolicy, WebCase
 
 from gracia import types
 
-# the attributes that carry an address: the ones of HTML, htmx, and what our scripts read
+# the attributes that carry an address: the ones of HTML, htmx, and what our scripts
+# read
 URL_ATTRIBUTES = re.compile(
     r"\b(href|src|action|hx-get|hx-post|data-base|data-list-url|data-start-url|data-start-job|"
     r'data-log-url|data-status-url|data-url)="([^"]*)"'
@@ -51,12 +48,16 @@ class AbsoluteUrlsTest(WebCase):
             found = URL_ATTRIBUTES.findall(page.text)
             self.assertTrue(found, path)
             for attribute, address in found:
-                self.assertRegex(address, ABSOLUTE, f"{path}: {attribute}={address!r} is relative")
+                self.assertRegex(
+                    address, ABSOLUTE, f"{path}: {attribute}={address!r} is relative"
+                )
 
     def test_the_static_files_are_absolute_too(self):
         page = self.web.get("/library/manage", headers=ADMIN).text
         self.assertRegex(page, r'<link rel="icon"[^>]*href="http://localhost/_static/')
-        self.assertRegex(page, r'<script type="text/javascript" src="http://localhost/_static/')
+        self.assertRegex(
+            page, r'<script type="text/javascript" src="http://localhost/_static/'
+        )
 
     def test_the_addresses_in_the_json_are_absolute(self):
         document = self.web.get("/library/api", headers={"X-User": "admin"}).json

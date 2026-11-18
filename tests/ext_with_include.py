@@ -1,6 +1,3 @@
-"""An extension module for the tests: a class marked @extension, and an includeme for what a
-decorator cannot say."""
-
 from gracia.extensions import Extension, extension
 
 

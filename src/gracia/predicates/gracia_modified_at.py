@@ -4,7 +4,7 @@ import colander
 
 from gracia import uri
 from gracia.forms import ReadOnlyWidget
-from gracia.predicates import HookContext, Predicate, gracia_timezone, predicate
+from gracia.predicates import HookContext, Predicate, predicate
 from gracia.store import literal
 
 XSD_DATETIME = "http://www.w3.org/2001/XMLSchema#dateTime"
@@ -28,11 +28,14 @@ class LocalTimeWidget(ReadOnlyWidget):
         if not text:
             return ""
         try:
-            parsed = datetime.datetime.fromisoformat(text.strip().replace("Z", "+00:00"))
+            parsed = datetime.datetime.fromisoformat(
+                text.strip().replace("Z", "+00:00")
+            )
         except ValueError:
             return ""
         local = parsed.astimezone(self.repository.timezone())
         return f"{local:%Y-%m-%d %H:%M:%S} {local.tzname()}"
+
 
 @predicate(uri.MODIFIED_AT)
 class ModifiedAtPredicate(Predicate):
@@ -56,26 +59,35 @@ class ModifiedAtPredicate(Predicate):
                 given AS (SELECT s, max(lit) FILTER (WHERE p = {created}) AS created
                           FROM {flat} WHERE {of_type} AND len(loc) = 0 GROUP BY s),
                 old AS (SELECT s,
-                               max(lit) FILTER (WHERE len(loc) = 0 AND p = {created}) AS created,
-                               max(lit) FILTER (WHERE len(loc) = 0 AND p = {modified}) AS modified
+                               max(lit) FILTER (WHERE len(loc) = 0 AND p = {created}) AS
+                                 created,
+                               max(lit) FILTER (WHERE len(loc) = 0 AND p = {modified})
+                                 AS modified
                         FROM {stored} WHERE s IN (SELECT s FROM recs) GROUP BY s),
-                new_rows AS (SELECT {columns} FROM {flat} WHERE {of_type} AND NOT ({is_stamp})),
+                new_rows AS (SELECT {columns} FROM {flat} WHERE {of_type} AND NOT
+                  ({is_stamp})),
                 old_rows AS (SELECT {columns} FROM {stored}
                              WHERE s IN (SELECT s FROM recs) AND NOT ({is_stamp})),
                 changed AS (SELECT DISTINCT s FROM (
-                    SELECT s FROM (SELECT * FROM new_rows EXCEPT ALL SELECT * FROM old_rows)
+                    SELECT s FROM (SELECT * FROM new_rows EXCEPT ALL SELECT * FROM
+                      old_rows)
                     UNION ALL
-                    SELECT s FROM (SELECT * FROM old_rows EXCEPT ALL SELECT * FROM new_rows)))
+                    SELECT s FROM (SELECT * FROM old_rows EXCEPT ALL SELECT * FROM
+                      new_rows)))
                 SELECT r.s,
                        coalesce(o.created, g.created, {SQL_STAMP}) AS created,
-                       CASE WHEN o.modified IS NOT NULL AND r.s NOT IN (SELECT s FROM changed)
+                       CASE WHEN o.modified IS NOT NULL AND r.s NOT IN (SELECT s FROM
+                         changed)
                             THEN o.modified
                             ELSE {SQL_LATER} END AS modified
-                FROM recs r LEFT JOIN old o ON o.s = r.s LEFT JOIN given g ON g.s = r.s""",
+                FROM recs r LEFT JOIN old o ON o.s = r.s LEFT JOIN given g ON g.s =
+                  r.s""",
             f"DELETE FROM {flat} WHERE {of_type} AND {is_stamp}",
             f"""INSERT INTO {flat}
-                SELECT s, []::VARCHAR[], {created}, NULL, created, NULL, {literal(XSD_DATETIME)} FROM {work}
+                SELECT s, []::VARCHAR[], {created}, NULL, created, NULL,
+                  {literal(XSD_DATETIME)} FROM {work}
                 UNION ALL
-                SELECT s, []::VARCHAR[], {modified}, NULL, modified, NULL, {literal(XSD_DATETIME)} FROM {work}""",
+                SELECT s, []::VARCHAR[], {modified}, NULL, modified, NULL,
+                  {literal(XSD_DATETIME)} FROM {work}""",
             f"DROP TABLE IF EXISTS {work}",
         ]

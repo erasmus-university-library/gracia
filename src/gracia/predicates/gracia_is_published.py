@@ -1,9 +1,11 @@
 import colander
 import deform
+import deform.widget
 
 from gracia import uri
 from gracia.predicates import HookContext, Predicate, predicate
 from gracia.store import literal
+
 
 @predicate(uri.IS_PUBLISHED)
 class IsPublishedPredicate(Predicate):
@@ -26,13 +28,16 @@ class IsPublishedPredicate(Predicate):
         work = f"{flat}_published"
         return [
             f"""CREATE OR REPLACE TABLE {work} AS
-                SELECT r.s, coalesce(bool_or(lower(trim(f.lit)) IN ('true', '1')), true) AS published
+                SELECT r.s, coalesce(bool_or(lower(trim(f.lit)) IN ('true', '1')), true)
+                  AS published
                 FROM (SELECT DISTINCT s FROM {flat} WHERE {context.of_type}) r
                 LEFT JOIN {flat} f ON f.s = r.s AND len(f.loc) = 0 AND f.p = {path}
                 GROUP BY r.s""",
-            f"DELETE FROM {flat} WHERE {context.of_type} AND len(loc) = 0 AND p = {path}",
+            f"DELETE FROM {flat} WHERE {context.of_type} AND len(loc) = 0 AND p = "
+            f"{path}",
             f"""INSERT INTO {flat}
-                SELECT s, []::VARCHAR[], {path}, NULL, CAST(published AS VARCHAR), NULL, {literal(uri.XSD_NS.boolean)}
+                SELECT s, []::VARCHAR[], {path}, NULL, CAST(published AS VARCHAR), NULL,
+                  {literal(uri.XSD_NS.boolean)}
                 FROM {work}""",
             f"DROP TABLE IF EXISTS {work}",
         ]

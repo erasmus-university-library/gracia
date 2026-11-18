@@ -1,5 +1,3 @@
-"""Views of one repository: its figures, its API document, the resolver of its record keys."""
-
 import json
 
 from pyramid.httpexceptions import HTTPFound
@@ -13,22 +11,26 @@ from gracia.views import render
 
 @view_config(context=Resolved, request_method=("GET", "HEAD"))
 def resolve(request):
-    """A record key (`/<repo>/rec:person:23`) goes to the record it names (`/<repo>/person/23`)."""
+    """A record key (`/<repo>/rec:person:23`) goes to the record it names
+    (`/<repo>/person/23`)."""
     return HTTPFound(request.resource_url(request.context.record))
 
 
 def prefers_html(request) -> bool:
-    """Whether the caller asked for HTML and likes it better than JSON (a browser does; a program that
-    sends no `Accept`, or `*/*`, gets JSON)."""
+    """Whether the caller asked for HTML and likes it better than JSON (a browser does;
+    a program that sends no `Accept`, or `*/*`, gets JSON)."""
     if not request.headers.get("Accept"):
         return False
-    offers = request.accept.acceptable_offers(["application/json", "text/html"])  # a tie is JSON
+    offers = request.accept.acceptable_offers(
+        ["application/json", "text/html"]
+    )  # a tie is JSON
     return bool(offers) and offers[0][0] == "text/html"
 
 
 @view_config(context=Repository, request_method="GET")
 def repository(request):
-    """The figures of the repository as JSON, and for a browser the page with the search box."""
+    """The figures of the repository as JSON, and for a browser the page with the search
+    box."""
     if prefers_html(request):
         return search_page(request)
     return Response(
@@ -39,9 +41,10 @@ def repository(request):
 
 
 def search_page(request):
-    """The repository for a browser: a search box and, with `?q=`, what the search index finds (a first,
-    simple look at it). Only what the caller may see: the records of types they may view, and not the ones
-    that are not published unless they may edit that type. The same page is JSON for a program (above)."""
+    """The repository for a browser: a search box and, with `?q=`, what the search index
+    finds (a first, simple look at it). Only what the caller may see: the records of
+    types they may view, and not the ones that are not published unless they may edit
+    that type. The same page is JSON for a program (above)."""
     repository, query = request.context, request.params.get("q", "").strip()
     message, hits, total = "", [], 0
     indexes = request.root.indexes
@@ -52,17 +55,28 @@ def search_page(request):
         message = "Search is turned off in this repository."
     elif query:
         try:
-            total, found = indexes.find(repository.__name__, definitions[0], query, limit=100)
+            total, found = indexes.find(
+                repository.__name__, definitions[0], query, limit=100
+            )
             if indexes.status(repository.__name__, definitions[0]) == "stale":
                 message = (
-                    "This index was made for other fields than the settings of the repository have, so it may"
-                    " lack what was changed since: the administrator makes it again with Rebuild search."
+                    "This index was made for other fields than the settings of the "
+                    "repository "
+                    "have, so it may"
+                    " lack what was changed since: the administrator makes it again "
+                    "with Rebuild "
+                    "search."
                 )
         except LookupError:
-            message = "The search index is not there yet: the administrator makes it with Rebuild search."
+            message = (
+                "The search index is not there yet: "
+                "the administrator makes it with Rebuild search."
+            )
             found = []
         allowed: dict[str, tuple[bool, bool]] = {}  # per type: may view, may edit
-        types: dict[str, object] = {}  # the type nodes, which the addresses of its records are made from
+        types: dict[
+            str, object
+        ] = {}  # the type nodes, which the addresses of its records are made from
         for hit in found:
             slug = hit.get("type", "")
             if slug not in allowed:
@@ -82,10 +96,16 @@ def search_page(request):
                         "label": hit.get("label") or hit["record"],
                         "type": slug,
                         "record": hit["record"],
-                        # what `request.resource_url(record)` gives: below its type, by its slug when it has
-                        # one, else by its number (`Record.__name__`). The slug is a field of the index, so
+                        # what `request.resource_url(record)` gives: below its type, by
+                        # its slug
+                        # when it has
+                        # one, else by its number (`Record.__name__`). The slug is a
+                        # field of the
+                        # index, so
                         # no record has to be read to make the address.
-                        "url": request.resource_url(types[slug], hit.get("slug") or str(parsed[1]))
+                        "url": request.resource_url(
+                            types[slug], hit.get("slug") or str(parsed[1])
+                        )
                         if parsed
                         else None,
                         "published": hit.get("published", True),
@@ -112,10 +132,15 @@ def search_page(request):
 
 
 @view_config(
-    context=Repository, name="api", renderer="json", request_method="GET", accept="application/json"
+    context=Repository,
+    name="api",
+    renderer="json",
+    request_method="GET",
+    accept="application/json",
 )
 def api(request):
-    # what a caller may see depends on who they are: never share it through a public cache
+    # what a caller may see depends on who they are: never share it through a public
+    # cache
     request.response.headers["Cache-Control"] = "private"
     request.response.headers["Vary"] = "Authorization, Cookie, Accept"
     return apidoc.document(request)
@@ -123,8 +148,8 @@ def api(request):
 
 @view_config(context=Repository, name="api", request_method="GET", accept="text/html")
 def api_browser(request):
-    """The same document as a record for a browser: what the caller may do here, and a button to
-    try the operations that read."""
+    """The same document as a record for a browser: what the caller may do here, and a
+    button to try the operations that read."""
     document = apidoc.document(request)
     operations = [
         {"path": path, "method": method.upper(), **found}
@@ -138,7 +163,9 @@ def api_browser(request):
         heading=document["info"]["title"],
         subtitle="What you may do here. The same document is JSON for a program.",
         operations=operations,
-        base=request.resource_url(request.context).rstrip("/"),  # the paths of operations follow it
+        base=request.resource_url(request.context).rstrip(
+            "/"
+        ),  # the paths of operations follow it
         document_url=request.resource_url(request.context, "api"),
     )
     response.headers["Cache-Control"] = "private"

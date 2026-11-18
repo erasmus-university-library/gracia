@@ -1,6 +1,3 @@
-"""The jobs system, in this process: the table, the spec, the stages, and the runner that runs
-them with Luigi (one worker: the application is in memory, so nothing is forked)."""
-
 import json
 import os
 from unittest import mock
@@ -16,6 +13,7 @@ from gracia.jobs.progress import Snapshotter
 from gracia.jobs.spec import JobSpecError, validate_spec
 from gracia.jobs.stage import read_items, stage_class, stage_names
 from gracia.main import make_config
+from gracia.store import fetch_one
 
 CHUNK = 0  # one file: DuckDB splits only after 2048 records, and the tests have twelve
 EXPORT = {"stage": "Export", "params": {"res_type": "person", "chunk_bytes": CHUNK}}
@@ -44,9 +42,14 @@ class SpecTest(JobsCase):
         self.assertEqual(spec["repo"], "library")
         self.assertEqual((spec["job"], spec["subject"]), ("validate", "person"))
         self.assertEqual([s["stage"] for s in spec["stages"]], ["Export", "Validate"])
-        self.assertEqual(validate_spec(self.valid())["stages"][0]["params"]["n_items"], 6)
         self.assertEqual(
-            (validate_spec(self.valid())["job"], validate_spec(self.valid())["subject"]),
+            validate_spec(self.valid())["stages"][0]["params"]["n_items"], 6
+        )
+        self.assertEqual(
+            (
+                validate_spec(self.valid())["job"],
+                validate_spec(self.valid())["subject"],
+            ),
             (None, None),
         )
 
@@ -74,14 +77,22 @@ class SpecTest(JobsCase):
         self.assertIn("must come first", errors["stages.1.stage"])
 
     def test_the_parameters_are_checked_by_luigi_and_reported_where_they_are(self):
-        errors = self.errors(self.valid(stages=[ECHO, {"stage": "Reject", "params": {"idz": "x"}}]))
+        errors = self.errors(
+            self.valid(stages=[ECHO, {"stage": "Reject", "params": {"idz": "x"}}])
+        )
         self.assertIn("unknown parameter idz", errors["stages.1.params"])
-        errors = self.errors(self.valid(stages=[{"stage": "Echo", "params": {"n_items": "many"}}]))
+        errors = self.errors(
+            self.valid(stages=[{"stage": "Echo", "params": {"n_items": "many"}}])
+        )
         self.assertIn("not a valid value: 'many'", errors["stages.0.params.n_items"])
         errors = self.errors(self.valid(stages=[{"stage": "Echo", "params": {"n": 3}}]))
-        self.assertIn("unknown parameter n", errors["stages.0.params"])  # Luigi's own are not ours
+        self.assertIn(
+            "unknown parameter n", errors["stages.0.params"]
+        )  # Luigi's own are not ours
         errors = self.errors(self.valid(stages=[ECHO, {"stage": "Validate"}]))
-        self.assertIn("res_type", errors["stages.1.params"])  # a parameter that has no default
+        self.assertIn(
+            "res_type", errors["stages.1.params"]
+        )  # a parameter that has no default
 
     def test_the_shape_is_checked_with_colander(self):
         for data in (
@@ -107,24 +118,34 @@ class SpecTest(JobsCase):
 
 
 class DbTest(JobsCase):
-    def test_a_job_row_has_its_definition_and_no_progress_until_the_process_writes_some(self):
+    def test_a_job_row_has_its_definition_and_no_progress_until_the_process_writes_some(
+        self,
+    ):
         job_id = self.make(ECHO, job="echo", subject="things")
         row = self.job(job_id)
-        self.assertEqual((row["state"], row["job"], row["subject"]), ("queued", "echo", "things"))
+        self.assertEqual(
+            (row["state"], row["job"], row["subject"]), ("queued", "echo", "things")
+        )
         self.assertEqual(row["stages"][0]["stage"], "Echo")  # JSON comes back as data
         self.assertIsNone(row["progress"])
 
     def test_the_progress_is_written_as_json_and_read_back(self):
         job_id = self.make(ECHO)
         with JobsDb(self.application) as db:
-            self.assertTrue(db.update_job(job_id, {"progress": {"stages": [{"name": "Echo"}]}}))
+            self.assertTrue(
+                db.update_job(job_id, {"progress": {"stages": [{"name": "Echo"}]}})
+            )
         self.assertEqual(self.job(job_id)["progress"], {"stages": [{"name": "Echo"}]})
 
     def test_a_change_that_names_the_states_it_may_follow_takes_only_then(self):
         job_id = self.make(ECHO)
         with JobsDb(self.application) as db:
-            self.assertTrue(db.update_job(job_id, {"state": "running"}, only_states=("queued",)))
-            self.assertFalse(db.update_job(job_id, {"state": "stopped"}, only_states=("queued",)))
+            self.assertTrue(
+                db.update_job(job_id, {"state": "running"}, only_states=("queued",))
+            )
+            self.assertFalse(
+                db.update_job(job_id, {"state": "stopped"}, only_states=("queued",))
+            )
             self.assertEqual(db.get(job_id)["state"], "running")
             with self.assertRaises(ValueError):
                 db.update_job(job_id, {"stages": "[]"})  # the definition never changes
@@ -136,10 +157,16 @@ class DbTest(JobsCase):
         with JobsDb(self.application) as db:
             self.assertEqual([j["id"] for j in db.list_jobs()], [third, second, first])
             self.assertEqual([j["id"] for j in db.list_jobs(job="a")], [third, first])
-            self.assertEqual([j["id"] for j in db.list_jobs(job="a,b")], [third, second, first])  # several
+            self.assertEqual(
+                [j["id"] for j in db.list_jobs(job="a,b")], [third, second, first]
+            )  # several
             self.assertEqual([j["id"] for j in db.list_jobs(job="b,nothing")], [second])
-            self.assertEqual([j["id"] for j in db.list_jobs(subject="x")], [second, first])
-            self.assertEqual([j["id"] for j in db.list_jobs(job="a", subject="y")], [third])
+            self.assertEqual(
+                [j["id"] for j in db.list_jobs(subject="x")], [second, first]
+            )
+            self.assertEqual(
+                [j["id"] for j in db.list_jobs(job="a", subject="y")], [third]
+            )
             self.assertEqual(db.list_jobs(state="done"), [])
             self.assertEqual(len(db.list_jobs(repo="library")), 3)
 
@@ -163,7 +190,8 @@ class DbTest(JobsCase):
             names = [
                 r[0]
                 for r in db.conn.execute(
-                    "SELECT table_name FROM duckdb_tables() WHERE schema_name = '_gracia'"
+                    "SELECT table_name FROM duckdb_tables() WHERE schema_name = "
+                    "'_gracia'"
                 ).fetchall()
             ]
         self.assertEqual(names, ["jobs"])
@@ -171,21 +199,29 @@ class DbTest(JobsCase):
 
 class RegistryTest(JobsCase):
     def test_what_is_scanned_for_jobs(self):
-        built_in = ["gracia.jobs.validate", "gracia.jobs.type_jobs", "gracia.jobs.repository_jobs"]
+        built_in = [
+            "gracia.jobs.validate",
+            "gracia.jobs.type_jobs",
+            "gracia.jobs.repository_jobs",
+        ]
         self.assertEqual(jobs_job.scan_targets({}), built_in)
         self.assertEqual(
             jobs_job.scan_targets({"gracia.jobs": "mylib.jobs other.module"}),
             [*built_in, "mylib.jobs", "other.module"],
         )
         # one inside another is not scanned twice: that would be a conflict
-        self.assertEqual(jobs_job.scan_targets({"gracia.jobs": "gracia.jobs.validate"}), built_in)
+        self.assertEqual(
+            jobs_job.scan_targets({"gracia.jobs": "gracia.jobs.validate"}), built_in
+        )
         from types import SimpleNamespace
 
         point = SimpleNamespace(value="installed.jobs:Thing")
         with mock.patch.object(jobs_job, "entry_points", lambda group: [point]):
             self.assertEqual(jobs_job.scan_targets({}), [*built_in, "installed.jobs"])
 
-    def test_the_modules_with_stages_are_the_built_in_ones_the_entry_points_and_the_setting(self):
+    def test_the_modules_with_stages_are_the_built_in_ones_the_entry_points_and_the_setting(  # noqa: E501
+        self,
+    ):
         from types import SimpleNamespace
 
         self.assertEqual(stage_module.load_modules({}), [stage_module.BUILTIN])
@@ -195,7 +231,9 @@ class RegistryTest(JobsCase):
         )
         point = SimpleNamespace(value="jobs_support:Echo")
         with mock.patch.object(stage_module, "entry_points", lambda group: [point]):
-            self.assertEqual(stage_module.load_modules({}), [stage_module.BUILTIN, "jobs_support"])
+            self.assertEqual(
+                stage_module.load_modules({}), [stage_module.BUILTIN, "jobs_support"]
+            )
 
     def test_two_jobs_with_one_name_are_a_conflict_at_commit(self):
         from gracia.jobs.job import Job
@@ -215,7 +253,9 @@ class StageTest(JobsCase):
 
     def test_a_job_runs_its_stages_over_every_batch_and_ends_done(self):
         job_id = self.make(echo(), {"stage": "Mark"})
-        self.assertEqual(self.run_job(job_id), runner.EXIT_DONE, self.job(job_id)["error_msg"])
+        self.assertEqual(
+            self.run_job(job_id), runner.EXIT_DONE, self.job(job_id)["error_msg"]
+        )
         job = self.job(job_id)
         self.assertEqual((job["state"], job["error_msg"]), ("done", None))
         self.assertIsNotNone(job["finished_at"])
@@ -225,13 +265,18 @@ class StageTest(JobsCase):
             self.assertEqual(stage["batches"], {"done": 3, "running": 0, "total": 3})
             self.assertEqual((stage["processed"], stage["passed"]), (6, 6))
         self.assertEqual((echo_stage["total"], echo_stage["estimated"]), (6, True))
-        self.assertEqual((mark["total"], mark["estimated"]), (6, False))  # what Echo passed on
         self.assertEqual(
-            [i["id"] for i in self.lines(job_id, "01-Mark/batch-00001.jsonl")], ["item-3", "item-4"]
+            (mark["total"], mark["estimated"]), (6, False)
+        )  # what Echo passed on
+        self.assertEqual(
+            [i["id"] for i in self.lines(job_id, "01-Mark/batch-00001.jsonl")],
+            ["item-3", "item-4"],
         )
 
     def test_every_batch_leaves_its_data_its_rejects_and_its_stats(self):
-        job_id = self.make(echo(), {"stage": "Reject", "params": {"ids": "item-2,item-5"}})
+        job_id = self.make(
+            echo(), {"stage": "Reject", "params": {"ids": "item-2,item-5"}}
+        )
         self.run_job(job_id)
         directory = self.jobs_dir / job_id / "01-Reject"
         self.assertEqual(
@@ -239,7 +284,8 @@ class StageTest(JobsCase):
             ["batch-00001.jsonl", "rejected-00001.jsonl", "stats-00001.json"],
         )
         self.assertEqual(
-            [i["id"] for i in self.lines(job_id, "01-Reject/batch-00000.jsonl")], ["item-1"]
+            [i["id"] for i in self.lines(job_id, "01-Reject/batch-00000.jsonl")],
+            ["item-1"],
         )
         self.assertEqual(
             self.lines(job_id, "01-Reject/rejected-00000.jsonl"),
@@ -247,25 +293,33 @@ class StageTest(JobsCase):
         )
         stats = json.loads((directory / "stats-00000.json").read_text())
         self.assertEqual(
-            (stats["processed"], stats["passed"], stats["rejected"]), (2, 1, {"unwanted": 1})
+            (stats["processed"], stats["passed"], stats["rejected"]),
+            (2, 1, {"unwanted": 1}),
         )
         self.assertEqual(stats["samples"][0]["id"], "item-2")
 
     def test_what_is_rejected_stops_there_and_is_counted_by_reason(self):
         job_id = self.make(
-            echo(), {"stage": "Reject", "params": {"ids": "item-2,item-5"}}, {"stage": "Mark"}
+            echo(),
+            {"stage": "Reject", "params": {"ids": "item-2,item-5"}},
+            {"stage": "Mark"},
         )
         self.run_job(job_id)
         reject, mark = self.stage(job_id, "Reject"), self.stage(job_id, "Mark")
         self.assertEqual(
-            (reject["processed"], reject["passed"], reject["rejected"]), (6, 4, {"unwanted": 2})
+            (reject["processed"], reject["passed"], reject["rejected"]),
+            (6, 4, {"unwanted": 2}),
         )
         self.assertEqual((mark["processed"], mark["total"]), (4, 4))  # the funnel
         self.assertEqual([s["id"] for s in reject["samples"]], ["item-2", "item-5"])
-        self.assertEqual(self.lines(job_id, "02-Mark/batch-00000.jsonl")[0]["id"], "item-1")
+        self.assertEqual(
+            self.lines(job_id, "02-Mark/batch-00000.jsonl")[0]["id"], "item-1"
+        )
 
     def test_the_rejected_items_of_all_stages_are_one_file_to_download(self):
-        job_id = self.make(echo(), {"stage": "Reject", "params": {"ids": "item-2,item-5"}})
+        job_id = self.make(
+            echo(), {"stage": "Reject", "params": {"ids": "item-2,item-5"}}
+        )
         self.run_job(job_id)
         job = self.job(job_id)
         self.assertEqual(
@@ -283,15 +337,20 @@ class StageTest(JobsCase):
         self.assertIsNone(job["download_file"])
         self.assertFalse((self.jobs_dir / job_id / "rejected.jsonl").exists())
 
-    def test_a_stage_that_changes_nothing_links_the_file_it_got_instead_of_copying_it(self):
+    def test_a_stage_that_changes_nothing_links_the_file_it_got_instead_of_copying_it(
+        self,
+    ):
         job_id = self.make(echo(), {"stage": "Keep"}, {"stage": "Mark"})
         self.run_job(job_id)
         d = self.jobs_dir / job_id
         for name in ("batch-00000.jsonl", "batch-00001.jsonl", "batch-00002.jsonl"):
             kept, source = d / "01-Keep" / name, d / "00-Echo" / name
-            self.assertTrue(os.path.samefile(kept, source), name)  # the same file, two names
+            self.assertTrue(
+                os.path.samefile(kept, source), name
+            )  # the same file, two names
             self.assertEqual(kept.stat().st_nlink, 2)
-        # a stage that changes the data writes a file of its own: the earlier ones stay as they were
+        # a stage that changes the data writes a file of its own: the earlier ones stay
+        # as they were
         changed = d / "02-Mark" / "batch-00000.jsonl"
         self.assertFalse(os.path.samefile(changed, d / "01-Keep" / "batch-00000.jsonl"))
         self.assertNotIn("marked", (d / "01-Keep" / "batch-00000.jsonl").read_text())
@@ -302,11 +361,15 @@ class StageTest(JobsCase):
         self.run_job(job_id)
         d = self.jobs_dir / job_id
         self.assertFalse(
-            os.path.samefile(d / "01-Reject/batch-00000.jsonl", d / "00-Echo/batch-00000.jsonl")
+            os.path.samefile(
+                d / "01-Reject/batch-00000.jsonl", d / "00-Echo/batch-00000.jsonl"
+            )
         )
         # a batch where nothing was rejected is still the link
         self.assertTrue(
-            os.path.samefile(d / "01-Reject/batch-00001.jsonl", d / "00-Echo/batch-00001.jsonl")
+            os.path.samefile(
+                d / "01-Reject/batch-00001.jsonl", d / "00-Echo/batch-00001.jsonl"
+            )
         )
 
     def test_the_batches_are_the_plan_and_an_empty_plan_is_a_job_that_is_done(self):
@@ -322,7 +385,9 @@ class StageTest(JobsCase):
         job_id = self.make(echo())
         self.assertEqual(self.run_job(job_id), runner.EXIT_DONE)
         self.assertEqual(self.run_job(job_id), runner.EXIT_NOTHING)
-        self.assertEqual(self.run_job("00000000-0000-0000-0000-000000000000"), runner.EXIT_NOTHING)
+        self.assertEqual(
+            self.run_job("00000000-0000-0000-0000-000000000000"), runner.EXIT_NOTHING
+        )
 
 
 class FailureTest(JobsCase):
@@ -333,7 +398,12 @@ class FailureTest(JobsCase):
         self.fail_file = self.tmp / "fail"
         self.fail_file.write_text("")
         return self.make(
-            echo(fail_batch=1, fail_file=str(self.fail_file), marker=str(self.marker), **extra),
+            echo(
+                fail_batch=1,
+                fail_file=str(self.fail_file),
+                marker=str(self.marker),
+                **extra,
+            ),
             {"stage": "Mark"},
         )
 
@@ -344,12 +414,18 @@ class FailureTest(JobsCase):
         job_id = self.fail()
         self.assertEqual(self.run_job(job_id), runner.EXIT_FAILED)
         job = self.job(job_id)
-        self.assertEqual((job["state"], job["error_msg"]), ("failed", "batch 1 was asked to fail"))
+        self.assertEqual(
+            (job["state"], job["error_msg"]), ("failed", "batch 1 was asked to fail")
+        )
         self.assertIsNotNone(job["finished_at"])
         self.assertEqual(self.stage(job_id, "Echo")["state"], "failed")
-        self.assertEqual(self.stage(job_id, "Mark")["state"], "pending")  # it never got its batch
+        self.assertEqual(
+            self.stage(job_id, "Mark")["state"], "pending"
+        )  # it never got its batch
         last = json.loads((self.jobs_dir / job_id / "exit.json").read_text())
-        self.assertEqual((last["state"], last["error"]), ("failed", "batch 1 was asked to fail"))
+        self.assertEqual(
+            (last["state"], last["error"]), ("failed", "batch 1 was asked to fail")
+        )
 
     def test_the_other_batches_were_done_and_are_not_done_again(self):
         job_id = self.fail()
@@ -359,7 +435,9 @@ class FailureTest(JobsCase):
         with JobsDb(self.application) as db:  # `gracia jobs start`
             db.update_job(job_id, {"state": "queued", "error_msg": None})
         self.marker.write_text("")
-        self.assertEqual(self.run_job(job_id), runner.EXIT_DONE, self.job(job_id)["error_msg"])
+        self.assertEqual(
+            self.run_job(job_id), runner.EXIT_DONE, self.job(job_id)["error_msg"]
+        )
         self.assertEqual(self.ran(), ["1"])  # only the batch that failed
         mark = self.stage(job_id, "Mark")
         self.assertEqual((mark["state"], mark["processed"]), ("done", 6))
@@ -367,13 +445,16 @@ class FailureTest(JobsCase):
     def test_an_exception_that_is_not_ours_says_what_it_was(self):
         counter = self.tmp / "tool"
         job_id = self.make(
-            echo(), {"stage": "Tool", "params": {"failures": 1, "counter": str(counter)}}
+            echo(),
+            {"stage": "Tool", "params": {"failures": 1, "counter": str(counter)}},
         )
         self.assertEqual(self.run_job(job_id), runner.EXIT_FAILED)
         self.assertEqual(self.job(job_id)["error_msg"], "RuntimeError: the tool failed")
         errors = [
             json.loads(line)
-            for line in (self.jobs_dir / job_id / "errors.jsonl").read_text().splitlines()
+            for line in (self.jobs_dir / job_id / "errors.jsonl")
+            .read_text()
+            .splitlines()
         ]
         self.assertEqual({e["stage"] for e in errors}, {"Tool"})
         self.assertIn("Traceback", errors[0]["traceback"])
@@ -381,7 +462,9 @@ class FailureTest(JobsCase):
     def test_a_plan_that_cannot_be_made_fails_the_job_in_words(self):
         job_id = self.make({"stage": "Export", "params": {"res_type": "nobody"}})
         self.assertEqual(self.run_job(job_id), runner.EXIT_FAILED)
-        self.assertIn("no type 'nobody' in repository library", self.job(job_id)["error_msg"])
+        self.assertIn(
+            "no type 'nobody' in repository library", self.job(job_id)["error_msg"]
+        )
 
 
 class StopTest(JobsCase):
@@ -451,33 +534,46 @@ class ProgressTest(JobsCase):
         super().setUp()
         self.d = self.tmp / "job"
         self.d.mkdir()
-        self.stages = [{"stage": "Export", "params": {}}, {"stage": "Validate", "params": {}}]
+        self.stages = [
+            {"stage": "Export", "params": {}},
+            {"stage": "Validate", "params": {}},
+        ]
 
     def take(self, **kw):
         return Snapshotter(self.d, self.stages).take(**kw)
 
     def test_before_the_plan_everything_is_pending(self):
         snapshot = self.take()
-        self.assertEqual([s["state"] for s in snapshot["stages"]], ["pending", "pending"])
+        self.assertEqual(
+            [s["state"] for s in snapshot["stages"]], ["pending", "pending"]
+        )
         self.assertEqual(snapshot["stages"][0]["batches"]["total"], None)
 
-    def test_with_a_plan_the_first_stage_runs_and_the_next_waits_for_its_first_batch(self):
+    def test_with_a_plan_the_first_stage_runs_and_the_next_waits_for_its_first_batch(
+        self,
+    ):
         (self.d / "plan.json").write_text(
             json.dumps({"batches": 4, "estimate": 40, "unit": "records"})
         )
         first, second = self.take()["stages"]
         self.assertEqual((first["state"], second["state"]), ("running", "pending"))
-        self.assertEqual((first["total"], first["estimated"], second["total"]), (40, True, None))
+        self.assertEqual(
+            (first["total"], first["estimated"], second["total"]), (40, True, None)
+        )
         self.files(self.d, "00-Export", 1)
         first, second = self.take()["stages"]
         self.assertEqual(second["state"], "running")  # its first batch can start
         self.assertEqual(first["batches"], {"done": 1, "running": 0, "total": 4})
 
-    def test_a_stage_that_has_all_its_batches_is_done_and_the_next_one_knows_its_total(self):
+    def test_a_stage_that_has_all_its_batches_is_done_and_the_next_one_knows_its_total(
+        self,
+    ):
         (self.d / "plan.json").write_text(json.dumps({"batches": 2, "estimate": 20}))
         self.files(self.d, "00-Export", 2)
         first, second = self.take()["stages"]
-        self.assertEqual((first["state"], first["processed"], first["passed"]), ("done", 20, 18))
+        self.assertEqual(
+            (first["state"], first["processed"], first["passed"]), ("done", 20, 18)
+        )
         self.assertEqual((second["total"], second["estimated"]), (18, False))
 
     def test_the_counts_add_up_and_the_samples_are_a_few(self):
@@ -497,8 +593,12 @@ class ProgressTest(JobsCase):
         (self.d / "plan.json").write_text(json.dumps({"batches": 4, "estimate": 40}))
         self.files(self.d, "00-Export", 4)
         second = self.take(running={"Validate": 3})["stages"][1]
-        self.assertEqual((second["state"], second["batches"]["running"]), ("running", 3))
-        (self.d / "errors.jsonl").write_text(json.dumps({"stage": "Validate", "error": "x"}) + "\n")
+        self.assertEqual(
+            (second["state"], second["batches"]["running"]), ("running", 3)
+        )
+        (self.d / "errors.jsonl").write_text(
+            json.dumps({"stage": "Validate", "error": "x"}) + "\n"
+        )
         self.assertEqual(self.take(active=False)["stages"][1]["state"], "failed")
         self.assertEqual(self.take(active=False)["stages"][0]["state"], "done")
 
@@ -512,17 +612,28 @@ class ProgressTest(JobsCase):
         self.files(self.d, "00-Export", 1)
         shot = Snapshotter(self.d, self.stages)
         shot.take()
-        (self.d / "00-Export" / "stats-00000.json").write_text(json.dumps({"processed": 99}))
-        self.assertEqual(shot.take()["stages"][0]["processed"], 10)  # a stats file never changes
+        (self.d / "00-Export" / "stats-00000.json").write_text(
+            json.dumps({"processed": 99})
+        )
+        self.assertEqual(
+            shot.take()["stages"][0]["processed"], 10
+        )  # a stats file never changes
 
 
 class ExportValidateTest(JobsCase):
     """The job a person starts: the records of a type against a schema file."""
 
     def validate(self, schema=None, chunk_bytes=CHUNK, **more):
-        params = {"res_type": "person", **({"schema": schema} if schema else {}), **more}
+        params = {
+            "res_type": "person",
+            **({"schema": schema} if schema else {}),
+            **more,
+        }
         job_id = self.make(
-            {"stage": "Export", "params": {"res_type": "person", "chunk_bytes": chunk_bytes}},
+            {
+                "stage": "Export",
+                "params": {"res_type": "person", "chunk_bytes": chunk_bytes},
+            },
             {"stage": "Validate", "params": params},
         )
         return job_id, self.run_job(job_id)
@@ -532,16 +643,22 @@ class ExportValidateTest(JobsCase):
         self.assertEqual(code, runner.EXIT_DONE, self.job(job_id)["error_msg"])
         plan = json.loads((self.jobs_dir / job_id / "plan.json").read_text())
         files = sorted((self.jobs_dir / job_id / "00-Export").glob("batch-*.nt"))
-        self.assertEqual((plan["batches"], plan["estimate"], plan["unit"]), (1, 12, "records"))
+        self.assertEqual(
+            (plan["batches"], plan["estimate"], plan["unit"]), (1, 12, "records")
+        )
         self.assertEqual(len(files), 1)
         self.assertEqual(plan["chunk_bytes"], 20_000_000)
 
     def test_every_record_of_the_type_is_checked_against_the_schema_it_is_on(self):
         job_id, code = self.validate()
         self.assertEqual(code, runner.EXIT_DONE, self.job(job_id)["error_msg"])
-        exported, validated = self.stage(job_id, "Export"), self.stage(job_id, "Validate")
+        exported, validated = (
+            self.stage(job_id, "Export"),
+            self.stage(job_id, "Validate"),
+        )
         self.assertEqual((exported["batches"]["total"], exported["processed"]), (1, 12))
-        # 12 records in one file; the record without content and the two without a name stop here
+        # 12 records in one file; the record without content and the two without a name
+        # stop here
         self.assertEqual((validated["processed"], validated["passed"]), (12, 9))
         self.assertEqual(validated["rejected"], {"violation": 2, "no_content": 1})
         self.assertEqual(exported["passed"], 12)  # the export passes everything on
@@ -549,7 +666,9 @@ class ExportValidateTest(JobsCase):
     def test_violations_are_reported_on_the_record_that_has_them(self):
         job_id, _ = self.validate()
         found = {r["id"]: r for r in self.lines(job_id, "rejected.jsonl")}
-        self.assertEqual(sorted(found), ["rec:person:12", "rec:person:4", "rec:person:8"])
+        self.assertEqual(
+            sorted(found), ["rec:person:12", "rec:person:4", "rec:person:8"]
+        )
         self.assertEqual(found["rec:person:12"]["reason"], "no_content")
         violation = found["rec:person:4"]["violations"][0]
         self.assertEqual(found["rec:person:4"]["reason"], "violation")
@@ -584,15 +703,21 @@ class ExportValidateTest(JobsCase):
         d = self.jobs_dir / job_id / "schema" / "person" / "Person-strict-01.ttl"
         from jobs_support import SCHEMAS
 
-        self.assertEqual((d / "schema.ttl").read_text(), SCHEMAS["Person-strict-01.ttl"])
+        self.assertEqual(
+            (d / "schema.ttl").read_text(), SCHEMAS["Person-strict-01.ttl"]
+        )
         info = json.loads((d / "info.json").read_text())
-        self.assertEqual((info["type"], info["schema"]), ("Person", "Person-strict-01.ttl"))
+        self.assertEqual(
+            (info["type"], info["schema"]), ("Person", "Person-strict-01.ttl")
+        )
         self.assertTrue(info["checksum"].startswith("md5:"))
 
     def test_without_a_schema_the_one_the_type_is_on_is_used(self):
         job_id, _ = self.validate()
         info = json.loads(
-            (self.jobs_dir / job_id / "schema" / "person" / "default" / "info.json").read_text()
+            (
+                self.jobs_dir / job_id / "schema" / "person" / "default" / "info.json"
+            ).read_text()
         )
         self.assertEqual(info["schema"], "Person-full-01.ttl")
 
@@ -622,8 +747,14 @@ class ExportValidateTest(JobsCase):
                 {"res_type": "person", "schema": "Person-full-09.ttl"},
                 "no schema file Person-full-09.ttl",
             ),
-            ({"res_type": "person", "schema": "Work-full-01.ttl"}, "not a schema file of Person"),
-            ({"res_type": "person", "schema": "Person-odd-01.ttl"}, "cannot use Person-odd-01.ttl"),
+            (
+                {"res_type": "person", "schema": "Work-full-01.ttl"},
+                "not a schema file of Person",
+            ),
+            (
+                {"res_type": "person", "schema": "Person-odd-01.ttl"},
+                "cannot use Person-odd-01.ttl",
+            ),
         ):
             with self.subTest(params=params):
                 job_id = self.make(
@@ -635,7 +766,9 @@ class ExportValidateTest(JobsCase):
                 self.assertEqual(self.job(job_id)["state"], "failed")
 
     def test_the_export_alone_writes_the_records_with_their_rows(self):
-        job_id = self.make({"stage": "Export", "params": {"res_type": "person", "chunk_bytes": CHUNK}})
+        job_id = self.make(
+            {"stage": "Export", "params": {"res_type": "person", "chunk_bytes": CHUNK}}
+        )
         self.assertEqual(self.run_job(job_id), runner.EXIT_DONE)
         files = sorted((self.jobs_dir / job_id / "00-Export").glob("batch-*.nt"))
         records = [item for path in files for item in read_items(path)]
@@ -645,51 +778,93 @@ class ExportValidateTest(JobsCase):
 
 
 class RewriteExportTest(JobsCase):
-    """The jobs of a type besides validating it: write its records again, and export them."""
+    """The jobs of a type besides validating it: write its records again, and export
+    them."""
 
-    def test_the_rewrite_job_stores_what_the_hooks_change_and_the_next_one_finds_nothing(self):
-        job_id = self.make({"stage": "Rewrite", "params": {"res_type": "person", "size": 5}})
-        self.assertEqual(self.run_job(job_id), runner.EXIT_DONE, self.job(job_id)["error_msg"])
+    def test_the_rewrite_job_stores_what_the_hooks_change_and_the_next_one_finds_nothing(  # noqa: E501
+        self,
+    ):
+        job_id = self.make(
+            {"stage": "Rewrite", "params": {"res_type": "person", "size": 5}}
+        )
+        self.assertEqual(
+            self.run_job(job_id), runner.EXIT_DONE, self.job(job_id)["error_msg"]
+        )
         first = self.stage(job_id, "Rewrite")
         self.assertEqual(first["batches"]["total"], 3)  # 12 numbers in batches of 5
-        changed = first["passed"]  # the ARK is made for the records that have none, and the label
+        changed = first[
+            "passed"
+        ]  # the ARK is made for the records that have none, and the label
         self.assertGreater(changed, 0)
-        self.assertEqual(len(self.lines(job_id, "00-Rewrite/batch-00000.jsonl")) > 0, True)
-        again = self.make({"stage": "Rewrite", "params": {"res_type": "person", "size": 5}})
+        self.assertEqual(
+            len(self.lines(job_id, "00-Rewrite/batch-00000.jsonl")) > 0, True
+        )
+        again = self.make(
+            {"stage": "Rewrite", "params": {"res_type": "person", "size": 5}}
+        )
         self.assertEqual(self.run_job(again), runner.EXIT_DONE)
-        self.assertEqual(self.stage(again, "Rewrite")["passed"], 0)  # nothing left to change
+        self.assertEqual(
+            self.stage(again, "Rewrite")["passed"], 0
+        )  # nothing left to change
 
-    def test_the_purge_slugs_job_forgets_old_slugs_of_live_records_and_keeps_the_rest(self):
+    def test_the_purge_slugs_job_forgets_old_slugs_of_live_records_and_keeps_the_rest(
+        self,
+    ):
         with self.application.open_repository("library") as store:
-            store.con.execute("INSERT INTO slugs VALUES ('person', 'old-name', 'rec:person:1', false)")
-            store.con.execute("INSERT INTO slugs VALUES ('person', 'gone', 'rec:person:99', true)")
-            store.con.execute("INSERT INTO slugs VALUES ('person', '99', 'rec:person:99', true)")
-            store.con.execute("INSERT INTO slugs VALUES ('book', 'other-type', 'rec:book:1', false)")
-            before = store.con.execute("SELECT count(*) FROM slugs").fetchone()[0]
+            store.con.execute(
+                "INSERT INTO slugs VALUES ('person', 'old-name', 'rec:person:1', false)"
+            )
+            store.con.execute(
+                "INSERT INTO slugs VALUES ('person', 'gone', 'rec:person:99', true)"
+            )
+            store.con.execute(
+                "INSERT INTO slugs VALUES ('person', '99', 'rec:person:99', true)"
+            )
+            store.con.execute(
+                "INSERT INTO slugs VALUES ('book', 'other-type', 'rec:book:1', false)"
+            )
+            before = fetch_one(store.con.execute("SELECT count(*) FROM slugs"))[0]
             current = store.current_slug("rec:person:1")
         job_id = self.make({"stage": "PurgeSlugs", "params": {"res_type": "person"}})
-        self.assertEqual(self.run_job(job_id), runner.EXIT_DONE, self.job(job_id)["error_msg"])
+        self.assertEqual(
+            self.run_job(job_id), runner.EXIT_DONE, self.job(job_id)["error_msg"]
+        )
         self.assertEqual(self.stage(job_id, "PurgeSlugs")["passed"], 1)
         with self.application.open_repository("library") as store:
-            slugs = {r[0] for r in store.con.execute("SELECT slug FROM slugs").fetchall()}
+            slugs = {
+                r[0] for r in store.con.execute("SELECT slug FROM slugs").fetchall()
+            }
             self.assertNotIn("old-name", slugs)
-            self.assertLessEqual({"gone", "99", "other-type"}, slugs)  # deleted ones and other types
+            self.assertLessEqual(
+                {"gone", "99", "other-type"}, slugs
+            )  # deleted ones and other types
             self.assertEqual(store.current_slug("rec:person:1"), current)
             self.assertEqual(
-                store.con.execute("SELECT count(*) FROM slugs").fetchone()[0], before - 1
+                fetch_one(store.con.execute("SELECT count(*) FROM slugs"))[0],
+                before - 1,
             )
             self.assertEqual(store.purge_slugs("person"), [])  # nothing left to forget
 
-    def test_the_rebuild_etags_job_makes_them_again_and_lists_the_records_whose_etag_was_wrong(self):
+    def test_the_rebuild_etags_job_makes_them_again_and_lists_the_records_whose_etag_was_wrong(  # noqa: E501
+        self,
+    ):
         first = self.make({"stage": "RebuildEtags"})
-        self.assertEqual(self.run_job(first), runner.EXIT_DONE, self.job(first)["error_msg"])
+        self.assertEqual(
+            self.run_job(first), runner.EXIT_DONE, self.job(first)["error_msg"]
+        )
         self.assertEqual(self.stage(first, "RebuildEtags")["batches"]["total"], 1)
         again = self.make({"stage": "RebuildEtags"})
         self.assertEqual(self.run_job(again), runner.EXIT_DONE)
-        self.assertEqual(self.stage(again, "RebuildEtags")["passed"], 0)  # kept up to date: all right
+        self.assertEqual(
+            self.stage(again, "RebuildEtags")["passed"], 0
+        )  # kept up to date: all right
         with self.application.open_repository("library") as store:
-            self.assertGreater(store.count_etags(), 12)  # the people, and the records of the types
-            store.con.execute("UPDATE etags SET etag = 12345 WHERE record_uri = 'rec:person:1'")
+            self.assertGreater(
+                store.count_etags(), 12
+            )  # the people, and the records of the types
+            store.con.execute(
+                "UPDATE etags SET etag = 12345 WHERE record_uri = 'rec:person:1'"
+            )
             store.con.execute("DELETE FROM etags WHERE record_uri = 'rec:person:2'")
         fixed = self.make({"stage": "RebuildEtags"})
         self.assertEqual(self.run_job(fixed), runner.EXIT_DONE)
@@ -703,21 +878,28 @@ class RewriteExportTest(JobsCase):
 
     def test_the_export_job_offers_the_records_as_one_file_to_download(self):
         job_id = self.make({"stage": "Export", "params": {"res_type": "person"}})
-        self.assertEqual(self.run_job(job_id), runner.EXIT_DONE, self.job(job_id)["error_msg"])
+        self.assertEqual(
+            self.run_job(job_id), runner.EXIT_DONE, self.job(job_id)["error_msg"]
+        )
         job = self.job(job_id)
         self.assertEqual(
             (job["download_file"], job["download_content_type"]),
             ("export.nt", "application/n-triples"),
         )
         text = (self.jobs_dir / job_id / "export.nt").read_text()
-        subjects = {line.split(" ", 1)[0] for line in text.splitlines() if line.startswith("<rec:")}
+        subjects = {
+            line.split(" ", 1)[0]
+            for line in text.splitlines()
+            if line.startswith("<rec:")
+        }
         self.assertEqual(subjects, {f"<rec:person:{n}>" for n in range(1, 13)})
 
 
 class WriteConflictTest(JobsCase):
-    """The job process and a stop or a start change one row of a job: the second is retried.
-    (Over Quack DuckDB aborts the one that comes second with "Conflict on tuple deletion"; in
-    process two cursors do not conflict, so a connection that fails on demand stands in.)"""
+    """The job process and a stop or a start change one row of a job: the second is
+    retried. (Over Quack DuckDB aborts the one that comes second with "Conflict on tuple
+    deletion"; in process two cursors do not conflict, so a connection that fails on
+    demand stands in.)"""
 
     def failing(self, db, times):
         import duckdb
@@ -730,7 +912,10 @@ class WriteConflictTest(JobsCase):
                 return getattr(real, name)
 
             def execute(self, sql, params=None):
-                if sql.lstrip().startswith(("UPDATE", "DELETE")) and calls["failed"] < times:
+                if (
+                    sql.lstrip().startswith(("UPDATE", "DELETE"))
+                    and calls["failed"] < times
+                ):
                     calls["failed"] += 1
                     raise duckdb.TransactionException("Conflict on tuple deletion!")
                 return real.execute(sql, params)
@@ -745,7 +930,9 @@ class WriteConflictTest(JobsCase):
         with JobsDb(self.application) as db:
             calls = self.failing(db, 3)
             with mock.patch.object(jobs_db.time, "sleep"):
-                changed = db.update_job(job_id, {"state": "stopped"}, only_states=("queued",))
+                changed = db.update_job(
+                    job_id, {"state": "stopped"}, only_states=("queued",)
+                )
                 db.update_job(job_id, {"message": "by hand"})
             self.assertTrue(changed)
             self.assertEqual(calls["failed"], 3)
@@ -753,7 +940,8 @@ class WriteConflictTest(JobsCase):
         self.assertEqual(self.job(job_id)["message"], "by hand")
 
     def test_the_condition_is_judged_again_on_the_row_as_it_is_then(self):
-        """The first one finished the job meanwhile: the stop finds it is not `queued` any more."""
+        """The first one finished the job meanwhile: the stop finds it is not `queued`
+        any more."""
         from gracia.jobs import db as jobs_db
 
         job_id = self.make(ECHO)

@@ -1,6 +1,3 @@
-"""The namespace prefixes: the settings of the `ns_prefix` extension (the repository record),
-found in imported files, used by the outputs."""
-
 from base import DATA, DbTestCase
 
 from gracia.extensions.ns_prefix import DEFAULT_PREFIXES
@@ -24,7 +21,9 @@ class PrefixCase(DbTestCase):
 
 class PrefixSettingsTest(PrefixCase):
     def test_a_new_repository_has_the_default_prefixes(self):
-        self.assertEqual(self.prefixes(), {p["prefix"]: p["namespace"] for p in DEFAULT_PREFIXES})
+        self.assertEqual(
+            self.prefixes(), {p["prefix"]: p["namespace"] for p in DEFAULT_PREFIXES}
+        )
         for name in ("rdf", "rdfs", "dc", "foaf", "gracia"):
             self.assertIn(name, self.prefixes())
 
@@ -46,7 +45,9 @@ class PrefixSettingsTest(PrefixCase):
         self.assertNotIn("skos", self.prefixes())
 
     def test_a_plain_triple_store_has_the_defaults_and_cannot_keep_others(self):
-        code, out, _ = self.gracia("prefixes")  # the database of `lib`, repository `main`
+        code, out, _ = self.gracia(
+            "prefixes"
+        )  # the database of `lib`, repository `main`
         self.assertEqual(code, 0)
         self.assertIn("foaf\thttp://xmlns.com/foaf/0.1/", out)
 
@@ -64,7 +65,9 @@ class ImportTest(PrefixCase):
         self.assertEqual(self.prefixes()["ex"], "http://elsewhere.org/")
 
     def test_default_prefix_is_not_stored(self):
-        path = self.write("d.ttl", '@prefix : <http://default.org/> .\n<rec:thing:1> :p "x" .\n')
+        path = self.write(
+            "d.ttl", '@prefix : <http://default.org/> .\n<rec:thing:1> :p "x" .\n'
+        )
         self.run_in("import", str(path))
         self.assertNotIn("", self.prefixes())
 
@@ -79,7 +82,9 @@ class OutputTest(PrefixCase):
 
     def test_cli_prefix_option_overrides(self):
         self.run_in("import", str(DATA / "01_simple.ttl"))
-        _, out, _ = self.run_in("export", "-f", "turtle", "-p", "ex=http://nowhere.org/")
+        _, out, _ = self.run_in(
+            "export", "-f", "turtle", "-p", "ex=http://nowhere.org/"
+        )
         self.assertIn("@prefix ex: <http://nowhere.org/>", out)
 
 

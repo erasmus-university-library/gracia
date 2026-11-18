@@ -1,11 +1,3 @@
-"""The history of a record (`history.py`): the page with its versions, newest first; a version as
-JSON for the dialog that shows it (`?txn=<number>`: the text of the version in Turtle, and what it
-changed since the version before it); and Restore, which saves a version as the new one.
-
-Only for a record whose source may be shown (`Record.source_editable`): the history of a user has
-the hash of the password in it.
-"""
-
 import difflib
 import json
 
@@ -33,11 +25,13 @@ class HistoryView(View):
         self.record = self.context
 
     def _turtle(self, source: str) -> str:
-        """The text of a version, in Turtle: blank nodes are nested, so the text has no labels and
-        two versions that say the same are the same text."""
+        """The text of a version, in Turtle: blank nodes are nested, so the text has no
+        labels and two versions that say the same are the same text."""
         if not source:
             return ""
-        graph = Graph(ox.Dataset(ox.parse(source.encode("utf-8"), format=ox.RdfFormat.N_TRIPLES)))
+        graph = Graph(
+            ox.Dataset(ox.parse(source.encode("utf-8"), format=ox.RdfFormat.N_TRIPLES))
+        )
         return graph.serialize("turtle", self.repository.prefix_map())
 
     def _txn(self) -> int:
@@ -46,7 +40,9 @@ class HistoryView(View):
         except (KeyError, ValueError):
             raise HTTPBadRequest("a version is a number") from None
 
-    @view_config(context=Record, name="history", permission="edit", request_method="GET")
+    @view_config(
+        context=Record, name="history", permission="edit", request_method="GET"
+    )
     def history(self):
         if "txn" in self.request.params:
             return self.version()
@@ -56,7 +52,9 @@ class HistoryView(View):
             {
                 "txn": txn,
                 "when": when.strftime(SHOWN),
-                "ago": last_modified(when).removeprefix("Last modified ").removeprefix("on "),
+                "ago": last_modified(when)
+                .removeprefix("Last modified ")
+                .removeprefix("on "),
                 "deleted": deleted,
                 "current": index == 0 and not deleted,
                 "can_restore": index > 0 and not deleted,
@@ -75,7 +73,8 @@ class HistoryView(View):
         )
 
     def version(self) -> Response:
-        """One version, as JSON: when, its text and what it changed since the one before."""
+        """One version, as JSON: when, its text and what it changed since the one
+        before."""
         txn = self._txn()
         found = self.store.revision(self.record.uri, txn)
         if found is None:
@@ -89,28 +88,47 @@ class HistoryView(View):
             previous = self._turtle(earlier[2]) if earlier else ""
             diff = "\n".join(
                 difflib.unified_diff(
-                    previous.splitlines(), text.splitlines(), f"version {before}", f"version {txn}",
-                    lineterm="", n=3,
+                    previous.splitlines(),
+                    text.splitlines(),
+                    f"version {before}",
+                    f"version {txn}",
+                    lineterm="",
+                    n=3,
                 )
             )
-        body = {"txn": txn, "when": when.strftime(SHOWN), "deleted": deleted, "source": text, "diff": diff}
-        response = Response(json.dumps(body), content_type="application/json", charset="utf-8")
+        body = {
+            "txn": txn,
+            "when": when.strftime(SHOWN),
+            "deleted": deleted,
+            "source": text,
+            "diff": diff,
+        }
+        response = Response(
+            json.dumps(body), content_type="application/json", charset="utf-8"
+        )
         response.headers["Cache-Control"] = "no-store"
         return response
 
-    @view_config(context=Record, name="restore", permission="edit", request_method="POST")
+    @view_config(
+        context=Record, name="restore", permission="edit", request_method="POST"
+    )
     def restore(self):
         same_origin(self.request)
         record, store = self.record, self.store
         found = store.revision(record.uri, self._txn())
         if found is None or found[1]:
-            raise HTTPNotFound()  # there is no such version, or it is a record that was deleted
+            # there is no such version, or it is a record that was deleted
+            raise HTTPNotFound()
         when, _deleted, source = found
-        record.graph = Graph(ox.Dataset(ox.parse(source.encode("utf-8"), format=ox.RdfFormat.N_TRIPLES)))
+        record.graph = Graph(
+            ox.Dataset(ox.parse(source.encode("utf-8"), format=ox.RdfFormat.N_TRIPLES))
+        )
         try:
             record.save(store)  # a new version, made by the same path as every save
         except DuplicateValue as err:  # a value that was free then and is taken now
             flash(self.request, f"It cannot be restored: {err}", "danger")
             return HTTPFound(self.request.resource_url(record, "history"))
         flash(self.request, f"Restored the version of {when.strftime(SHOWN)}.")
-        return HTTPFound(self.request.resource_url(record, "edit", query={"saved": "1"}))
+        return HTTPFound(
+            self.request.resource_url(record, "edit", query={"saved": "1"})
+        )

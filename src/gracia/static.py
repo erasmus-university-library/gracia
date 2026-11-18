@@ -1,29 +1,3 @@
-"""The scripts and styles of the pages: one place that knows them, one place that serves them.
-
-A page *needs* resources (`gracia_css.need()`), the way a Deform widget names the libraries it
-depends on, and `fanstatic` does the rest (the Zope-community library for this; it comes with a
-publisher and an injector, and `gracia.static.tween` puts both in the Pyramid request):
-
-* the needed resources of the request, and the ones they depend on, are put in the `<head>` once
-  each, in dependency order, so a snippet of a page (a Deform widget) can depend on a library
-  (`jquery`) without the page knowing;
-* the resources of one library are *bundled*: the styles of the site are one file and its scripts
-  are one file (`/_static/gracia/:version:<md5>/:bundle:css/bootstrap.min.css;gracia.css`), and
-  what a widget brings is one more of each, from its own library;
-* every URL has the checksum of the library's files in it, and is served with a far-future
-  `Cache-Control: max-age`: a browser keeps a file for a year and asks again only when a file has
-  changed, because then the address has changed. Nothing is ever served stale, and a page and its
-  scripts always agree.
-
-The libraries are `gracia` (our `static/` directory: Bootstrap 5.3.2, `gracia.css`, the scripts
-of the views) and `deform` (the files Deform ships). The scripts in the head wait for
-`DOMContentLoaded`. Resources that Deform names by asset spec (also those of other packages) are
-named by libraries that are declared when the application is configured (`add_library`).
-
-Settings (all optional): `gracia.fanstatic.recompute_hashes = true` looks at the files at every
-request, for developing a script; the default reads them once.
-"""
-
 from pathlib import Path
 
 import deform
@@ -41,29 +15,59 @@ library = Library("gracia", "assets/static")
 bootstrap_css = Resource(library, "css/bootstrap.min.css")
 gracia_css = Resource(library, "css/gracia.css", depends=[bootstrap_css])
 bootstrap_js = Resource(library, "scripts/bootstrap.bundle.min.js")
-htmx_js = Resource(library, "scripts/htmx.min.js")  # htmx 2: attributes in the HTML ask the server
+htmx_js = Resource(
+    library, "scripts/htmx.min.js"
+)  # htmx 2: attributes in the HTML ask the server
 jobs_js = Resource(library, "scripts/jobs.js", depends=[bootstrap_js, htmx_js])
 api_browser_js = Resource(library, "scripts/apibrowser.js")
-manage_js = Resource(library, "scripts/manage.js", depends=[bootstrap_js])  # ?tab= follows the tab
-job_log_js = Resource(library, "scripts/joblog.js")  # follows a log by asking for what is new
-deform_load_js = Resource(library, "scripts/deform-load.js")  # deform.load() once the page is there
-source_js = Resource(library, "scripts/source.js")  # the format of a source is changed in place
-# code editors with syntax highlighting (CodeMirror 5, vendored: static/vendor/codemirror/)
-codemirror_css = Resource(library, "vendor/codemirror/codemirror.css", depends=[gracia_css])
-codemirror_js = Resource(library, "vendor/codemirror/codemirror.min.js", depends=[codemirror_css])
-codemirror_sparql_js = Resource(library, "vendor/codemirror/sparql.js", depends=[codemirror_js])
-codemirror_json_js = Resource(library, "vendor/codemirror/javascript.js", depends=[codemirror_js])
-codemirror_xml_js = Resource(library, "vendor/codemirror/xml.js", depends=[codemirror_js])
-editor_js = Resource(  # a textarea with data-editor="sparql", "json" or "xml" becomes an editor
-    library,
-    "scripts/editor.js",
-    depends=[codemirror_sparql_js, codemirror_json_js, codemirror_xml_js, bootstrap_js],
+manage_js = Resource(
+    library, "scripts/manage.js", depends=[bootstrap_js]
+)  # ?tab= follows the tab
+job_log_js = Resource(
+    library, "scripts/joblog.js"
+)  # follows a log by asking for what is new
+deform_load_js = Resource(
+    library, "scripts/deform-load.js"
+)  # deform.load() once the page is there
+source_js = Resource(
+    library, "scripts/source.js"
+)  # the format of a source is changed in place
+# code editors with syntax highlighting (CodeMirror 5, vendored:
+# static/vendor/codemirror/)
+codemirror_css = Resource(
+    library, "vendor/codemirror/codemirror.css", depends=[gracia_css]
+)
+codemirror_js = Resource(
+    library, "vendor/codemirror/codemirror.min.js", depends=[codemirror_css]
+)
+codemirror_sparql_js = Resource(
+    library, "vendor/codemirror/sparql.js", depends=[codemirror_js]
+)
+codemirror_json_js = Resource(
+    library, "vendor/codemirror/javascript.js", depends=[codemirror_js]
+)
+codemirror_xml_js = Resource(
+    library, "vendor/codemirror/xml.js", depends=[codemirror_js]
+)
+editor_js = (
+    Resource(  # a textarea with data-editor="sparql", "json" or "xml" becomes an editor
+        library,
+        "scripts/editor.js",
+        depends=[
+            codemirror_sparql_js,
+            codemirror_json_js,
+            codemirror_xml_js,
+            bootstrap_js,
+        ],
+    )
 )
 
-# the history of a record: a version is shown in a dialog with the editor, and what it changed
+# the history of a record: a version is shown in a dialog with the editor, and what it
+# changed
 history_js = Resource(library, "scripts/history.js", depends=[editor_js])
 
-# what every page has: the styles of the site and Bootstrap's scripts (modals, dropdowns)
+# what every page has: the styles of the site and Bootstrap's scripts (modals,
+# dropdowns)
 page = fanstatic.Group([gracia_css, bootstrap_js])
 
 _registry = fanstatic.get_library_registry()
@@ -73,7 +77,9 @@ _registry.add(
 
 deform_library = Library("deform", AssetResolver().resolve("deform:static").abspath())
 _registry.add(deform_library)
-deform_jquery = Resource(deform_library, "scripts/jquery-2.0.3.min.js")  # deform names no jQuery
+deform_jquery = Resource(
+    deform_library, "scripts/jquery-2.0.3.min.js"
+)  # deform names no jQuery
 _known: dict[str, Resource] = {}  # asset spec -> resource: what widgets can name
 
 
@@ -92,9 +98,12 @@ for _spec in _deform_specs():
     if _spec == "deform:static/scripts/deform.js":
         continue  # needs jquery.form, made first
     _known[_spec] = Resource(
-        deform_library, _relative, depends=[deform_jquery] if _relative.endswith(".js") else []
+        deform_library,
+        _relative,
+        depends=[deform_jquery] if _relative.endswith(".js") else [],
     )
-# the sequence widget (a list of items that can be reordered) names its script in a requirement
+# the sequence widget (a list of items that can be reordered) names its script in a
+# requirement
 # that the resource registry does not list
 _known["deform:static/scripts/jquery-sortable.js"] = Resource(
     deform_library, "scripts/jquery-sortable.js", depends=[deform_jquery]
@@ -107,10 +116,11 @@ _known["deform:static/scripts/deform.js"] = Resource(
 
 
 def _resource(spec: str) -> Resource:
-    """The fanstatic resource of the asset spec a widget names: Deform's files are made above; a
-    file of another package must be in a library that was declared (`add_library`, or the
-    `fanstatic.libraries` entry point) with a `Resource` for it, before the first request. Nothing
-    is made on the fly: the libraries are numbered once, and only what is declared is published."""
+    """The fanstatic resource of the asset spec a widget names: Deform's files are made
+    above; a file of another package must be in a library that was declared
+    (`add_library`, or the `fanstatic.libraries` entry point) with a `Resource` for it,
+    before the first request. Nothing is made on the fly: the libraries are numbered
+    once, and only what is declared is published."""
     if spec in _known:
         return _known[spec]
     path = assets.resolve(spec).resolve()
@@ -121,20 +131,25 @@ def _resource(spec: str) -> Resource:
             if relative in found.known_resources:
                 return found.known_resources[relative]
             raise LookupError(
-                f"{spec} is in the library {found.name!r} but is not one of its resources: "
-                f"declare it with fanstatic.Resource({found.name}_library, {relative!r})"
+                f"{spec} is in the library {found.name!r} but is not one of its "
+                "resources: "
+                f"declare it with fanstatic.Resource({found.name}_library, "
+                f"{relative!r})"
             )
     raise LookupError(
-        f"{spec} is in no library: declare a fanstatic Library and Resource for it and register "
-        "the library with config.add_gracia_library (or the fanstatic.libraries entry point)"
+        f"{spec} is in no library: declare a fanstatic Library and Resource for it and "
+        "register "
+        "the library with config.add_gracia_library (or the fanstatic.libraries entry "
+        "point)"
     )
 
 
 def add_library(config, new: Library) -> None:
-    """Config directive `config.add_gracia_library(library)`: publish a fanstatic library (and the
-    resources declared in it) below `/_static/`. A package that brings scripts or styles, such as
-    a type with its own widget, does this in its `includeme`. It has to happen before the first
-    request: fanstatic numbers its libraries then, once."""
+    """Config directive `config.add_gracia_library(library)`: publish a fanstatic
+    library (and the resources declared in it) below `/_static/`. A package that brings
+    scripts or styles, such as a type with its own widget, does this in its `includeme`.
+    It has to happen before the first request: fanstatic numbers its libraries then,
+    once."""
 
     def register():
         if _registry.get(new.name) is new:
@@ -150,8 +165,8 @@ def add_library(config, new: Library) -> None:
 
 
 def need_form(form) -> None:
-    """Need what the widgets of a Deform form need (`form.get_widget_resources()`): each file
-    once, after the files it depends on, whatever page the form is on."""
+    """Need what the widgets of a Deform form need (`form.get_widget_resources()`): each
+    file once, after the files it depends on, whatever page the form is on."""
     found = form.get_widget_resources()
     for spec in (*found["js"], *found["css"]):
         _resource(spec).need()
@@ -166,13 +181,15 @@ def url(name: str) -> str:
 
 
 def tween_factory(handler, registry):
-    """Serve the libraries below `/_static/`, and put what a page needs in the `<head>` of its
-    HTML (only HTML: JSON and the rest pass untouched)."""
+    """Serve the libraries below `/_static/`, and put what a page needs in the `<head>`
+    of its HTML (only HTML: JSON and the rest pass untouched)."""
     settings = registry.settings
     options = {
         "versioning": True,
         "versioning_use_md5": True,
-        "recompute_hashes": asbool(settings.get("gracia.fanstatic.recompute_hashes", False)),
+        "recompute_hashes": asbool(
+            settings.get("gracia.fanstatic.recompute_hashes", False)
+        ),
         "publisher_signature": SIGNATURE,
         "bundle": True,
     }
@@ -187,7 +204,9 @@ def tween_factory(handler, registry):
             response = served.get_response(publisher)
             if response.status_int != 404:
                 return response
-        # an absolute address, like every other one (the application URL has the host, and the script name)
+        # an absolute address, like every other one (the application URL has the host,
+        # and the
+        # script name)
         needed = fanstatic.init_needed(base_url=request.application_url, **options)
         try:
             response = handler(request)

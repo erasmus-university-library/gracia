@@ -1,5 +1,3 @@
-"""The history of the records: the transactions that changed them, and the file that says when."""
-
 import threading
 
 import pyoxigraph as ox
@@ -27,16 +25,27 @@ class HistoryTest(DbTestCase):
 
     def rows(self):
         return self.store.con.execute(
-            "SELECT txn_id, record_uri(record_id), is_deleted, source FROM history ORDER BY txn_id, record_id"
+            "SELECT txn_id, record_uri(record_id), is_deleted, source FROM history "
+            "ORDER BY "
+            "txn_id, record_id"
         ).fetchall()
 
-    def test_every_write_is_a_transaction_with_the_next_number_and_a_row_for_each_record(self):
+    def test_every_write_is_a_transaction_with_the_next_number_and_a_row_for_each_record(  # noqa: E501
+        self,
+    ):
         s = self.store
-        s.put(graph('<rec:thing:1> <http://ex/p> "a" . <rec:thing:2> <http://ex/p> "b" .'))
+        s.put(
+            graph('<rec:thing:1> <http://ex/p> "a" . <rec:thing:2> <http://ex/p> "b" .')
+        )
         s.put(thing(1, "changed"))  # a replace: a delete and an insert, one row
         rows = self.rows()
-        self.assertEqual([(t, u) for t, u, *_ in rows], [(1, "rec:thing:1"), (1, "rec:thing:2"), (2, "rec:thing:1")])
-        self.assertEqual(rows[2][2:], (False, '<rec:thing:1> <http://ex/p> "changed" .\n'))
+        self.assertEqual(
+            [(t, u) for t, u, *_ in rows],
+            [(1, "rec:thing:1"), (1, "rec:thing:2"), (2, "rec:thing:1")],
+        )
+        self.assertEqual(
+            rows[2][2:], (False, '<rec:thing:1> <http://ex/p> "changed" .\n')
+        )
         self.assertEqual(s.last_transaction(), 2)
 
     def test_a_delete_is_a_transaction_and_leaves_a_tombstone(self):
@@ -53,13 +62,21 @@ class HistoryTest(DbTestCase):
             s.put(thing(2, "same"))
         self.assertEqual([r[1] for r in self.rows()], ["rec:thing:1"])
         s.put(thing(2, "other"))
-        self.assertEqual([r[:2] for r in self.rows()], [(1, "rec:thing:1"), (2, "rec:thing:2")])  # no gap
+        self.assertEqual(
+            [r[:2] for r in self.rows()], [(1, "rec:thing:1"), (2, "rec:thing:2")]
+        )  # no gap
 
-    def test_what_is_written_outside_the_store_gets_the_next_number_from_the_triggers(self):
+    def test_what_is_written_outside_the_store_gets_the_next_number_from_the_triggers(
+        self,
+    ):
         s = self.store
         s.put(thing(1))
-        s.con.execute("UPDATE triples SET lit = 'raw' WHERE s = 'rec:thing:1'")  # a rogue edit
-        self.assertEqual(s.last_transaction(), 2)  # a reader that was at 1 knows it is behind
+        s.con.execute(
+            "UPDATE triples SET lit = 'raw' WHERE s = 'rec:thing:1'"
+        )  # a rogue edit
+        self.assertEqual(
+            s.last_transaction(), 2
+        )  # a reader that was at 1 knows it is behind
         self.assertEqual(s.changes_since(1), [(2, "rec:thing:1", False)])
         s.con.execute("DELETE FROM triples WHERE s = 'rec:thing:1'")
         self.assertEqual(s.changes_since(2), [(3, "rec:thing:1", True)])
@@ -86,13 +103,19 @@ class HistoryTest(DbTestCase):
     def test_a_rewrite_is_a_transaction_only_when_it_changes_something(self):
         s = self.store
         s.put(thing(1))
-        s.configure(lambda: (["UPDATE @FLAT@ SET lit = upper(lit) WHERE p = 'http://ex/p'"], []))
+        s.configure(
+            lambda: (["UPDATE @FLAT@ SET lit = upper(lit) WHERE p = 'http://ex/p'"], [])
+        )
         self.assertEqual(s.rederive("thing"), ["rec:thing:1"])
         self.assertEqual(s.last_transaction(), 2)
         self.assertEqual(s.rederive("thing"), [])
-        self.assertEqual(s.last_transaction(), 2)  # nothing changed: no transaction, no row
+        self.assertEqual(
+            s.last_transaction(), 2
+        )  # nothing changed: no transaction, no row
 
-    def test_writers_at_once_get_numbers_in_the_order_of_their_commits_and_none_twice(self):
+    def test_writers_at_once_get_numbers_in_the_order_of_their_commits_and_none_twice(
+        self,
+    ):
         s = self.store
         s.put(thing(100))
         errors = []
@@ -102,7 +125,7 @@ class HistoryTest(DbTestCase):
                 with s.fork() as mine:
                     for k in range(5):
                         mine.put(thing(n * 10 + k + 1, str(k)))
-            except Exception as err:  # noqa: BLE001
+            except Exception as err:
                 errors.append(err)
 
         threads = [threading.Thread(target=write, args=(n,)) for n in (1, 2, 3)]
@@ -112,6 +135,8 @@ class HistoryTest(DbTestCase):
             thread.join()
         self.assertEqual(errors, [])
         numbers = [r[0] for r in self.rows()]
-        self.assertEqual(numbers, sorted(set(numbers)))  # one record to a write, none twice
+        self.assertEqual(
+            numbers, sorted(set(numbers))
+        )  # one record to a write, none twice
         self.assertEqual(numbers[-1], 1 + 15)
         self.assertEqual(self.store.last_transaction(), 16)

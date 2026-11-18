@@ -1,11 +1,8 @@
-"""The Pyramid application: repositories under /<repo-id>/, by traversal."""
-
 import unittest
+from urllib.parse import unquote, urlsplit
 
 import pyoxigraph as ox
 from pyramid.authorization import ACLHelper, Authenticated, Everyone
-from urllib.parse import unquote, urlsplit
-
 from webtest import TestApp
 
 from gracia.application import Application
@@ -42,9 +39,9 @@ class HeaderPolicy:
 
 
 class FollowingApp(TestApp):
-    """A client that goes on to where a record has moved (the number of a record that has a slug,
-    an old slug): 301 and 308, once, with the same method and body, so that a test can use either
-    address. `follow = False` shows the redirect itself."""
+    """A client that goes on to where a record has moved (the number of a record that
+    has a slug, an old slug): 301 and 308, once, with the same method and body, so that
+    a test can use either address. `follow = False` shows the redirect itself."""
 
     follow = True
 
@@ -70,8 +67,9 @@ class WebCase(unittest.TestCase):
         self.settings = {"gracia.application": self.application}
 
     def client(self, config=None) -> TestApp:
-        """A new client (no cookies) on the application. The app is built once per test while its settings
-        stay the same: building one is a scan of the code, 13 ms, and a test makes dozens of requests."""
+        """A new client (no cookies) on the application. The app is built once per test
+        while its settings stay the same: building one is a scan of the code, 13 ms, and
+        a test makes dozens of requests."""
         if config is not None:
             return FollowingApp(config.make_wsgi_app())
         built = getattr(self, "_built_app", None)
@@ -95,16 +93,22 @@ class RepositoryEndpointsTest(WebCase):
         self.assertEqual(response.status_int, 200)
         body = response.json
         self.assertEqual(body["id"], "library")
-        self.assertGreater(body["rows"], 0)  # a new repository holds its resource and shape
+        self.assertGreater(
+            body["rows"], 0
+        )  # a new repository holds its resource and shape
 
     def test_the_figures_follow_the_data_of_that_repository_only(self):
         self.application.create_repository("library")
         self.application.create_repository("archive")
         with self.application.open_repository("library") as store:
-            quad = ox.Quad(ox.NamedNode("rec:thing:2"), ox.NamedNode(EX + "p"), ox.Literal("x"))
+            quad = ox.Quad(
+                ox.NamedNode("rec:thing:2"), ox.NamedNode(EX + "p"), ox.Literal("x")
+            )
             store.put(ox.Dataset([quad]))
         web = self.client()
-        self.assertEqual(web.get("/library/").json["rows"], web.get("/archive/").json["rows"] + 1)
+        self.assertEqual(
+            web.get("/library/").json["rows"], web.get("/archive/").json["rows"] + 1
+        )
 
     def test_an_unknown_repository_is_404_and_creates_nothing(self):
         response = self.client().get("/nope/", expect_errors=True)
@@ -131,7 +135,9 @@ class RepositoryEndpointsTest(WebCase):
 
     def test_only_get_is_served(self):
         self.application.create_repository("library")
-        self.assertEqual(self.client().post("/library/", expect_errors=True).status_int, 404)
+        self.assertEqual(
+            self.client().post("/library/", expect_errors=True).status_int, 404
+        )
 
     def test_an_application_can_open_its_own_database(self):
         app = make_app({"gracia.db": ":memory:"})
@@ -158,25 +164,36 @@ class RepositoryApiTest(WebCase):
                 document = response.json
                 self.assertTrue(document["openapi"].startswith("3."))
                 self.assertIn(repo, document["info"]["title"])
-                self.assertEqual(document["servers"], [{"url": f"http://localhost/{repo}"}])
                 self.assertEqual(
-                    sorted(document["paths"]), ["/", "/api", "/{type}", "/{type}/{number}"]
+                    document["servers"], [{"url": f"http://localhost/{repo}"}]
+                )
+                self.assertEqual(
+                    sorted(document["paths"]),
+                    ["/", "/api", "/{type}", "/{type}/{number}"],
                 )
 
     def test_a_browser_gets_the_document_as_a_page_a_program_gets_json(self):
         web = self.client()
         page = web.get(
-            "/library/api", headers={"Accept": "text/html,application/xhtml+xml,*/*;q=0.8"}
+            "/library/api",
+            headers={"Accept": "text/html,application/xhtml+xml,*/*;q=0.8"},
         )
         self.assertIn("text/html", page.content_type)
-        for part in ("gracia repository library", "/{type}/{number}", "Try it", "apibrowser.js"):
+        for part in (
+            "gracia repository library",
+            "/{type}/{number}",
+            "Try it",
+            "apibrowser.js",
+        ):
             self.assertIn(part, page.text)
         self.assertEqual(page.headers["Cache-Control"], "private")
         asked = web.get("/library/api", headers={"Accept": "application/json"})
         self.assertIn("application/json", asked.content_type)
 
     def test_an_unknown_repository_has_no_api(self):
-        self.assertEqual(self.client().get("/nope/api", expect_errors=True).status_int, 404)
+        self.assertEqual(
+            self.client().get("/nope/api", expect_errors=True).status_int, 404
+        )
 
     def test_the_document_is_never_shared_through_a_public_cache(self):
         response = self.client().get("/library/api")
@@ -204,18 +221,25 @@ class RepositoryApiTest(WebCase):
         admin = web.get("/library/api", headers={"X-User": "admin"}).json["paths"]
         self.assertIn("/stats", admin)
         self.assertEqual(admin["/stats"]["get"]["x-gracia-permission"], "admin")
-        self.assertEqual(web.get("/library/stats", headers={"X-User": "admin"}).status_int, 200)
+        self.assertEqual(
+            web.get("/library/stats", headers={"X-User": "admin"}).status_int, 200
+        )
 
     def test_a_view_without_a_permission_still_needs_one(self):
         """Default deny: with no permission given a view requires "view"."""
 
         class NobodyViews(HeaderPolicy):
             def permits(self, request, context, permission):
-                return permission != "view" and super().permits(request, context, permission)
+                return permission != "view" and super().permits(
+                    request, context, permission
+                )
 
         config = make_config({**self.settings, "gracia.security_policy": NobodyViews()})
         config.add_view(
-            lambda request: {"ok": True}, context=Repository, name="open", renderer="json"
+            lambda request: {"ok": True},
+            context=Repository,
+            name="open",
+            renderer="json",
         )
         self.assertEqual(
             self.client(config).get("/library/open", expect_errors=True).status_int, 403
@@ -242,7 +266,10 @@ class ExtensionTest(WebCase):
 
         def includeme(config):  # what `gracia_statistics.includeme` would be
             config.add_view(
-                lambda request: {"n": 3}, context=Repository, name="count", renderer="json"
+                lambda request: {"n": 3},
+                context=Repository,
+                name="count",
+                renderer="json",
             )
             config.add_api_operation("/count", "Number of things")
 

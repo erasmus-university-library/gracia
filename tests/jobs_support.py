@@ -1,7 +1,3 @@
-"""What the tests of the jobs system share: a repository with people, a job runner, and some small
-stages (Luigi tasks) that make things go wrong on demand. The setting `gracia.stages` names this
-module, and importing it is all that registers the stages: Luigi does the rest."""
-
 import math
 import socket
 import tempfile
@@ -46,15 +42,18 @@ REPOSITORY = """
 @prefix foaf: <http://xmlns.com/foaf/0.1/> .
 <rec:repository:1> a gracia:Record ;
     gracia:resource [ a gracia:Repository ; gracia:title "library" ;
-        gracia:types ( gracia:Repository gracia:Type gracia:User gracia:UserGroup foaf:Person ) ] .
+        gracia:types ( gracia:Repository gracia:Type gracia:User gracia:UserGroup
+          foaf:Person ) ] .
 <rec:type:5> a gracia:Record ; gracia:resource_uri foaf:Person ;
     gracia:resource [ a gracia:Type ; gracia:name "Person" ; gracia:slug "person" ;
-        gracia:class foaf:Person ; gracia:assets "@ASSETS@" ; gracia:schemaTemplate "Person-full-01.ttl" ] .
+        gracia:class foaf:Person ; gracia:assets "@ASSETS@" ; gracia:schemaTemplate
+          "Person-full-01.ttl" ] .
 """
 
 
-def person(number: int, name: bool = True, mail: str | None = None, content: bool = True) -> str:
-    res_type = "<rec:type:5>"
+def person(
+    number: int, name: bool = True, mail: str | None = None, content: bool = True
+) -> str:
     if not content:
         return f"<rec:person:{number}> a gracia:Record ."
     props = [f'foaf:name "Person {number}"'] if name else []
@@ -67,15 +66,19 @@ STOP = None  # a test may put the StopFlag of the running job here
 
 
 class Echo(Source):
-    """`n_items` items `item-1` .. `item-n`, in batches of `size`; the parameters make things go
-    wrong or slow."""
+    """`n_items` items `item-1` .. `item-n`, in batches of `size`; the parameters make
+    things go wrong or slow."""
 
     n_items = luigi.IntParameter(default=6)
     size = luigi.IntParameter(default=2)
     sleep = luigi.FloatParameter(default=0.0)
     fail_batch = luigi.IntParameter(default=-1)  # this batch raises ...
-    fail_file = luigi.Parameter(default="")  # ... while this file exists (if one is named)
-    stop_at = luigi.IntParameter(default=-1)  # this batch sets the stop flag, as a SIGTERM would
+    fail_file = luigi.Parameter(
+        default=""
+    )  # ... while this file exists (if one is named)
+    stop_at = luigi.IntParameter(
+        default=-1
+    )  # this batch sets the stop flag, as a SIGTERM would
     marker = luigi.Parameter(default="")  # a file that is written when a batch starts
     hold = luigi.Parameter(default="")  # a batch waits for as long as this file exists
 
@@ -94,7 +97,9 @@ class Echo(Source):
             time.sleep(0.05)
         if self.sleep:
             time.sleep(self.sleep)
-        if self.n == self.fail_batch and (not self.fail_file or Path(self.fail_file).exists()):
+        if self.n == self.fail_batch and (
+            not self.fail_file or Path(self.fail_file).exists()
+        ):
             raise StageFailure(f"batch {self.n} was asked to fail")
         if self.n == self.stop_at and STOP is not None:
             STOP.set()
@@ -104,7 +109,8 @@ class Echo(Source):
 
 
 def echo(**params) -> dict:
-    """A stage entry for a job: `Echo` with 6 items in batches of 2, unless told otherwise."""
+    """A stage entry for a job: `Echo` with 6 items in batches of 2, unless told
+    otherwise."""
     return {"stage": "Echo", "params": {"n_items": 6, "size": 2, **params}}
 
 
@@ -132,14 +138,16 @@ class Keep(Stage):
 
 
 class Mark(Stage):
-    """A transform: every item gets a mark (the data changes, so the file is written)."""
+    """A transform: every item gets a mark (the data changes, so the file is
+    written)."""
 
     def process(self, items):
         return [{**i, "marked": True} for i in items], []
 
 
 class Tool(Stage):
-    """Stands in for a call to a tool or a web service that fails the first `failures` times."""
+    """Stands in for a call to a tool or a web service that fails the first `failures`
+    times."""
 
     failures = luigi.IntParameter(default=0)
     counter = luigi.Parameter(default="")
@@ -154,7 +162,8 @@ class Tool(Stage):
 
 
 class JobsCase(unittest.TestCase):
-    """An application with a repository `library` that has a Person type and some people."""
+    """An application with a repository `library` that has a Person type and some
+    people."""
 
     def setUp(self):
         self.application = self.make_application()
@@ -177,12 +186,19 @@ class JobsCase(unittest.TestCase):
     settings: ClassVar[dict] = {}  # what `gracia run` would have: a test may set more
 
     def people(self) -> str:
-        """12 people: 3 have no name, 4 have no mail address, 1 has a bad one, 1 has no content."""
-        header = "@prefix gracia: <https://gracia.pub/ns/> . @prefix foaf: <" + FOAF + "> .\n"
+        """12 people: 3 have no name, 4 have no mail address, 1 has a bad one, 1 has no
+        content."""
+        header = (
+            "@prefix gracia: <https://gracia.pub/ns/> . @prefix foaf: <"
+            + FOAF
+            + "> .\n"
+        )
         lines = [header]
         for n in range(1, 11):
             lines.append(
-                person(n, name=n % 4 != 0, mail=None if n % 3 == 0 else f"p{n}@example.org")
+                person(
+                    n, name=n % 4 != 0, mail=None if n % 3 == 0 else f"p{n}@example.org"
+                )
             )
         lines.append(person(11, mail="not-a-mail-address"))
         lines.append(person(12, content=False))
@@ -195,9 +211,14 @@ class JobsCase(unittest.TestCase):
             else "@prefix gracia: <https://gracia.pub/ns/> .\n"
         )
         with self.application.open_repository("library") as store:
-            store.put(ox.Dataset(ox.parse((header + text).encode(), format=ox.RdfFormat.TURTLE)))
+            store.put(
+                ox.Dataset(
+                    ox.parse((header + text).encode(), format=ox.RdfFormat.TURTLE)
+                )
+            )
 
-    # ---- jobs ---------------------------------------------------------------------------
+    # ---- jobs
+    # ---------------------------------------------------------------------------
 
     def make(self, *stages, **extra) -> str:
         spec = validate_spec({"repo": "library", "stages": list(stages), **extra})
@@ -205,7 +226,9 @@ class JobsCase(unittest.TestCase):
             return db.create(spec)
 
     def run_job(self, job_id: str, stop=None) -> int:
-        return runner.run_job(self.application, job_id, self.jobs_dir, self.settings, stop)
+        return runner.run_job(
+            self.application, job_id, self.jobs_dir, self.settings, stop
+        )
 
     def job(self, job_id: str) -> dict:
         with JobsDb(self.application) as db:
@@ -213,7 +236,9 @@ class JobsCase(unittest.TestCase):
 
     def stage(self, job_id: str, name: str) -> dict:
         """The snapshot of one stage, from the job row."""
-        return next(s for s in self.job(job_id)["progress"]["stages"] if s["name"] == name)
+        return next(
+            s for s in self.job(job_id)["progress"]["stages"] if s["name"] == name
+        )
 
     def lines(self, job_id: str, name: str) -> list[dict]:
         return read_lines(self.jobs_dir / job_id / name)

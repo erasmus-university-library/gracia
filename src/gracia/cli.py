@@ -1,5 +1,3 @@
-"""The `gracia` command line tool."""
-
 import argparse
 import contextlib
 import datetime
@@ -40,11 +38,13 @@ from gracia.utils.validate import validate_password, validate_userid
 _probe_error = ""  # why the last owner discovery failed, for the lock-error hint
 
 
-def _discover_owner(settings: dict[str, str], port: int = DEFAULT_PORT) -> dict[str, str]:
-    """When the database is a file and an owner serves it, use the owner: opening the file would
-    hit its lock. The owner says where it listens in `<db>.owner` (else the default local port is
-    tried when a `<db>.token` is next to the file); connecting confirms it. Without an owner
-    nothing changes."""
+def _discover_owner(
+    settings: dict[str, str], port: int = DEFAULT_PORT
+) -> dict[str, str]:
+    """When the database is a file and an owner serves it, use the owner: opening the
+    file would hit its lock. The owner says where it listens in `<db>.owner` (else the
+    default local port is tried when a `<db>.token` is next to the file); connecting
+    confirms it. Without an owner nothing changes."""
     global _probe_error
     target = settings["gracia.db"]
     if config.is_remote(target) or target == ":memory:":
@@ -52,7 +52,8 @@ def _discover_owner(settings: dict[str, str], port: int = DEFAULT_PORT) -> dict[
     found = read_owner(target)
     uri = found[0] if found else f"quack:localhost:{port}"
     token_file = Path(
-        settings.get("gracia.db.token_file") or (found[1] if found else f"{target}.token")
+        settings.get("gracia.db.token_file")
+        or (found[1] if found else f"{target}.token")
     )
     if not token_file.is_file():
         return settings
@@ -60,7 +61,9 @@ def _discover_owner(settings: dict[str, str], port: int = DEFAULT_PORT) -> dict[
         token = config.read_token({"gracia.db.token_file": str(token_file)})
         Application(uri, token=token).close()  # connecting is the probe
     except ValueError as err:
-        _probe_error = f"an owner was expected at {uri} (token file {token_file}): {err}"
+        _probe_error = (
+            f"an owner was expected at {uri} (token file {token_file}): {err}"
+        )
         return settings
     return {
         **settings,
@@ -71,8 +74,8 @@ def _discover_owner(settings: dict[str, str], port: int = DEFAULT_PORT) -> dict[
 
 
 def _config_path(args) -> str | None:
-    """The config file in use, as an absolute path: what a job's process is started with, so
-    that it reads the same file whatever directory it ends up in."""
+    """The config file in use, as an absolute path: what a job's process is started
+    with, so that it reads the same file whatever directory it ends up in."""
     found = config.config_file(args.config)
     return str(found.resolve()) if found else None
 
@@ -82,10 +85,13 @@ def _settings(args) -> dict[str, str]:
 
 
 def _application(args) -> Application:
-    """The application on the database the settings name: a file, or a running `serve-db`."""
+    """The application on the database the settings name: a file, or a running
+    `serve-db`."""
     settings = _settings(args)
     target = settings["gracia.db"]
-    kwargs = {"cache_dir": settings.get("gracia.cache_dir") or None}  # opened only when used
+    kwargs = {
+        "cache_dir": settings.get("gracia.cache_dir") or None
+    }  # opened only when used
     if config.is_remote(target):
         kwargs["token"] = config.read_token(settings)
     elif not Path(target).exists() and args.command != "repo":
@@ -94,7 +100,8 @@ def _application(args) -> Application:
 
 
 class _OwnedStore(Store):
-    """A store that closes the application it came from (a remote store needs its own)."""
+    """A store that closes the application it came from (a remote store needs its
+    own)."""
 
     application: Application
 
@@ -104,9 +111,10 @@ class _OwnedStore(Store):
 
 
 def _store(args, create: bool = False) -> Store:
-    """Open the database. Only `import` creates one; other commands refuse a missing file
-    (DuckDB would otherwise silently create an empty database). A `quack:` database is
-    served by a running `gracia serve-db`: the repository must exist there already."""
+    """Open the database. Only `import` creates one; other commands refuse a missing
+    file (DuckDB would otherwise silently create an empty database). A `quack:` database
+    is served by a running `gracia serve-db`: the repository must exist there
+    already."""
     settings = _settings(args)
     target = settings["gracia.db"]
     if config.is_remote(target):
@@ -131,9 +139,10 @@ def _store(args, create: bool = False) -> Store:
 @contextlib.contextmanager
 def _ns_prefix(args, store: Store):
     """The `ns_prefix` extension of the repository the store is on (the prefixes are its
-    settings, in the repository record): without a record, the defaults, and nothing can be
-    written."""
+    settings, in the repository record): without a record, the defaults, and nothing can
+    be written."""
     from gracia.extensions.ns_prefix import NsPrefixExtension
+
     application = getattr(store, "application", None)
     own = application is None
     if own:
@@ -146,7 +155,9 @@ def _ns_prefix(args, store: Store):
 
 
 def _prefix_dict(ns_prefix) -> dict[str, str]:
-    return {item["prefix"]: item["namespace"] for item in ns_prefix.settings["prefixes"]}
+    return {
+        item["prefix"]: item["namespace"] for item in ns_prefix.settings["prefixes"]
+    }
 
 
 def _save_prefixes(ns_prefix, prefixes: dict[str, str]) -> None:
@@ -157,9 +168,10 @@ def _save_prefixes(ns_prefix, prefixes: dict[str, str]) -> None:
 
 @contextlib.contextmanager
 def _hooks(args):
-    """The repository (-r) for an import, or None when it has no repository record to know its
-    types from (a plain triple store). The store that is given `configure_store(store)` runs the
-    SQL of the predicates of the types on what it stores."""
+    """The repository (-r) for an import, or None when it has no repository record to
+    know its types from (a plain triple store). The store that is given
+    `configure_store(store)` runs the SQL of the predicates of the types on what it
+    stores."""
     try:
         with _repository(args) as node:
             try:
@@ -196,10 +208,10 @@ def cmd_import(args) -> int:
                     known = _prefix_dict(ns_prefix)
                     new = {p: n for p, n in declared.items() if p and p not in known}
                     if new:  # a prefix that is there is never re-bound
-                        try:
+                        with contextlib.suppress(
+                            LookupError
+                        ):  # a plain triple store: no record to keep them in
                             _save_prefixes(ns_prefix, {**known, **new})
-                        except LookupError:  # a plain triple store: no record to keep them in
-                            pass
                 for prefix, namespace in sorted(declared.items()):
                     if prefix in known and known[prefix] != namespace:
                         print(
@@ -212,7 +224,9 @@ def cmd_import(args) -> int:
             if node is not None:
                 node.sync_roles(store)  # an import may have made or changed types
             past = {"insert": "inserted", "delete": "deleted"}
-            summary = ", ".join(f"{n} rows {past.get(a, a)}" for a, n in sorted(counts.items()))
+            summary = ", ".join(
+                f"{n} rows {past.get(a, a)}" for a, n in sorted(counts.items())
+            )
             print(f"{name}: {summary or 'nothing to do'}")
     return 0
 
@@ -247,7 +261,9 @@ def cmd_export(args) -> int:
             return 0
         prefixes = _prefixes(args, store, args.prefix, used_only=True)
         if args.format == "ntriples" and not args.xslt and args.output:
-            store.export_ntriples(Path(args.output), args.uri)  # DuckDB writes the file itself
+            store.export_ntriples(
+                Path(args.output), args.uri
+            )  # DuckDB writes the file itself
             return 0
         # the records' N-Triples, written by DuckDB, are read back as rows by the parser
         with tempfile.TemporaryDirectory() as tmp:
@@ -255,16 +271,21 @@ def cmd_export(args) -> int:
             store.export_ntriples(source, args.uri)
             rows = streaming_parse(source, "ntriples")
             if args.xslt or args.format in xslt.FORMATS:
-                # in memory: the resources as flat RDF/XML, nested by a stylesheet, then yours
+                # in memory: the resources as flat RDF/XML, nested by a stylesheet, then
+                # yours
                 flat = streaming_serialize(rows, "rdfxml", prefixes=prefixes)
                 if args.xslt:
                     _write(xslt.transform(flat, xslt.NESTED, args.xslt), args.output)
                 else:
                     _write(xslt.render(args.format, flat), args.output)
             elif args.output:  # streaming: nothing is held in memory
-                streaming_serialize(rows, args.format, output=args.output, prefixes=prefixes)
+                streaming_serialize(
+                    rows, args.format, output=args.output, prefixes=prefixes
+                )
             else:
-                sys.stdout.write(streaming_serialize(rows, args.format, prefixes=prefixes))
+                sys.stdout.write(
+                    streaming_serialize(rows, args.format, prefixes=prefixes)
+                )
     return 0
 
 
@@ -278,7 +299,9 @@ def cmd_transform(args) -> int:
         params[name] = text
     if args.input:
         xml_text = Path(args.input).read_text(encoding="utf-8")
-    elif sys.stdin.isatty():  # nothing piped in: reading would just wait for typed input
+    elif (
+        sys.stdin.isatty()
+    ):  # nothing piped in: reading would just wait for typed input
         raise ValueError(
             "no input: give an XML file, or pipe XML in, "
             "e.g. gracia export -f rdfxml-collection | gracia transform STYLESHEET"
@@ -290,7 +313,8 @@ def cmd_transform(args) -> int:
 
 
 def cmd_prefixes(args) -> int:
-    """List, set or remove prefixes: the settings of the `ns_prefix` extension of the repository."""
+    """List, set or remove prefixes: the settings of the `ns_prefix` extension of the
+    repository."""
     from gracia.extensions import ExtensionError
 
     with _store(args) as store, _ns_prefix(args, store) as extension:
@@ -308,7 +332,9 @@ def cmd_prefixes(args) -> int:
             try:
                 _save_prefixes(extension, current)
             except LookupError:
-                print("this repository has no record to keep prefixes in", file=sys.stderr)
+                print(
+                    "this repository has no record to keep prefixes in", file=sys.stderr
+                )
                 return 1
             except ExtensionError as err:
                 print(f"invalid prefix: {err}", file=sys.stderr)
@@ -335,11 +361,14 @@ def cmd_sort(args) -> int:
 
 
 def cmd_etags_rebuild(args) -> int:
-    """Make the etags of every record again (the repository -r): what a write keeps up to date as it
-    goes, for a repository that has none yet or whose data was changed behind the store's back."""
+    """Make the etags of every record again (the repository -r): what a write keeps up
+    to date as it goes, for a repository that has none yet or whose data was changed
+    behind the store's back."""
     with _store(args) as store, _hooks(args) as node:
         if node is not None:
-            node.configure(store).sync()  # the numbers of its types: what the ids are made of
+            node.configure(
+                store
+            ).sync()  # the numbers of its types: what the ids are made of
         wrong = store.rebuild_etags()
         made = store.count_etags()
     print(f"made {made} etags, {len(wrong)} of them different from what they were")
@@ -357,8 +386,8 @@ def cmd_repo_list(args) -> int:
 
 
 def _admin_credentials(args, repo: str) -> tuple[str, str]:
-    """The first user of a new repository: from the flags, else asked for on the terminal
-    (the password is not echoed, and asked twice)."""
+    """The first user of a new repository: from the flags, else asked for on the
+    terminal (the password is not echoed, and asked twice)."""
     asking = sys.stdin.isatty()
     userid = args.admin
     if userid is None:
@@ -370,35 +399,42 @@ def _admin_credentials(args, repo: str) -> tuple[str, str]:
         userid = input(f"admin user id for {repo} [admin]: ").strip() or "admin"
     validate_userid(userid)
     if args.admin_password_file:
-        password = config.read_secret(args.admin_password_file, minimum=passwords.MINIMUM_LENGTH)
+        password = config.read_secret(
+            args.admin_password_file, minimum=passwords.MINIMUM_LENGTH
+        )
     elif asking:
         password = getpass.getpass(f"password of {userid}: ")
         if getpass.getpass("again: ") != password:
             raise ValueError("the passwords differ")
     else:
-        raise ValueError("no terminal to ask for the password: give --admin-password-file FILE")
+        raise ValueError(
+            "no terminal to ask for the password: give --admin-password-file FILE"
+        )
     return userid, validate_password(password)
 
 
 def cmd_repo_create(args) -> int:
-    with _application(args) as application:  # creates the database file when it is missing
-        with _registry(args, application) as (_application_, registry, settings):
-            for repo in args.ids:
-                if application.has_repository(repo):
-                    print(f"repository {repo} already exists")
-                    continue
-                application.create_repository(
-                    repo,
-                    admin=_admin_credentials(args, repo),
-                    content_types=types.enabled(registry, settings),
-                )
-                print(f"created repository {repo}")
+    # the application creates the database file when it is missing
+    with (
+        _application(args) as application,
+        _registry(args, application) as (_app, registry, settings),
+    ):
+        for repo in args.ids:
+            if application.has_repository(repo):
+                print(f"repository {repo} already exists")
+                continue
+            application.create_repository(
+                repo,
+                admin=_admin_credentials(args, repo),
+                content_types=types.enabled(registry, settings),
+            )
+            print(f"created repository {repo}")
     return 0
 
 
 def cmd_assets_list(args) -> int:
-    """The files the types of the repositories use (all of them, or those named), each once,
-    with the checksum that is part of the ETag of the records."""
+    """The files the types of the repositories use (all of them, or those named), each
+    once, with the checksum that is part of the ETag of the records."""
     from gracia.main import make_config
 
     with _application(args) as application:
@@ -413,12 +449,16 @@ def cmd_assets_list(args) -> int:
                 node = application[repo]
                 try:
                     wanted = [
-                        (k.assets, k.schema, k.name) for k in node.res_types.values() if k.assets
+                        (k.assets, k.schema, k.name)
+                        for k in node.res_types.values()
+                        if k.assets
                     ]
                 finally:
                     node.close()
                 for prefix, schema, name in wanted:
-                    found.update({i.spec: i for i in assets.files_of(prefix, schema, name)})
+                    found.update(
+                        {i.spec: i for i in assets.files_of(prefix, schema, name)}
+                    )
     for spec, item in sorted(found.items()):
         print(f"{item.checksum}  {item.size:>6}  {item.media_type:<22}  {spec}")
     return 0
@@ -426,8 +466,8 @@ def cmd_assets_list(args) -> int:
 
 @contextlib.contextmanager
 def _jobs(args):
-    """The application, the jobs tables, the jobs directory and the settings, for a `jobs`
-    command (and `run`): found the way every command finds the database."""
+    """The application, the jobs tables, the jobs directory and the settings, for a
+    `jobs` command (and `run`): found the way every command finds the database."""
     from gracia.jobs import jobs_dir
     from gracia.jobs.db import JobsDb
 
@@ -463,7 +503,9 @@ def cmd_run(args) -> int:
 def _current_stage(job: dict) -> dict | None:
     """The stage a job is in: the first that is not done (the last when all are)."""
     stages = (job.get("progress") or {}).get("stages") or []
-    return next((s for s in stages if s["state"] != "done"), stages[-1] if stages else None)
+    return next(
+        (s for s in stages if s["state"] != "done"), stages[-1] if stages else None
+    )
 
 
 def _rejected(job: dict) -> int:
@@ -474,7 +516,7 @@ def _rejected(job: dict) -> int:
 def cmd_jobs_list(args) -> int:
     from gracia.jobs import procs, retention
 
-    with _jobs(args) as (_application_, db, directory, settings):
+    with _jobs(args) as (_app, db, directory, settings):
         procs.reconcile(db, directory)
         keep = retention(settings)
         rows = []
@@ -489,8 +531,8 @@ def cmd_jobs_list(args) -> int:
     if not rows:
         return 0
     print(
-        f"{'ID':36}  {'STATE':8}  {'REPO':12}  {'STAGE':18}  {'BATCHES':>9}  {'REJ':>6}  "
-        "FINISHED / EXPIRES"
+        f"{'ID':36}  {'STATE':8}  {'REPO':12}  {'STAGE':18}  "
+        f"{'BATCHES':>9}  {'REJ':>6}  FINISHED / EXPIRES"
     )
     for job, expires in rows:
         stage = _current_stage(job)
@@ -500,7 +542,8 @@ def cmd_jobs_list(args) -> int:
         end = f"{_when(job['finished_at'])} / {_when(expires)}" if expires else "-"
         print(
             f"{job['id']}  {job['state']:8}  {job['repo']:12}  "
-            f"{(stage['name'] if stage else '-')[:18]:18}  {batches:>9}  {_rejected(job):>6}  {end}"
+            f"{(stage['name'] if stage else '-')[:18]:18}  {batches:>9}  "
+            f"{_rejected(job):>6}  {end}"
         )
     return 0
 
@@ -508,15 +551,28 @@ def cmd_jobs_list(args) -> int:
 def cmd_jobs_show(args) -> int:
     from gracia.jobs import procs
 
-    with _jobs(args) as (_application_, db, directory, _settings_):
+    with _jobs(args) as (_app, db, directory, _cfg):
         procs.reconcile(db, directory)
         job = db.get(args.uuid)
         if job is None:
             raise ValueError(f"no such job: {args.uuid}")
     for key in (
-        "id", "repo", "job", "subject", "state", "message", "error_msg", "download_file",
-        "download_content_type", "host", "pid", "attempt", "created_at", "started_at",
-        "heartbeat_at", "finished_at",
+        "id",
+        "repo",
+        "job",
+        "subject",
+        "state",
+        "message",
+        "error_msg",
+        "download_file",
+        "download_content_type",
+        "host",
+        "pid",
+        "attempt",
+        "created_at",
+        "started_at",
+        "heartbeat_at",
+        "finished_at",
     ):  # fmt: skip
         if job[key] is not None:
             print(f"{key:22} {job[key]}")
@@ -536,24 +592,32 @@ def cmd_jobs_show(args) -> int:
     for index, stage in enumerate(stages):
         batches = stage["batches"]
         total = "?" if batches["total"] is None else batches["total"]
-        rejected = ", ".join(f"{n} {why}" for why, n in stage["rejected"].items()) or "none"
+        rejected = (
+            ", ".join(f"{n} {why}" for why, n in stage["rejected"].items()) or "none"
+        )
         print(
-            f"  {index + 1}. {stage['name']:14} {stage['state']:8} batches {batches['done']}/{total}"
-            f"  processed {stage['processed']}  passed {stage['passed']}  rejected: {rejected}"
+            f"  {index + 1}. {stage['name']:14} {stage['state']:8} batches "
+            f"{batches['done']}/{total}"
+            f"  processed {stage['processed']}  passed {stage['passed']}  "
+            f"rejected: {rejected}"
         )
         for sample in stage["samples"]:
-            print(f"       {sample['id']}: {sample.get('message') or sample.get('reason')}")
+            print(
+                f"       {sample['id']}: "
+                f"{sample.get('message') or sample.get('reason')}"
+            )
     return 0
 
 
 def cmd_jobs_log(args) -> int:
-    """The log of a job: `luigi.log` (logging, from the process and its workers) or `job.log`
-    (its raw output); `--follow` goes on printing what is added until it is interrupted."""
+    """The log of a job: `luigi.log` (logging, from the process and its workers) or
+    `job.log` (its raw output); `--follow` goes on printing what is added until it is
+    interrupted."""
     import time
 
     from gracia.jobs import procs
 
-    with _jobs(args) as (_application_, db, directory, _settings_):
+    with _jobs(args) as (_app, db, directory, _cfg):
         procs.reconcile(db, directory)
         if db.get(args.uuid) is None:
             raise ValueError(f"no such job: {args.uuid}")
@@ -581,7 +645,7 @@ def _make_job(args, spec: dict) -> int:
     from gracia.jobs import procs
     from gracia.jobs.spec import JobSpecError, validate_spec
 
-    with _jobs(args) as (application, db, directory, _settings_):
+    with _jobs(args) as (application, db, directory, _cfg):
         try:
             spec = validate_spec(spec)
         except JobSpecError as err:
@@ -604,7 +668,11 @@ def _make_job(args, spec: dict) -> int:
 
 
 def cmd_jobs_create(args) -> int:
-    text = sys.stdin.read() if args.spec == "-" else Path(args.spec).read_text(encoding="utf-8")
+    text = (
+        sys.stdin.read()
+        if args.spec == "-"
+        else Path(args.spec).read_text(encoding="utf-8")
+    )
     try:
         spec = json.loads(text)
     except ValueError as err:
@@ -613,7 +681,8 @@ def cmd_jobs_create(args) -> int:
 
 
 def cmd_jobs_validate(args) -> int:
-    """Validate the records of a type against a schema file (a candidate revision, say)."""
+    """Validate the records of a type against a schema file (a candidate revision,
+    say)."""
     from gracia.jobs.validate import ValidateJob
 
     params = {"res_type": args.res_type, "size": args.size, "schema": args.schema}
@@ -623,7 +692,7 @@ def cmd_jobs_validate(args) -> int:
 def cmd_jobs_start(args) -> int:
     from gracia.jobs import procs
 
-    with _jobs(args) as (_application_, db, directory, _settings_):
+    with _jobs(args) as (_app, db, directory, _cfg):
         procs.reconcile(db, directory)
         try:
             pid = procs.start_job(db, args.uuid, directory, _config_path(args), args.db)
@@ -638,7 +707,7 @@ def cmd_jobs_start(args) -> int:
 def cmd_jobs_stop(args) -> int:
     from gracia.jobs import procs
 
-    with _jobs(args) as (_application_, db, _directory, settings):
+    with _jobs(args) as (_app, db, _directory, settings):
         grace = args.grace
         if grace is None:
             grace = float(settings.get("gracia.jobs_stop_grace") or procs.DEFAULT_GRACE)
@@ -661,9 +730,11 @@ def cmd_jobs_stop(args) -> int:
 def cmd_jobs_clean(args) -> int:
     from gracia.jobs import cleanup, procs, retention
 
-    with _jobs(args) as (_application_, db, directory, settings):
+    with _jobs(args) as (_app, db, directory, settings):
         procs.reconcile(db, directory)
-        report = cleanup.clean(db, directory, retention(settings, args.older_than), args.dry_run)
+        report = cleanup.clean(
+            db, directory, retention(settings, args.older_than), args.dry_run
+        )
     verb = "would remove" if report.dry_run else "removed"
     print(
         f"{verb} {len(report.jobs)} jobs and {len(report.orphans)} stray directories "
@@ -674,9 +745,10 @@ def cmd_jobs_clean(args) -> int:
 
 @contextlib.contextmanager
 def _registry(args, application=None):
-    """The application, the settings and a copy of the registry of the application (the types it
-    knows, with the record classes and the rest), made the way the web application makes its own:
-    the commands that deal with types ask it, as the web application does."""
+    """The application, the settings and a copy of the registry of the application (the
+    types it knows, with the record classes and the rest), made the way the web
+    application makes its own: the commands that deal with types ask it, as the web
+    application does."""
     from gracia.main import make_config
 
     settings = {k: v for k, v in _settings(args).items() if k.startswith("gracia.")}
@@ -693,16 +765,18 @@ def _registry(args, application=None):
 
 def cmd_types_available(args) -> int:
     """The content types there are (the ones that can be added to a repository)."""
-    with _registry(args) as (_application_, registry, _settings_):
+    with _registry(args) as (_app, registry, _cfg):
         for res_type in types.content_types(registry).values():
             print(
-                f"{res_type.slug:16} {res_type.class_uri}  {res_type.schema}  ({res_type.package})"
+                f"{res_type.slug:16} {res_type.class_uri}  {res_type.schema}  "
+                f"({res_type.package})"
             )
     return 0
 
 
 def cmd_types_list(args) -> int:
-    """The types of the repository (-r): its slug, the record of the type, its name and class."""
+    """The types of the repository (-r): its slug, the record of the type, its name and
+    class."""
     with _application(args) as application:
         if not application.has_repository(args.repo):
             raise NoSuchRepository(args.repo)
@@ -710,7 +784,8 @@ def cmd_types_list(args) -> int:
         try:
             for res_type in node.res_types.values():
                 print(
-                    f"{res_type.slug:16} {res_type.record:20} {res_type.name:12} {res_type.class_uri}  {res_type.schema or '-'}"
+                    f"{res_type.slug:16} {res_type.record:20} {res_type.name:12} "
+                    f"{res_type.class_uri}  {res_type.schema or '-'}"
                 )
         finally:
             node.close()
@@ -719,8 +794,8 @@ def cmd_types_list(args) -> int:
 
 @contextlib.contextmanager
 def _repository(args):
-    """The repository node (-r), with the registry of the application made the way the web
-    application makes its own (that is where the extensions are)."""
+    """The repository node (-r), with the registry of the application made the way the
+    web application makes its own (that is where the extensions are)."""
     from gracia.main import make_config
 
     settings = {k: v for k, v in _settings(args).items() if k.startswith("gracia.")}
@@ -751,7 +826,9 @@ def cmd_extensions_list(args) -> int:
         for extension in node.extensions():
             state = "enabled" if extension.enabled else "disabled"
             fixed = (
-                "  (cannot be disabled)" if extension.enabled and not extension.can_disable else ""
+                "  (cannot be disabled)"
+                if extension.enabled and not extension.can_disable
+                else ""
             )
             print(f"{extension.name:16} {state:9} {extension.title}{fixed}")
     return 0
@@ -780,8 +857,13 @@ def cmd_extensions_export(args) -> int:
 
 
 def cmd_extensions_import(args) -> int:
-    """Set the settings of an extension from JSON (a file, or stdin), checked like the form does."""
-    text = sys.stdin.read() if args.file in (None, "-") else Path(args.file).read_text("utf-8")
+    """Set the settings of an extension from JSON (a file, or stdin), checked like the
+    form does."""
+    text = (
+        sys.stdin.read()
+        if args.file in (None, "-")
+        else Path(args.file).read_text("utf-8")
+    )
     with _repository(args) as node:
         _extension(node, args.name).import_json(text)
     print(f"{args.name}: settings updated")
@@ -789,12 +871,15 @@ def cmd_extensions_import(args) -> int:
 
 
 def cmd_types_add(args) -> int:
-    """Add content types (by slug or package) to the repository (-r); the ones it has are kept."""
+    """Add content types (by slug or package) to the repository (-r); the ones it has
+    are kept."""
     with _application(args) as application:
         if not application.has_repository(args.repo):
             raise NoSuchRepository(args.repo)
-        with _registry(args, application) as (_application_, registry, _settings_):
-            found = [types.find_content_type(registry, name) for name in args.content_types]
+        with _registry(args, application) as (_app, registry, _cfg):
+            found = [
+                types.find_content_type(registry, name) for name in args.content_types
+            ]
         with application.open_repository(args.repo) as store:
             for res_type in found:
                 record = types.add_content_type(store, args.repo, res_type)
@@ -805,7 +890,9 @@ def cmd_types_add(args) -> int:
                 )
             node = Repository(args.repo, application)
             try:
-                node.sync_roles(store)  # the shapes of the new types say what their records have
+                node.sync_roles(
+                    store
+                )  # the shapes of the new types say what their records have
             finally:
                 node.close()
     return 0
@@ -849,7 +936,8 @@ def cmd_serve(args) -> int:
     app = make_app({k: v for k, v in settings.items() if k.startswith("gracia.")})
     try:
         print(
-            f"serving {settings['gracia.db']} on http://{args.host}:{args.port}/ ({args.threads} threads)",
+            f"serving {settings['gracia.db']} on http://{args.host}:{args.port}/ "
+            f"({args.threads} threads)",
             flush=True,
         )
         waitress_serve(app, host=args.host, port=args.port, threads=args.threads)
@@ -882,7 +970,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-d",
         "--db",
-        help=f"DuckDB file or quack:host:port (default $GRACIA_DB, else {config.DEFAULT_DB})",
+        help="DuckDB file or quack:host:port "
+        f"(default $GRACIA_DB, else {config.DEFAULT_DB})",
     )
     parser.add_argument(
         "-r",
@@ -890,7 +979,9 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_REPOSITORY,
         help="repository, a schema of the database (default %(default)s)",
     )
-    parser.add_argument("--triples", default="triples", help="triples table (default %(default)s)")
+    parser.add_argument(
+        "--triples", default="triples", help="triples table (default %(default)s)"
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("import", help="load RDF files into the database")
@@ -900,9 +991,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_import)
 
     p = sub.add_parser("export", help="write the database (or one resource) as RDF")
-    p.add_argument("-f", "--format", default="turtle", help="output format (default %(default)s)")
     p.add_argument(
-        "-u", "--uri", action="append", help="only this resource (subject uri); repeatable"
+        "-f", "--format", default="turtle", help="output format (default %(default)s)"
+    )
+    p.add_argument(
+        "-u",
+        "--uri",
+        action="append",
+        help="only this resource (subject uri); repeatable",
     )
     p.add_argument(
         "-x",
@@ -920,19 +1016,26 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_export)
 
     p = sub.add_parser(
-        "transform", help="run an XSLT stylesheet over an XML file (or stdin); bundled ones by name"
+        "transform",
+        help="run an XSLT stylesheet over an XML file (or stdin); bundled ones by name",
     )
     p.add_argument("stylesheet", help="a stylesheet file, or the name of a bundled one")
     p.add_argument("input", nargs="?", help="XML file (default stdin)")
-    p.add_argument("--param", action="append", metavar="NAME=VALUE", help="string parameter")
+    p.add_argument(
+        "--param", action="append", metavar="NAME=VALUE", help="string parameter"
+    )
     p.add_argument("-o", "--output", help="output file (default stdout)")
     p.set_defaults(func=cmd_transform)
 
-    p = sub.add_parser("delete", help="delete resources and everything embedded in them")
+    p = sub.add_parser(
+        "delete", help="delete resources and everything embedded in them"
+    )
     p.add_argument("uris", nargs="+")
     p.set_defaults(func=cmd_delete)
 
-    p = sub.add_parser("sort", help="rewrite the triples sorted, so a type is a few row groups")
+    p = sub.add_parser(
+        "sort", help="rewrite the triples sorted, so a type is a few row groups"
+    )
     p.set_defaults(func=cmd_sort)
 
     p = sub.add_parser("etags", help="the etags of the pages of the records")
@@ -940,7 +1043,9 @@ def build_parser() -> argparse.ArgumentParser:
     q = esub_.add_parser("rebuild", help="make the etags of every record again (-r)")
     q.set_defaults(func=cmd_etags_rebuild)
 
-    p = sub.add_parser("prefixes", help="list, set (NAME=URI) or remove namespace prefixes")
+    p = sub.add_parser(
+        "prefixes", help="list, set (NAME=URI) or remove namespace prefixes"
+    )
     p.add_argument("set", nargs="*", metavar="NAME=URI")
     p.add_argument("--remove", metavar="NAME")
     p.set_defaults(func=cmd_prefixes)
@@ -951,7 +1056,9 @@ def build_parser() -> argparse.ArgumentParser:
     q.set_defaults(func=cmd_repo_list)
     q = rsub.add_parser("create", help="create repositories (idempotent)")
     q.add_argument("ids", nargs="+", metavar="ID")
-    q.add_argument("--admin", metavar="USERID", help="user id of the first user (else asked for)")
+    q.add_argument(
+        "--admin", metavar="USERID", help="user id of the first user (else asked for)"
+    )
     q.add_argument(
         "--admin-password-file",
         metavar="FILE",
@@ -960,19 +1067,25 @@ def build_parser() -> argparse.ArgumentParser:
     q.set_defaults(func=cmd_repo_create)
 
     p = sub.add_parser(
-        "serve-db", help="run the database as its own process, served over Quack on localhost"
+        "serve-db",
+        help="run the database as its own process, served over Quack on localhost",
     )
     p.add_argument("--host", help="localhost or 127.0.0.1 (default localhost)")
     p.add_argument("--port", type=int, help=f"(default {DEFAULT_PORT})")
     p.add_argument(
-        "--token-file", help="file holding the token, created with mode 0600 (default <db>.token)"
+        "--token-file",
+        help="file holding the token, created with mode 0600 (default <db>.token)",
     )
     p.set_defaults(func=cmd_serve_db)
 
-    p = sub.add_parser("serve", help="run the web application (one process, a thread per request)")
+    p = sub.add_parser(
+        "serve", help="run the web application (one process, a thread per request)"
+    )
     p.add_argument("--host", default="127.0.0.1", help="(default %(default)s)")
     p.add_argument("--port", type=int, default=8000, help="(default %(default)s)")
-    p.add_argument("--threads", type=int, default=4, help="request threads (default %(default)s)")
+    p.add_argument(
+        "--threads", type=int, default=4, help="request threads (default %(default)s)"
+    )
     p.set_defaults(func=cmd_serve)
 
     p = sub.add_parser("assets", help="the files of the types (shapes, stylesheets)")
@@ -981,7 +1094,9 @@ def build_parser() -> argparse.ArgumentParser:
     q.add_argument("ids", nargs="*", metavar="ID", help="repositories (default: all)")
     q.set_defaults(func=cmd_assets_list)
 
-    p = sub.add_parser("jobs", help="long jobs: list, show, log, create, start, stop, clean")
+    p = sub.add_parser(
+        "jobs", help="long jobs: list, show, log, create, start, stop, clean"
+    )
     jsub = p.add_subparsers(dest="jobs_command", required=True)
     q = jsub.add_parser("list", help="the jobs, newest first")
     q.add_argument("--state", help="only jobs in this state")
@@ -993,13 +1108,20 @@ def build_parser() -> argparse.ArgumentParser:
     q.set_defaults(func=cmd_jobs_show)
     q = jsub.add_parser("create", help="make a job from a JSON file (or - for stdin)")
     q.add_argument("spec", metavar="FILE")
-    q.add_argument("--no-start", action="store_true", help="only make it, do not start it")
-    q.set_defaults(func=cmd_jobs_create)
-    q = jsub.add_parser("validate", help="validate the records of a type against a schema file")
-    q.add_argument("--repo", required=True)
-    q.add_argument("--type", dest="res_type", required=True, help="slug or name of the type")
     q.add_argument(
-        "--schema", help="<Type>-<profile>-<revision>.ttl (default: the one the type is on)"
+        "--no-start", action="store_true", help="only make it, do not start it"
+    )
+    q.set_defaults(func=cmd_jobs_create)
+    q = jsub.add_parser(
+        "validate", help="validate the records of a type against a schema file"
+    )
+    q.add_argument("--repo", required=True)
+    q.add_argument(
+        "--type", dest="res_type", required=True, help="slug or name of the type"
+    )
+    q.add_argument(
+        "--schema",
+        help="<Type>-<profile>-<revision>.ttl (default: the one the type is on)",
     )
     q.add_argument(
         "--size",
@@ -1009,39 +1131,65 @@ def build_parser() -> argparse.ArgumentParser:
         default=2000,
         help="record numbers per batch (default %(default)s)",
     )
-    q.add_argument("--no-start", action="store_true", help="only make it, do not start it")
+    q.add_argument(
+        "--no-start", action="store_true", help="only make it, do not start it"
+    )
     q.set_defaults(func=cmd_jobs_validate)
-    q = jsub.add_parser("log", help="the log of a job (luigi.log; --raw for its output)")
-    q.add_argument("uuid")
-    q.add_argument("--raw", action="store_true", help="job.log: what the process printed")
-    q.add_argument("--all", action="store_true", help="from the start (default: the last 16 KB)")
-    q.add_argument("--follow", "-f", action="store_true", help="go on printing what is added")
-    q.set_defaults(func=cmd_jobs_log)
-    q = jsub.add_parser("start", help="start a queued job, or restart a stopped or failed one")
-    q.add_argument("uuid")
-    q.set_defaults(func=cmd_jobs_start)
-    q = jsub.add_parser("stop", help="stop a job: SIGTERM, then SIGKILL after the grace period")
+    q = jsub.add_parser(
+        "log", help="the log of a job (luigi.log; --raw for its output)"
+    )
     q.add_argument("uuid")
     q.add_argument(
-        "--grace", type=float, help="seconds before SIGKILL (default: gracia.jobs_stop_grace, 15)"
+        "--raw", action="store_true", help="job.log: what the process printed"
+    )
+    q.add_argument(
+        "--all", action="store_true", help="from the start (default: the last 16 KB)"
+    )
+    q.add_argument(
+        "--follow", "-f", action="store_true", help="go on printing what is added"
+    )
+    q.set_defaults(func=cmd_jobs_log)
+    q = jsub.add_parser(
+        "start", help="start a queued job, or restart a stopped or failed one"
+    )
+    q.add_argument("uuid")
+    q.set_defaults(func=cmd_jobs_start)
+    q = jsub.add_parser(
+        "stop", help="stop a job: SIGTERM, then SIGKILL after the grace period"
+    )
+    q.add_argument("uuid")
+    q.add_argument(
+        "--grace",
+        type=float,
+        help="seconds before SIGKILL (default: gracia.jobs_stop_grace, 15)",
     )
     q.add_argument("--now", action="store_true", help="SIGKILL at once")
-    q.add_argument("--by", help="who asked, for the message of the job (default: the command line)")
+    q.add_argument(
+        "--by", help="who asked, for the message of the job (default: the command line)"
+    )
     q.set_defaults(func=cmd_jobs_stop)
     q = jsub.add_parser("clean", help="remove finished jobs and their directories")
     q.add_argument(
-        "--older-than", metavar="AGE", help="30m, 8h, 2d (default: gracia.jobs_retention, 8h)"
+        "--older-than",
+        metavar="AGE",
+        help="30m, 8h, 2d (default: gracia.jobs_retention, 8h)",
     )
-    q.add_argument("--dry-run", action="store_true", help="only say what would be removed")
+    q.add_argument(
+        "--dry-run", action="store_true", help="only say what would be removed"
+    )
     q.set_defaults(func=cmd_jobs_clean)
 
-    p = sub.add_parser("types", help="the types of a repository and the content types there are")
+    p = sub.add_parser(
+        "types", help="the types of a repository and the content types there are"
+    )
     ksub = p.add_subparsers(dest="types_command", required=True)
     q = ksub.add_parser("available", help="the content types that can be added")
     q.set_defaults(func=cmd_types_available)
     q = ksub.add_parser("list", help="the types of the repository (-r)")
     q.set_defaults(func=cmd_types_list)
-    q = ksub.add_parser("add", help="add content types, by slug or package, to the repository (-r)")
+    q = ksub.add_parser(
+        "add", help="add content types, by slug or package, to the repository (-r)"
+    )
     q.add_argument("content_types", nargs="+", metavar="CONTENT_TYPE")
     q.set_defaults(func=cmd_types_add)
 
@@ -1068,7 +1216,9 @@ def build_parser() -> argparse.ArgumentParser:
     q.add_argument("file", nargs="?", help="a JSON file (default stdin)")
     q.set_defaults(func=cmd_extensions_import)
 
-    p = sub.add_parser("run", help="run one job in this process (what `jobs start` spawns)")
+    p = sub.add_parser(
+        "run", help="run one job in this process (what `jobs start` spawns)"
+    )
     p.add_argument("uuid")
     p.set_defaults(func=cmd_run)
 
@@ -1085,10 +1235,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"gracia: {err}", file=sys.stderr)
         if "Conflicting lock" in str(err):
             print(
-                "gracia: another process owns this database file (`gracia serve-db`). Commands "
-                "use it automatically through the <db>.owner and <db>.token files next to the "
-                "database, or name it in a config file (-c: gracia.db = quack:host:port and "
-                "gracia.db.token_file).",
+                "gracia: another process owns this database file (`gracia serve-db`). "
+                "Commands use it automatically through the <db>.owner and <db>.token "
+                "files next to the database, or name it in a config file (-c: "
+                "gracia.db = quack:host:port and gracia.db.token_file).",
                 file=sys.stderr,
             )
             if _probe_error:

@@ -1,13 +1,3 @@
-"""The generic edit and add pages of a record, as the methods `edit` and `add` of `RecordView`. A
-class registered for a type (gracia.types) changes them through the hooks of `Record`, or
-subclasses `RecordView` and overrides what is its own.
-
-Both pages have two faces: the form made from the shape of the record, and, with `?source=turtle`,
-the data of the record as text in a serialization, which is checked against the
-shape of the record and stored in the same way. `new` says which page this is: an add page works on
-a blank record of the type that is its context, and its number is made when it is first saved.
-"""
-
 import deform
 import pyoxigraph as ox
 from pyramid.httpexceptions import HTTPFound
@@ -20,9 +10,19 @@ from gracia.resources import Record, Type
 from gracia.store import DuplicateValue
 from gracia.views import View, fragment, last_modified
 
-FORMATS = ("turtle", "ntriples", "rdfxml", "jsonld")  # what the text of a record can be written in
+FORMATS = (
+    "turtle",
+    "ntriples",
+    "rdfxml",
+    "jsonld",
+)  # what the text of a record can be written in
 DEFAULT_FORMAT = "turtle"
-EDITORS = {"turtle": "turtle", "ntriples": "turtle", "rdfxml": "xml", "jsonld": "json"}  # editor.js
+EDITORS = {
+    "turtle": "turtle",
+    "ntriples": "turtle",
+    "rdfxml": "xml",
+    "jsonld": "json",
+}  # editor.js
 _N = ox.NamedNode
 
 
@@ -37,18 +37,26 @@ class SourceError(ValueError):
 class RecordView(View):
     def __init__(self, request):
         super().__init__(request)
-        self.new = isinstance(self.context, Type)  # an add page: the context is the type
+        self.new = isinstance(
+            self.context, Type
+        )  # an add page: the context is the type
         self.res_type = self.context if self.new else self.context.type
         self.record = self.res_type.blank_record() if self.new else self.context
         self.view = "add" if self.new else "edit"
-        self.target = self.res_type if self.new else self.record  # what the page is the page of
+        self.target = (
+            self.res_type if self.new else self.record
+        )  # what the page is the page of
         self.address = request.resource_url(self.target, self.view)
         if self.new:
-            self.heading, self.subtitle = f"Add {self.res_type.name}", self.res_type.record
+            self.heading, self.subtitle = (
+                f"Add {self.res_type.name}",
+                self.res_type.record,
+            )
         else:
             self.heading, self.subtitle = self.record.title, self.record.uri
 
-    # ---- the two views -------------------------------------------------------------------
+    # ---- the two views
+    # -------------------------------------------------------------------
 
     @view_config(context=Record, name="edit", permission="edit")
     def edit(self):
@@ -58,7 +66,9 @@ class RecordView(View):
             for res_type in record.repository.res_types.values():
                 if res_type.record == record.uri:
                     return HTTPFound(
-                        self.request.resource_url(res_type, "manage", query={"tab": "settings"})
+                        self.request.resource_url(
+                            res_type, "manage", query={"tab": "settings"}
+                        )
                     )
         return self.respond()
 
@@ -69,26 +79,39 @@ class RecordView(View):
             return self.page("", errors=problems, status=501)
         return self.respond()
 
-    # ---- the page ------------------------------------------------------------------------
+    # ---- the page
+    # ------------------------------------------------------------------------
 
     def respond(self):
-        if "source_text" in self.request.POST or "source" in self.request.GET:
-            if self.record.source_editable:
-                return self.source_page()
+        if (
+            "source_text" in self.request.POST or "source" in self.request.GET
+        ) and self.record.source_editable:
+            return self.source_page()
         return self.form_page()
 
     def saved(self) -> HTTPFound:
-        return HTTPFound(self.request.resource_url(self.record, "edit", query={"saved": "1"}))
+        return HTTPFound(
+            self.request.resource_url(self.record, "edit", query={"saved": "1"})
+        )
 
     def page(self, body: str, errors=(), **options):
-        if not self.new:  # when it was last changed, and the way to its history (not of a user:
-            when = self.store.record_modified(self.record.uri)  # the history has the credentials)
+        if (
+            not self.new
+        ):  # when it was last changed, and the way to its history (not of a user:
+            when = self.store.record_modified(
+                self.record.uri
+            )  # the history has the credentials)
             options.setdefault("modified", last_modified(when) if when else None)
             if self.record.source_editable:
-                options.setdefault("history", self.request.resource_url(self.record, "history"))
-        return self.render_form(self.heading, self.subtitle, body, errors=errors, **options)
+                options.setdefault(
+                    "history", self.request.resource_url(self.record, "history")
+                )
+        return self.render_form(
+            self.heading, self.subtitle, body, errors=errors, **options
+        )
 
-    # ---- the form ------------------------------------------------------------------------
+    # ---- the form
+    # ------------------------------------------------------------------------
 
     def form_page(self):
         request, record = self.request, self.record
@@ -104,7 +127,9 @@ class RecordView(View):
                 if not errors:
                     try:
                         self.commit_form(data)
-                    except DuplicateValue as err:  # the database refused a value that is taken
+                    except (
+                        DuplicateValue
+                    ) as err:  # the database refused a value that is taken
                         errors = [str(err)]
                     else:
                         return self.saved()
@@ -114,9 +139,16 @@ class RecordView(View):
         toggle = None
         if record.source_editable:
             query = {"source": DEFAULT_FORMAT}
-            toggle = ("Source Edit", request.resource_url(self.target, self.view, query=query))
+            toggle = (
+                "Source Edit",
+                request.resource_url(self.target, self.view, query=query),
+            )
         return self.page(
-            rendered, errors=errors, saved="saved" in request.GET, widgets=form, toggle=toggle
+            rendered,
+            errors=errors,
+            saved="saved" in request.GET,
+            widgets=form,
+            toggle=toggle,
         )
 
     def commit_form(self, data: dict) -> None:
@@ -126,10 +158,12 @@ class RecordView(View):
         self.record.apply(data)
         self.record.save(self.store)
 
-    # ---- the source ----------------------------------------------------------------------
+    # ---- the source
+    # ----------------------------------------------------------------------
 
     def source_page(self):
-        """The text of the record in place of the form; saved when it is posted with Save."""
+        """The text of the record in place of the form; saved when it is posted with
+        Save."""
         request = self.request
         prefix_map = self.repository.prefix_map()
         errors: list[str] = []
@@ -175,13 +209,14 @@ class RecordView(View):
         return name if name in FORMATS else DEFAULT_FORMAT
 
     def subject(self) -> str:
-        """What the record is called in its text: its address, or a placeholder for the number a
-        new one has not got yet."""
+        """What the record is called in its text: its address, or a placeholder for the
+        number a new one has not got yet."""
         return self.res_type.placeholder if self.new else self.record.uri
 
     def check_source(self, graph) -> None:
-        """`SourceError` unless the text is this record, of this type, and follows the shape of
-        the record. The hooks run first, so that what they make (the label, the ARK) is there."""
+        """`SourceError` unless the text is this record, of this type, and follows the
+        shape of the record. The hooks run first, so that what they make (the label, the
+        ARK) is there."""
         if not self.new:
             graph = self.record.with_hidden_kept(graph)  # what is never shown is kept
         problems = self.record.structure_problems(graph, self.subject())

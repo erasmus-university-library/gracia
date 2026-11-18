@@ -1,21 +1,18 @@
-"""`gracia:timezone` of the repository, and `created_at`, `modified_at` and `is_published` of a record:
-what the predicates make of them, the columns of `records`, and how a form shows them."""
-
 import re
 import time
 from datetime import UTC, datetime
-from zoneinfo import ZoneInfo
 
 import pyoxigraph as ox
+from support import must_search
 from test_web import HeaderPolicy, WebCase
 
 from gracia import types, uri
 from gracia.main import make_config
 
 
-
 def naive_utc(text: str) -> datetime:
-    """A stored `xsd:dateTime` (UTC, with a `Z`) as the naive datetime the `records` columns hold."""
+    """A stored `xsd:dateTime` (UTC, with a `Z`) as the naive datetime the `records`
+    columns hold."""
     return datetime.fromisoformat(text.replace("Z", "+00:00")).replace(tzinfo=None)
 
 
@@ -33,7 +30,9 @@ class TimesCase(WebCase):
         self.config.begin()
         self.addCleanup(self.config.end)
         self.application.create_repository(
-            "library", admin=("admin", "correct horse battery"), content_types=[types.available()["person"]]
+            "library",
+            admin=("admin", "correct horse battery"),
+            content_types=[types.available()["person"]],
         )
         self.web = self.client(self.config)
 
@@ -51,29 +50,44 @@ class TimesCase(WebCase):
     def triples(self, record, predicate):
         with self.application.open_repository("library") as store:
             data = store.get(record)
-        return [(o.value, o.datatype.value) for o in data.objects(ox.NamedNode(record), ox.NamedNode(predicate))]
+        return [
+            (o.value, o.datatype.value)
+            for o in data.objects(ox.NamedNode(record), ox.NamedNode(predicate))
+        ]
 
     def row(self, record):
         with self.application.open_repository("library") as store:
-            cursor = store.con.execute("SELECT * FROM records WHERE record_id = record_id(?)", [record])
+            cursor = store.con.execute(
+                "SELECT * FROM records WHERE record_id = record_id(?)", [record]
+            )
             row = cursor.fetchone()
-            return dict(zip([d[0] for d in cursor.description], row))
+            return dict(zip([d[0] for d in cursor.description], row, strict=False))
 
     def set_timezone(self, name):
-        form = self.web.get("/library/manage?tab=settings", headers=ADMIN).forms["form-repository-settings"]
+        form = self.web.get("/library/manage?tab=settings", headers=ADMIN).forms[
+            "form-repository-settings"
+        ]
         form["timezone"] = name
         self.assertEqual(form.submit("save", headers=POSTING).status_int, 302)
 
 
 class StampsTest(TimesCase):
-    def test_a_new_record_has_both_times_in_utc_and_they_are_the_columns_of_records(self):
+    def test_a_new_record_has_both_times_in_utc_and_they_are_the_columns_of_records(
+        self,
+    ):
         self.add_person()
-        for predicate, column in ((uri.CREATED_AT, "created_at"), (uri.MODIFIED_AT, "modified_at")):
+        for predicate, column in (
+            (uri.CREATED_AT, "created_at"),
+            (uri.MODIFIED_AT, "modified_at"),
+        ):
             [(text, datatype)] = self.triples("rec:person:1", predicate)
             self.assertEqual(datatype, XSD + "dateTime")
             self.assertRegex(text, r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$")
             self.assertEqual(naive_utc(text), self.row("rec:person:1")[column])
-        self.assertEqual(self.triples("rec:person:1", uri.CREATED_AT), self.triples("rec:person:1", uri.MODIFIED_AT))
+        self.assertEqual(
+            self.triples("rec:person:1", uri.CREATED_AT),
+            self.triples("rec:person:1", uri.MODIFIED_AT),
+        )
 
     def test_a_change_moves_modified_at_and_keeps_created_at(self):
         self.add_person()
@@ -95,27 +109,38 @@ class StampsTest(TimesCase):
 
 
 class ModifiedAtIsNeverGivenTest(TimesCase):
-    """The time of a record is made by the store: a text (an import, a restore) cannot set it, and it
-    only goes up, which `etags.last_modified_at` and the order of the listings rely on."""
+    """The time of a record is made by the store: a text (an import, a restore) cannot
+    set it, and it only goes up, which `etags.last_modified_at` and the order of the
+    listings rely on."""
 
     def import_person(self, name: str, modified: str, number: int = 7) -> None:
         text = (
             f"@prefix gracia: <https://gracia.pub/ns/> . @prefix xsd: <{XSD}> . "
             f"@prefix foaf: <http://xmlns.com/foaf/0.1/> .\n"
-            f'<rec:person:{number}> a gracia:Record ; gracia:modified_at "{modified}"^^xsd:dateTime ; '
+            f"<rec:person:{number}> a gracia:Record ; gracia:modified_at "
+            f'"{modified}"^^xsd:dateTime ; '
             f'gracia:resource [ a foaf:Person ; foaf:name "{name}" ] .'
         )
-        node = self.application["library"]  # its store is the configured one: the hooks of the predicates run
+        node = self.application[
+            "library"
+        ]  # its store is the configured one: the hooks of the predicates run
         self.addCleanup(node.close)
-        node.store().put(ox.Dataset(ox.parse(text.encode(), format=ox.RdfFormat.TURTLE)))
+        node.store().put(
+            ox.Dataset(ox.parse(text.encode(), format=ox.RdfFormat.TURTLE))
+        )
 
     def modified(self, number: int = 7):
         return self.row(f"rec:person:{number}")["modified_at"]
 
     def test_a_new_record_gets_the_time_of_the_write_whatever_its_text_says(self):
-        for number, given in ((7, "2001-01-01T00:00:00.000000Z"), (8, "2999-01-01T00:00:00.000000Z")):
+        for number, given in (
+            (7, "2001-01-01T00:00:00.000000Z"),
+            (8, "2999-01-01T00:00:00.000000Z"),
+        ):
             self.import_person("Ada", given, number)
-            self.assertLess(abs((self.modified(number) - datetime.utcnow()).total_seconds()), 60)
+            self.assertLess(
+                abs((self.modified(number) - datetime.utcnow()).total_seconds()), 60
+            )
             [(text, _)] = self.triples(f"rec:person:{number}", uri.MODIFIED_AT)
             self.assertEqual(naive_utc(text), self.modified(number))
 
@@ -123,7 +148,9 @@ class ModifiedAtIsNeverGivenTest(TimesCase):
         self.import_person("Ada", "2001-01-01T00:00:00.000000Z")
         first = self.modified()
         time.sleep(0.01)
-        self.import_person("Ada Lovelace", "2000-01-01T00:00:00.000000Z")  # an earlier time
+        self.import_person(
+            "Ada Lovelace", "2000-01-01T00:00:00.000000Z"
+        )  # an earlier time
         second = self.modified()
         self.assertGreater(second, first)
         time.sleep(0.01)
@@ -151,10 +178,14 @@ class ModifiedAtIsNeverGivenTest(TimesCase):
 class IsPublishedTest(TimesCase):
     def test_it_is_true_until_the_checkbox_is_unchecked(self):
         self.add_person()
-        self.assertEqual(self.triples("rec:person:1", uri.IS_PUBLISHED), [("true", XSD + "boolean")])
+        self.assertEqual(
+            self.triples("rec:person:1", uri.IS_PUBLISHED), [("true", XSD + "boolean")]
+        )
         self.assertIs(self.row("rec:person:1")["is_published"], True)
         self.edit_person(1, is_published=False)
-        self.assertEqual(self.triples("rec:person:1", uri.IS_PUBLISHED), [("false", XSD + "boolean")])
+        self.assertEqual(
+            self.triples("rec:person:1", uri.IS_PUBLISHED), [("false", XSD + "boolean")]
+        )
         self.assertIs(self.row("rec:person:1")["is_published"], False)
         self.edit_person(1, is_published=True)
         self.assertIs(self.row("rec:person:1")["is_published"], True)
@@ -162,19 +193,28 @@ class IsPublishedTest(TimesCase):
     def test_a_record_that_says_nothing_of_it_is_published(self):
         self.add_person()
         with self.application.open_repository("library") as store:
-            store.con.execute("DELETE FROM triples WHERE s = 'rec:person:1' AND p = ?", [uri.IS_PUBLISHED])
-        self.assertIs(self.row("rec:person:1")["is_published"], True)  # the column's default too
+            store.con.execute(
+                "DELETE FROM triples WHERE s = 'rec:person:1' AND p = ?",
+                [uri.IS_PUBLISHED],
+            )
+        self.assertIs(
+            self.row("rec:person:1")["is_published"], True
+        )  # the column's default too
 
     def test_the_form_has_a_checkbox(self):
         page = self.web.get("/library/person/add", headers=ADMIN).text
-        self.assertRegex(page, r'type="checkbox"\s+name="is_published"[^>]*checked')  # new: checked
+        self.assertRegex(
+            page, r'type="checkbox"\s+name="is_published"[^>]*checked'
+        )  # new: checked
 
 
 class TimezoneTest(TimesCase):
     def test_the_settings_tab_has_a_drop_down_of_zones_that_can_be_empty(self):
         page = self.web.get("/library/manage?tab=settings", headers=ADMIN).text
-        select = re.search(r'<select name="timezone".*?</select>', page, re.S)[0]
-        self.assertIn('<option selected="selected" value="">(none: UTC)</option>', select)
+        select = must_search(r'<select name="timezone".*?</select>', page, re.S)[0]
+        self.assertIn(
+            '<option selected="selected" value="">(none: UTC)</option>', select
+        )
         self.assertIn('<optgroup label="Europe">', select)
         self.assertIn('<option value="Europe/Amsterdam">Amsterdam</option>', select)
         self.assertNotIn('value="US/Eastern"', select)
@@ -188,16 +228,19 @@ class TimezoneTest(TimesCase):
     def triples_of_repository(self):
         with self.application.open_repository("library") as store:
             data = store.get("rec:repository:1")
-        content = data.value(ox.NamedNode("rec:repository:1"), ox.NamedNode(uri.RESOURCE))
+        content = data.value(
+            ox.NamedNode("rec:repository:1"), ox.NamedNode(uri.RESOURCE)
+        )
         return [o.value for o in data.objects(content, ox.NamedNode(uri.TIMEZONE))]
 
     def test_a_name_that_is_not_a_zone_is_refused(self):
-        form = self.web.get("/library/manage?tab=settings", headers=ADMIN).forms["form-repository-settings"]
+        form = self.web.get("/library/manage?tab=settings", headers=ADMIN).forms[
+            "form-repository-settings"
+        ]
         form["timezone"].force_value("Mars/Olympus")
         response = form.submit("save", headers=POSTING)
         self.assertEqual(response.status_int, 200)
         self.assertEqual(self.triples_of_repository(), [])
-
 
 
 class RepositoryZoneTest(TimesCase):
@@ -206,20 +249,34 @@ class RepositoryZoneTest(TimesCase):
         self.addCleanup(node.close)
         return node.timezone()
 
-    def test_the_zone_of_the_repository_is_utc_for_none_and_for_a_name_the_system_does_not_know(self):
+    def test_the_zone_of_the_repository_is_utc_for_none_and_for_a_name_the_system_does_not_know(  # noqa: E501
+        self,
+    ):
         self.assertIs(self.zone(), UTC)
         self.set_timezone("Europe/Amsterdam")
         self.assertEqual(str(self.zone()), "Europe/Amsterdam")
         self.set_timezone("")
         self.assertIs(self.zone(), UTC)
-        with self.application.open_repository("library") as store:  # a name that was stored, and is not a zone here
+        with self.application.open_repository(
+            "library"
+        ) as store:  # a name that was stored, and is not a zone here
             node = self.application["library"]
             self.addCleanup(node.close)
             subject, resource = node.content(store)
-            resource.add(ox.Quad(subject, ox.NamedNode(uri.TIMEZONE), ox.Literal("Nowhere/Land"), ox.DefaultGraph()))
+            resource.add(
+                ox.Quad(
+                    subject,
+                    ox.NamedNode(uri.TIMEZONE),
+                    ox.Literal("Nowhere/Land"),
+                    ox.DefaultGraph(),
+                )
+            )
             node.record(resource).save(store)
         fresh = self.application["library"]
         self.addCleanup(fresh.close)
         subject, resource = fresh.content()
-        self.assertEqual([o.value for o in resource.objects(subject, ox.NamedNode(uri.TIMEZONE))], ["Nowhere/Land"])  # it is stored
+        self.assertEqual(
+            [o.value for o in resource.objects(subject, ox.NamedNode(uri.TIMEZONE))],
+            ["Nowhere/Land"],
+        )  # it is stored
         self.assertIs(self.zone(), UTC)

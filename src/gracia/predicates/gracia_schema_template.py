@@ -1,5 +1,6 @@
 import colander
 import deform
+import deform.widget
 
 from gracia import uri
 from gracia.predicates import Predicate, predicate
@@ -31,7 +32,6 @@ class SchemaWidget(deform.widget.SelectWidget):
 
 @predicate(uri.SCHEMA_TEMPLATE)
 class SchemaTemplatePredicate(Predicate):
-
     def schema_node(self, record, request, schema_node=None):
         prefix = record.content_value(uri.ASSETS)
         files = assets.schemas_of(prefix) if prefix else []

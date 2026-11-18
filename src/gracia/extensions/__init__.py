@@ -1,29 +1,3 @@
-"""Extensions: optional parts of a repository, such as the resolver of ARKs.
-
-An extension is a class in a module of this package (`extensions/ark.py`), marked with
-`@extension("ark")`, which `config.scan` finds (the setting `gracia.extensions` and the entry point
-group `gracia.extensions` name more packages to scan). The contract is `gracia.interfaces.IExtension`.
-The class is a named adapter of the repository: `repository.extension("ark")` is the extension as it
-is in that repository, and `repository.extensions()` are all of them.
-
-The extension decides for itself whether it is on (`enabled`: the flag that was stored, else off;
-an extension may ignore the flag, or look at the repository), whether it can be turned off, and
-what its settings are. It does not touch the data: this module reads and writes what the repository
-resource says of its extensions (see `gracia.init`, `read_extension_states` below): a flag and the settings, as JSON. An extension
-is given its settings as a plain dict, and declares them with a Colander schema class
-(`settings_schema`), from which one user interface builds the form, validates, exports and imports
-the settings of every extension.
-
-Settings are never migrated: an extension has to keep working with what older versions of it stored
-(a missing setting is its default, see `Extension.settings`).
-
-What an extension adds to the application it adds the way anything is added: with decorators found
-by `config.scan` (`@view_config(context=Repository, name="ark:", enabled_extension="ark")`) and,
-when that is not enough, a module-level `includeme(config)`. Views and nodes of an extension are
-only reached in a repository where it is on: the view predicate `enabled_extension="<name>"` asks
-the extension.
-"""
-
 import importlib
 import json
 import logging
@@ -53,11 +27,13 @@ class ExtensionError(ValueError):
         super().__init__("; ".join(self.errors))
 
 
-# ---- what the repository resource says --------------------------------------------------------
+# ---- what the repository resource says
+# --------------------------------------------------------
 
 
 def _states(repository) -> dict[str, tuple[bool | None, dict]]:
-    """{name: (flag or None, stored settings)}, read once for the repository node (a request)."""
+    """{name: (flag or None, stored settings)}, read once for the repository node (a
+    request)."""
     cached = repository.__dict__.get("_extension_states")
     if cached is None:
         try:
@@ -75,19 +51,27 @@ def _write(repository, name: str, enabled: bool | None, settings: dict) -> None:
     repository record): the old one is replaced."""
     store = repository.store()
     subject, record_graph = repository.content(store)
-    graph = next(iter(record_graph.quads_for_subject(ox.NamedNode(repository.uri)))).graph_name
+    graph = next(
+        iter(record_graph.quads_for_subject(ox.NamedNode(repository.uri)))
+    ).graph_name
     for node in record_graph.objects(subject, ox.NamedNode(uri.EXTENSION)):
         said = record_graph.value(node, ox.NamedNode(uri.EXTENSION_NAME))
         if said is not None and said.value == name:
             for quad in list(record_graph.quads_for_subject(node)):
                 record_graph.discard(quad)
-            record_graph.discard(ox.Quad(subject, ox.NamedNode(uri.EXTENSION), node, graph))
+            record_graph.discard(
+                ox.Quad(subject, ox.NamedNode(uri.EXTENSION), node, graph)
+            )
     placeholder = ox.NamedNode("urn:gracia:content")
     parsed = ox.parse(
-        init.extension_turtle(f"<{placeholder.value}>", name, settings or None, enabled).encode(),
+        init.extension_turtle(
+            f"<{placeholder.value}>", name, settings or None, enabled
+        ).encode(),
         format=ox.RdfFormat.TURTLE,
     )
-    for quad in parsed:  # what the Turtle says of the placeholder is said of the content
+    for (
+        quad
+    ) in parsed:  # what the Turtle says of the placeholder is said of the content
         owner = subject if quad.subject == placeholder else quad.subject
         record_graph.add(ox.Quad(owner, quad.predicate, quad.object, graph))
     store.put(record_graph)
@@ -96,9 +80,9 @@ def _write(repository, name: str, enabled: bool | None, settings: dict) -> None:
 
 @implementer(IExtension)
 class Extension:
-    """The base class of an extension (see `IExtension`): what an extension author overrides is
-    the class attributes and, when the extension is not simply on once it was turned on, the
-    properties `enabled` and `can_disable`."""
+    """The base class of an extension (see `IExtension`): what an extension author
+    overrides is the class attributes and, when the extension is not simply on once it
+    was turned on, the properties `enabled` and `can_disable`."""
 
     name = ""
     title = ""
@@ -108,7 +92,8 @@ class Extension:
     def __init__(self, repository):
         self.repository = repository
 
-    # ---- on and off -------------------------------------------------------------------------
+    # ---- on and off
+    # -------------------------------------------------------------------------
 
     @property
     def _flag(self) -> bool | None:
@@ -133,15 +118,16 @@ class Extension:
             raise ExtensionError(f"{self.title or self.name} cannot be disabled")
         _write(self.repository, self.name, False, self._stored)  # the settings are kept
 
-    # ---- settings ---------------------------------------------------------------------------
+    # ---- settings
+    # ---------------------------------------------------------------------------
 
     @property
     def _stored(self) -> dict:
         return _states(self.repository).get(self.name, (None, {}))[1]
 
     def schema(self, request=None) -> colander.SchemaNode | None:
-        """A new schema of the settings, bound to this repository (and the request, when there is
-        one): deferred values in it can ask for both."""
+        """A new schema of the settings, bound to this repository (and the request, when
+        there is one): deferred values in it can ask for both."""
         if self.settings_schema is None:
             return None
         return self.settings_schema().bind(
@@ -150,8 +136,8 @@ class Extension:
 
     @property
     def settings(self) -> dict:
-        """The settings with their defaults, read once for as long as what the repository says
-        of its extensions is what was read (a change reads it again)."""
+        """The settings with their defaults, read once for as long as what the
+        repository says of its extensions is what was read (a change reads it again)."""
         states = _states(self.repository)
         cache = self.repository.__dict__.setdefault("_extension_settings", {})
         cached = cache.get(self.name)
@@ -168,12 +154,14 @@ class Extension:
         for node in schema.children:
             if node.name in stored:
                 try:
-                    # the type reads it (a date from its text); what the schema asks of what
+                    # the type reads it (a date from its text); what the schema asks of
+                    # what
                     # people type (validators) is not asked of what was stored
                     out[node.name] = node.typ.deserialize(node, stored[node.name])
                 except colander.Invalid as err:
                     log.warning(
-                        "the stored setting %s of the extension %s is not valid (%s): the default "
+                        "the stored setting %s of the extension %s is not valid (%s): "
+                        "the default "
                         "is used",
                         node.name,
                         self.name,
@@ -192,7 +180,9 @@ class Extension:
         try:  # what the form and the JSON are asked: the schema and its validators
             data = schema.deserialize(schema.serialize(data))
         except colander.Invalid as err:
-            raise ExtensionError(f"{field}: {why}" for field, why in err.asdict().items()) from err
+            raise ExtensionError(
+                f"{field}: {why}" for field, why in err.asdict().items()
+            ) from err
         stored = nulls_to_none(schema.serialize(data))
         _write(self.repository, self.name, self._flag, stored)
 
@@ -208,24 +198,29 @@ class Extension:
             raise ExtensionError(f"this is not JSON: {err}") from err
         if not isinstance(data, dict):
             raise ExtensionError("the settings are a JSON object")
-        for node in schema.children:  # a JSON number or true is what the field's text would be
+        for (
+            node
+        ) in schema.children:  # a JSON number or true is what the field's text would be
             if isinstance(data.get(node.name), bool | int | float):
                 data[node.name] = node.typ.serialize(node, data[node.name])
         try:
             appstruct = schema.deserialize(none_to_nulls(data))
         except colander.Invalid as err:
-            raise ExtensionError(f"{field}: {why}" for field, why in err.asdict().items()) from err
+            raise ExtensionError(
+                f"{field}: {why}" for field, why in err.asdict().items()
+            ) from err
         self.save_settings(appstruct)
         return appstruct
 
 
 def settings_form(extension: Extension, request, **options) -> Form:
-    """The Deform form of the settings of an extension (`options`: `formid`, `action`, `buttons`),
-    made from its schema: the one form every extension has."""
+    """The Deform form of the settings of an extension (`options`: `formid`, `action`,
+    `buttons`), made from its schema: the one form every extension has."""
     return Form(extension.schema(request), **options)
 
 
-# ---- registration -------------------------------------------------------------------------------
+# ---- registration
+# -------------------------------------------------------------------------------
 
 
 def extension(name: str):
@@ -256,15 +251,19 @@ class _Child:
         self.factory, self.prefix = factory, prefix
 
 
-def add_gracia_repository_child(config, key: str, factory, prefix: bool = False) -> None:
-    """Config directive: `/<repo>/<key>` is a node made by `factory(repository, segment)`. With
-    `prefix`, any segment that starts with the key is. A key that a type could have as its slug
-    is refused (the repository would not know which is meant): keep it among the reserved slugs,
-    or give it a character a slug cannot have (`ark:`)."""
+def add_gracia_repository_child(
+    config, key: str, factory, prefix: bool = False
+) -> None:
+    """Config directive: `/<repo>/<key>` is a node made by `factory(repository,
+    segment)`. With `prefix`, any segment that starts with the key is. A key that a type
+    could have as its slug is refused (the repository would not know which is meant):
+    keep it among the reserved slugs, or give it a character a slug cannot have
+    (`ark:`)."""
     slug_like = uri.slug_like(key)
     if slug_like and key not in uri.RESERVED_SLUGS:
         raise ConfigurationError(
-            f"{key!r} could be the slug of a type: add it to uri.RESERVED_SLUGS or use another key"
+            f"{key!r} could be the slug of a type: add it to uri.RESERVED_SLUGS or use "
+            "another key"
         )
 
     def register():
@@ -276,8 +275,8 @@ def add_gracia_repository_child(config, key: str, factory, prefix: bool = False)
 
 
 def repository_child(registry, segment: str):
-    """The child registered for this segment of a repository address: its key exactly, else the
-    longest key that starts it. None when there is none."""
+    """The child registered for this segment of a repository address: its key exactly,
+    else the longest key that starts it. None when there is none."""
     exact = registry.queryUtility(IRepositoryChild, segment)
     if exact is not None:
         return exact
@@ -290,8 +289,8 @@ def repository_child(registry, segment: str):
 
 
 class ExtensionPredicate:
-    """The view predicate `enabled_extension="ark"`: the view is there in a repository where the
-    extension is on, and not there (404) in any other."""
+    """The view predicate `enabled_extension="ark"`: the view is there in a repository
+    where the extension is on, and not there (404) in any other."""
 
     def __init__(self, name: str, config):
         self.name = name
@@ -312,14 +311,17 @@ class ExtensionPredicate:
 
 
 def include_modules(config, targets: list[str]) -> None:
-    """Call the `includeme(config)` of every module of the packages that were scanned, when the
-    module defines one (an imported one is not called): for what a decorator cannot say, such as
-    `config.add_gracia_repository_child(...)`. `config.scan` does not do this by itself."""
+    """Call the `includeme(config)` of every module of the packages that were scanned,
+    when the module defines one (an imported one is not called): for what a decorator
+    cannot say, such as `config.add_gracia_repository_child(...)`. `config.scan` does
+    not do this by itself."""
     for target in targets:
         package = importlib.import_module(target)
         names = [target]
         if hasattr(package, "__path__"):
-            names += [m.name for m in pkgutil.walk_packages(package.__path__, target + ".")]
+            names += [
+                m.name for m in pkgutil.walk_packages(package.__path__, target + ".")
+            ]
         for name in names:
             module = importlib.import_module(name)
             if "includeme" in vars(module):
@@ -327,12 +329,14 @@ def include_modules(config, targets: list[str]) -> None:
 
 
 def scan_targets(settings: dict) -> list[str]:
-    """What to scan for extensions: the built-in package, the packages of the entry points and the
-    names in the setting `gracia.extensions`, each once."""
+    """What to scan for extensions: the built-in package, the packages of the entry
+    points and the names in the setting `gracia.extensions`, each once."""
     from importlib.metadata import entry_points
 
     found = list(BUILTIN_PACKAGES)
-    found += [entry.value.split(":")[0] for entry in entry_points(group=ENTRY_POINT_GROUP)]
+    found += [
+        entry.value.split(":")[0] for entry in entry_points(group=ENTRY_POINT_GROUP)
+    ]
     found += settings.get("gracia.extensions", "").split()
     unique = list(dict.fromkeys(found))
     return [
@@ -343,8 +347,9 @@ def scan_targets(settings: dict) -> list[str]:
 
 
 def read_extension_states(graph, repo_uri: str) -> dict[str, tuple[bool | None, dict]]:
-    """What the content of the repository record says of its extensions: {name: (enabled or None,
-    settings)}. The settings are the stored cstruct; text that is not JSON counts as no settings."""
+    """What the content of the repository record says of its extensions: {name: (enabled
+    or None, settings)}. The settings are the stored cstruct; text that is not JSON
+    counts as no settings."""
     content = graph.value(ox.NamedNode(repo_uri), ox.NamedNode(uri.RESOURCE))
     found: dict[str, tuple[bool | None, dict]] = {}
     if content is None:

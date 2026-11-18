@@ -1,5 +1,3 @@
-"""Putting what a repository says of its extensions into its record, for the tests."""
-
 import pyoxigraph as ox
 
 from gracia import init, uri
@@ -10,13 +8,16 @@ PLACEHOLDER = ox.NamedNode("urn:gracia:content")
 def put_extension_state(
     application, name="demo", settings=None, enabled=None, turtle=None, repo="library"
 ):
-    """Add a blank node for an extension below the content of the repository record. `turtle` may
-    say it by hand (about `<urn:gracia:content>`, which stands for the content)."""
+    """Add a blank node for an extension below the content of the repository record.
+    `turtle` may say it by hand (about `<urn:gracia:content>`, which stands for the
+    content)."""
     with application.open_repository(repo) as store:
         repo_uri = uri.repository_uri()
         data = store.get(repo_uri)
         content = data.value(ox.NamedNode(repo_uri), ox.NamedNode(uri.RESOURCE))
-        text = turtle or init.extension_turtle(f"<{PLACEHOLDER.value}>", name, settings, enabled)
+        text = turtle or init.extension_turtle(
+            f"<{PLACEHOLDER.value}>", name, settings, enabled
+        )
         for quad in ox.parse(text.encode(), format=ox.RdfFormat.TURTLE):
             owner = content if quad.subject == PLACEHOLDER else quad.subject
             data.add(ox.Quad(owner, quad.predicate, quad.object, ox.DefaultGraph()))

@@ -1,5 +1,3 @@
-"""`main.repositories_last_modified_at`: one row per repository, upserted by the triples triggers."""
-
 import threading
 import time
 
@@ -7,7 +5,7 @@ import pyoxigraph as ox
 from base import DbTestCase
 
 from gracia.graph import Graph
-from gracia.store import Store
+from gracia.store import Store, fetch_one
 
 
 def thing(number: int, value: str = "x") -> Graph:
@@ -24,7 +22,8 @@ class RepositoriesLastModifiedTest(DbTestCase):
     def rows(self):
         return dict(
             self.store.con.execute(
-                'SELECT repo_id, last_modified_at FROM "main".repositories_last_modified_at'
+                "SELECT repo_id, last_modified_at FROM "
+                '"main".repositories_last_modified_at'
             ).fetchall()
         )
 
@@ -35,7 +34,9 @@ class RepositoriesLastModifiedTest(DbTestCase):
         self.store.put(thing(1))
         first = self.rows()
         self.assertEqual(list(first), ["main"])
-        modified = self.store.con.execute("SELECT max(modified_at) FROM records").fetchone()[0]
+        modified = fetch_one(
+            self.store.con.execute("SELECT max(modified_at) FROM records")
+        )[0]
         self.assertEqual(first["main"], modified)
         time.sleep(0.01)
         self.store.put(thing(1, "changed"))
@@ -55,12 +56,15 @@ class RepositoriesLastModifiedTest(DbTestCase):
         s.put(thing(9))  # the type is known now
         before = self.rows()
         s.con.begin()
-        s.con.execute("INSERT INTO triples (s, p, lit) VALUES ('rec:thing:1', 'http://ex/p', 'x')")
+        s.con.execute(
+            "INSERT INTO triples (s, p, lit) VALUES ('rec:thing:1', 'http://ex/p', 'x')"
+        )
         s.con.rollback()
         self.assertEqual(self.rows(), before)
 
     def test_repositories_do_not_block_each_other(self):
-        # a writer of repository a holds its transaction open while repository b writes and commits
+        # a writer of repository a holds its transaction open while repository b writes
+        # and commits
         a = Store(self.db, repo="a", create=True)
         b = Store(self.db, repo="b", create=True)
         self.addCleanup(a.close)
@@ -69,20 +73,24 @@ class RepositoriesLastModifiedTest(DbTestCase):
         b.put(thing(9))
         before = self.rows()
         a.con.begin()
-        a.con.execute("INSERT INTO triples (s, p, lit) VALUES ('rec:thing:1', 'http://ex/p', 'x')")
+        a.con.execute(
+            "INSERT INTO triples (s, p, lit) VALUES ('rec:thing:1', 'http://ex/p', 'x')"
+        )
         done = threading.Event()
         errors = []
 
         def write_b():
             try:
                 b.put(thing(1))
-            except Exception as err:  # noqa: BLE001
+            except Exception as err:
                 errors.append(err)
             done.set()
 
         thread = threading.Thread(target=write_b)
         thread.start()
-        self.assertTrue(done.wait(10), "the write of b waited for the open transaction of a")
+        self.assertTrue(
+            done.wait(10), "the write of b waited for the open transaction of a"
+        )
         thread.join()
         a.con.commit()
         self.assertEqual(errors, [])
@@ -100,7 +108,7 @@ class RepositoriesLastModifiedTest(DbTestCase):
             try:
                 for i in range(1, 6):
                     s.put(thing(i, str(i)))
-            except Exception as err:  # noqa: BLE001
+            except Exception as err:
                 errors.append(err)
 
         threads = [threading.Thread(target=write, args=(s,)) for s in stores]

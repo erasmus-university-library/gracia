@@ -1,7 +1,3 @@
-"""The repository: one record of its own type, `rec:repository:1`. Its content holds the title, the
-list of the types, the extensions and the schema its own form follows. It is private (administrators
-only) and there is only one: it is made with the repository and cannot be added."""
-
 from gracia import uri
 from gracia.resources import Record
 

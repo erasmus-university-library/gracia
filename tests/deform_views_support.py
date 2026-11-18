@@ -1,10 +1,14 @@
-"""Deform views for the tests of gracia.views.deform, found by a scan."""
-
 import colander
 import deform
+import deform.widget
 from pyramid.response import Response
 
-from gracia.views.deform import deform_view, dependent_select, options_validator, render_fields
+from gracia.views.deform import (
+    deform_view,
+    dependent_select,
+    options_validator,
+    render_fields,
+)
 
 SEEN: list = []  # (form, field) the shades view was called with
 SHADES = {"red": ["crimson", "scarlet"], "blue": ["navy", "azure"]}
@@ -22,7 +26,8 @@ class Colours(colander.MappingSchema):
 
 
 def colours_form(context, request) -> deform.Form:
-    """The factory: a fresh form for this request (the page makes its form the same way)."""
+    """The factory: a fresh form for this request (the page makes its form the same
+    way)."""
     return deform.Form(Colours().bind(request=request, context=context), buttons=())
 
 
@@ -40,7 +45,8 @@ def palette(context, request, values, form, field):
 
 @deform_view("hue", permission="edit", form=colours_form)
 def hue(context, request, values, form, field):
-    """A view of the complete form: blue is free text, red is a choice. It returns the form."""
+    """A view of the complete form: blue is free text, red is a choice. It returns the
+    form."""
     if values.get("family") == "blue":
         form["shade"].widget = deform.widget.TextInputWidget()
     return form
@@ -54,5 +60,6 @@ def teapot(context, request, values, form, field):
 
 @deform_view("row", permission="view", form=colours_form)
 def row(context, request, values, form, field):
-    """A view that re-renders the row of the field it was asked for, without form tags."""
+    """A view that re-renders the row of the field it was asked for, without form
+    tags."""
     return render_fields(form, request.params.items(), [field.name])

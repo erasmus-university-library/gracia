@@ -1,36 +1,3 @@
-"""The types of record, one package each, named by the slug of the type.
-
-There are two sorts. The system types, `type`, `user` and `group`, are what a repository cannot
-work without: every repository starts with them (see `gracia/assets/model/repository.ttl`). A content
-type is a type for a domain, such as `person`: it is optional, and adding one needs no change to
-gracia itself, only a package:
-
-    <package>/__init__.py   a descriptor, `TYPE = {...}` (below), and, if the type needs code
-                            (a record class, views), an `includeme(config)`
-    <package>/shacl/        its schemas, <Type>-<profile>-<revision>.ttl, one file per profile and
-                            revision (the type record names the one its records follow)
-    <package>/doc/          the stylesheets that make the doc of a record, doc-<profile>-<revision>.xsl
-                            (the type record names the one it uses, `gracia:docTemplate`; optional)
-    <package>/view.xsl      how its records are shown (optional)
-
-    TYPE = {
-        "name": "Person",                          # the name of the type (its records are rec:person:7)
-        "slug": "person",                          # the first path segment: /<repo>/person/7
-        "class": "http://xmlns.com/foaf/0.1/Person",
-        "schema": "Person-minimal-01.ttl",         # the file in shacl/ it starts on
-        "doc": "doc-full-01.xsl",                  # the file in doc/ that makes their docs (optional)
-    }
-
-Content types are found, as plain data (no Pyramid configuration is needed, so the CLI and the job
-processes can use them), in three places: the subpackages of `gracia.types` that have a `TYPE`,
-the entry points of the group `gracia.content_types` of installed packages (the value is the
-dotted name of the package), and the dotted names in the setting `gracia.types`. `available()`
-lists them. Which ones a new repository gets is the setting `gracia.content_types` (slugs, or
-dotted names), and `gracia types add` adds one to a repository that exists; the counter of the
-numbers needs nothing, any name works (see `Store.mint_id`). The files of a type are named by asset
-specs (`gracia.types:person/`), reached through `gracia.utils.assets`, so a deployment can override them.
-"""
-
 import importlib
 import pkgutil
 from dataclasses import dataclass
@@ -40,7 +7,7 @@ import pyoxigraph as ox
 from pyramid.exceptions import ConfigurationError
 from zope.interface import implementer
 
-from gracia import extensions, init, uri
+from gracia import init, uri
 from gracia.graph import Graph
 from gracia.interfaces import IGraciaType, known_types
 from gracia.resources import Record, Type
@@ -60,7 +27,8 @@ _RDF = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
 
 @dataclass(frozen=True)
 class ContentType:
-    """A type as the code describes it: a content type, or (see `SYSTEM_TYPES`) a system type."""
+    """A type as the code describes it: a content type, or (see `SYSTEM_TYPES`) a system
+    type."""
 
     package: str
     name: str
@@ -68,7 +36,10 @@ class ContentType:
     class_uri: str
     schema: str
     assets: str  # the asset spec of its directory: gracia.types:person/
-    doc: str | None = None  # the file in doc/ that makes the docs of its records (`gracia:docTemplate`)
+    doc: str | None = (
+        # the file in doc/ that makes the docs of its records (`gracia:docTemplate`)
+        None
+    )
 
 
 SYSTEM_TYPES = (
@@ -108,14 +79,15 @@ SYSTEM_TYPES = (
 
 
 def assets_spec(package: str) -> str:
-    """The asset spec of the directory of a type package: `gracia.types.person` is the package
-    `gracia.types`, directory `person`."""
+    """The asset spec of the directory of a type package: `gracia.types.person` is the
+    package `gracia.types`, directory `person`."""
     parent, _, name = package.rpartition(".")
     return f"{parent}:{name}/" if parent else f"{name}:"
 
 
 def describe(package: str) -> ContentType:
-    """The content type of a package: its `TYPE`, checked, and its schema file must exist."""
+    """The content type of a package: its `TYPE`, checked, and its schema file must
+    exist."""
     module = importlib.import_module(package)
     descriptor = getattr(module, "TYPE", None)
     if not isinstance(descriptor, dict):
@@ -150,25 +122,31 @@ def describe(package: str) -> ContentType:
         try:
             assets.resolve(assets.join(found.assets, assets.DOC_DIR + found.doc))
         except (FileNotFoundError, ValueError) as err:
-            raise ValueError(f"{package}: the doc template {found.doc} is not a file of it ({err})") from None
+            raise ValueError(
+                f"{package}: the doc template {found.doc} is not a file of it ({err})"
+            ) from None
     return found
 
 
 def _packages(extra=()) -> list[str]:
-    """The packages that may be content types: subpackages of `gracia.types`, entry points and
-    the dotted names given."""
+    """The packages that may be content types: subpackages of `gracia.types`, entry
+    points and the dotted names given."""
     import gracia.types as here
 
-    found = [f"gracia.types.{m.name}" for m in pkgutil.iter_modules(here.__path__) if m.ispkg]
+    found = [
+        f"gracia.types.{m.name}" for m in pkgutil.iter_modules(here.__path__) if m.ispkg
+    ]
     found = [p for p in found if p not in SYSTEM_PACKAGES]
-    found += [entry.value.split(":")[0] for entry in entry_points(group=ENTRY_POINT_GROUP)]
+    found += [
+        entry.value.split(":")[0] for entry in entry_points(group=ENTRY_POINT_GROUP)
+    ]
     found += [p for p in extra if p not in SYSTEM_PACKAGES]
     return list(dict.fromkeys(found))
 
 
 def available(extra=()) -> dict[str, ContentType]:
-    """Every content type there is, by slug. A package that has no `TYPE` is passed over (it may
-    be a package of code only); one whose `TYPE` is wrong is an error."""
+    """Every content type there is, by slug. A package that has no `TYPE` is passed over
+    (it may be a package of code only); one whose `TYPE` is wrong is an error."""
     found: dict[str, ContentType] = {}
     for package in _packages(extra):
         module = importlib.import_module(package)
@@ -186,43 +164,54 @@ def listed(settings: dict, key: str) -> list[str]:
 
 
 def content_types(registry) -> dict:
-    """The content types the application knows, by slug: the types in the registry that are not
-    system types and are described (a type that only has a record class has no slug)."""
+    """The content types the application knows, by slug: the types in the registry that
+    are not system types and are described (a type that only has a record class has no
+    slug)."""
     return {k.slug: k for k in known_types(registry) if k.slug and not k.system}
 
 
 def find_content_type(registry, name: str):
-    """A content type by slug or by the dotted name of its package; ValueError when there is none."""
+    """A content type by slug or by the dotted name of its package; ValueError when
+    there is none."""
     known = content_types(registry)
-    found = known.get(name) or next((k for k in known.values() if k.package == name), None)
+    found = known.get(name) or next(
+        (k for k in known.values() if k.package == name), None
+    )
     if found is None:
         raise ValueError(
-            f"no content type {name!r} (there are: {', '.join(sorted(known)) or 'none'}; "
-            "one that is not here has to be listed in gracia.types, or be an entry point of "
+            f"no content type {name!r} (there are: "
+            f"{', '.join(sorted(known)) or 'none'}; "
+            "one that is not here has to be listed in gracia.types, or be an entry "
+            "point of "
             f"the group {ENTRY_POINT_GROUP})"
         )
     return found
 
 
 def enabled(registry, settings: dict) -> list:
-    """The content types a new repository gets: the setting `gracia.content_types` (slugs, or
-    dotted names of packages), looked up in the registry."""
-    return [find_content_type(registry, name) for name in listed(settings, "gracia.content_types")]
+    """The content types a new repository gets: the setting `gracia.content_types`
+    (slugs, or dotted names of packages), looked up in the registry."""
+    return [
+        find_content_type(registry, name)
+        for name in listed(settings, "gracia.content_types")
+    ]
 
 
 def packages(settings: dict) -> list[str]:
-    """The packages the web application includes, for their `includeme`: the system types, and
-    every content type there is (a package without an `includeme` is skipped by the caller)."""
+    """The packages the web application includes, for their `includeme`: the system
+    types, and every content type there is (a package without an `includeme` is skipped
+    by the caller)."""
     extra = listed(settings, "gracia.types")
     found = [*SYSTEM_PACKAGES, *(c.package for c in available(extra).values()), *extra]
     return list(dict.fromkeys(found))
 
 
 def add_content_type(store, repo_id: str, content_type: ContentType) -> str | None:
-    """Add a content type to a repository that exists: a type record, and the type in the list in
-    the content of the repository record. Returns the URI of the type record, or None when the
-    repository has a type with that slug already. It changes only those two records, in one
-    transaction; the counter of the type's records needs nothing."""
+    """Add a content type to a repository that exists: a type record, and the type in
+    the list in the content of the repository record. Returns the URI of the type
+    record, or None when the repository has a type with that slug already. It changes
+    only those two records, in one transaction; the counter of the type's records needs
+    nothing."""
     repo_uri = uri.repository_uri()
     subject = _N(repo_uri)
     resource = store.get(repo_uri)
@@ -231,7 +220,9 @@ def add_content_type(store, repo_id: str, content_type: ContentType) -> str | No
     content = resource.value(subject, _N(uri.RESOURCE))
     head = resource.value(content, _N(uri.TYPES)) if content is not None else None
     classes = [p.value for p in resource.walk_list(head)] if head is not None else []
-    by_class = store.records_with_resource_uris(classes)  # the list has the classes: the resource uris of the types
+    by_class = store.records_with_resource_uris(
+        classes
+    )  # the list has the classes: the resource uris of the types
     records = [by_class[c] for c in classes if c in by_class]
     existing = store.get(records) if records else Graph()
     for record in records:
@@ -246,43 +237,58 @@ def add_content_type(store, repo_id: str, content_type: ContentType) -> str | No
     kept = [
         q
         for q in resource
-        if q.subject not in cells and not (q.subject == content and q.predicate == _N(uri.TYPES))
+        if q.subject not in cells
+        and not (q.subject == content and q.predicate == _N(uri.TYPES))
     ]
     items = [*classes, content_type.class_uri]
     nodes = [ox.BlankNode() for _ in items]
     listing = [ox.Quad(content, _N(uri.TYPES), nodes[0], graph)]
     for position, (node, item) in enumerate(zip(nodes, items, strict=True)):
         following = nodes[position + 1] if position + 1 < len(nodes) else nil
-        listing += [ox.Quad(node, first, _N(item), graph), ox.Quad(node, rest, following, graph)]
+        listing += [
+            ox.Quad(node, first, _N(item), graph),
+            ox.Quad(node, rest, following, graph),
+        ]
     type_record = init.type_turtle(record, content_type)
     parsed = ox.parse(
         ("@prefix gracia: <https://gracia.pub/ns/> .\n" + type_record).encode(),
         format=ox.RdfFormat.TURTLE,
     )
     store.put(
-        Graph(ox.Dataset(
-            [*kept, *listing, *(ox.Quad(q.subject, q.predicate, q.object, graph) for q in parsed)]
-        ))
+        Graph(
+            ox.Dataset(
+                [
+                    *kept,
+                    *listing,
+                    *(ox.Quad(q.subject, q.predicate, q.object, graph) for q in parsed),
+                ]
+            )
+        )
     )
     return record
 
 
-# Registration. A record is a `resources.Record` unless a class is registered for the class of its
+# Registration. A record is a `resources.Record` unless a class is registered for the
+# class of its
 # type, by the `includeme` of the type's package:
 #
 #     config.add_record_class(uri.USER_CLASS, UserRecord)
 #
-# The registration is by the rdf class a type describes (`gracia:class`), so it does not depend on
-# a repository or on names. An extension package registers its own the same way. A record class
-# changes what a record does through the hooks of `Record` (`extra_fields`, `check`, `apply`), so
+# The registration is by the rdf class a type describes (`gracia:class`), so it does not
+# depend on
+# a repository or on names. An extension package registers its own the same way. A
+# record class
+# changes what a record does through the hooks of `Record` (`extra_fields`, `check`,
+# `apply`), so
 # the generic views serve it without views of its own; a view registered for the class
 # (`@view_config(context=UserRecord, ...)`) overrides the generic one.
 
 
 @implementer(IGraciaType)
 class TypeInfo:
-    """What the application knows about a type (see `IGraciaType`). Filled in by two directives,
-    in either order: `add_gracia_type` (the descriptor) and `add_record_class` (the code)."""
+    """What the application knows about a type (see `IGraciaType`). Filled in by two
+    directives, in either order: `add_gracia_type` (the descriptor) and
+    `add_record_class` (the code)."""
 
     def __init__(self, class_uri: str):
         self.class_uri = class_uri
@@ -295,7 +301,8 @@ class TypeInfo:
 
 
 def _info(registry, class_uri: str) -> TypeInfo:
-    """The `TypeInfo` of a class, made (and registered under the URI) when there is none."""
+    """The `TypeInfo` of a class, made (and registered under the URI) when there is
+    none."""
     info = registry.queryUtility(IGraciaType, class_uri)
     if info is None:
         info = TypeInfo(class_uri)
@@ -304,36 +311,45 @@ def _info(registry, class_uri: str) -> TypeInfo:
 
 
 def add_gracia_type(config, content_type, system: bool = False) -> None:
-    """Config directive: register a type (a `gracia.types.ContentType`) as an `IGraciaType`
-    utility, under its class URI and its slug. A class or a slug that another type has is a
-    conflict."""
+    """Config directive: register a type (a `gracia.types.ContentType`) as an
+    `IGraciaType` utility, under its class URI and its slug. A class or a slug that
+    another type has is a conflict."""
 
     def register():
         registry = config.registry
         info = _info(registry, content_type.class_uri)
         if info.package not in (None, content_type.package):
             raise ConfigurationError(
-                f"{content_type.class_uri} is the class of {info.package} and of {content_type.package}"
+                f"{content_type.class_uri} is the class of {info.package} and of "
+                f"{content_type.package}"
             )
         taken = registry.queryUtility(IGraciaType, content_type.slug)
         if taken is not None and taken is not info:
             raise ConfigurationError(
-                f"the slug {content_type.slug!r} is the slug of {taken.package} and of {content_type.package}"
+                f"the slug {content_type.slug!r} is the slug of {taken.package} and of "
+                f"{content_type.package}"
             )
         info.name, info.slug, info.schema = (
             content_type.name,
             content_type.slug,
             content_type.schema,
         )
-        info.assets, info.package, info.system = content_type.assets, content_type.package, system
+        info.assets, info.package, info.system = (
+            content_type.assets,
+            content_type.package,
+            system,
+        )
         registry.registerUtility(info, IGraciaType, name=content_type.slug)
 
     config.action(("gracia type", content_type.class_uri), register)
-    config.action(("gracia type slug", content_type.slug), None)  # two types, one slug: a conflict
+    config.action(
+        ("gracia type slug", content_type.slug), None
+    )  # two types, one slug: a conflict
 
 
 class TypeClassPredicate:
-    """View predicate `type_class=<uri>`: the context is a type that describes that class."""
+    """View predicate `type_class=<uri>`: the context is a type that describes that
+    class."""
 
     def __init__(self, value, config):
         self.value = value
@@ -348,11 +364,12 @@ class TypeClassPredicate:
 
 
 def add_record_class(config, class_uri: str, cls: type[Record]) -> None:
-    """Config directive: use `cls` for the records of the type that describes `class_uri`.
+    """Config directive: use `cls` for the records of the type that describes
+    `class_uri`.
 
     A class that asks for other permissions than `Record` does (`edit_permission`,
-    `add_permission`) gets the generic edit and add views registered for itself with those
-    permissions, so who may edit or add is a matter of the ACLs of the resources.
+    `add_permission`) gets the generic edit and add views registered for itself with
+    those permissions, so who may edit or add is a matter of the ACLs of the resources.
     """
 
     def register():

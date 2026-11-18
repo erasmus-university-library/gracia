@@ -1,5 +1,3 @@
-"""The scripts and styles: in the head once, bundled, versioned and cached for good."""
-
 import re
 import tempfile
 from pathlib import Path
@@ -7,15 +5,18 @@ from unittest import mock
 
 import colander
 import deform
+import deform.widget
 import fanstatic
 from fanstatic import Library, Resource, checksum
 from fanstatic.inclusion import sort_resources
 from jobs_support import JobsCase
+from support import must_search
 from test_jobs_view import JobsViewCase, as_user
 
 from gracia import static
 
-# a package that brings a widget declares its library when it is imported, before any request
+# a package that brings a widget declares its library when it is imported, before any
+# request
 _EXT = tempfile.TemporaryDirectory()
 EXT = Path(_EXT.name)
 (EXT / "widget.js").write_text("window.widget = 1;")
@@ -36,18 +37,28 @@ class HeadTest(JobsViewCase):
     def test_the_site_has_one_stylesheet_and_its_scripts_in_the_head(self):
         found = head(self.page())
         self.assertEqual(len(re.findall(r"<link rel=\"stylesheet\"", found)), 1)
-        self.assertIn("bootstrap.min.css;gracia.css", found)  # Bootstrap and ours: one file
-        for name in ("bootstrap.bundle.min.js", "htmx.min.js", "jobs.js"):  # one file of ours
+        self.assertIn(
+            "bootstrap.min.css;gracia.css", found
+        )  # Bootstrap and ours: one file
+        for name in (
+            "bootstrap.bundle.min.js",
+            "htmx.min.js",
+            "jobs.js",
+        ):  # one file of ours
             self.assertRegex(found, rf"scripts/:bundle:[^\"]*{re.escape(name)}")
-        self.assertNotIn("<script", self.page().split("</head>")[1])  # none at the end of the body
+        self.assertNotIn(
+            "<script", self.page().split("</head>")[1]
+        )  # none at the end of the body
 
     def test_every_address_has_the_checksum_of_the_library_in_it(self):
         version = checksum.md5(static.library.path)
-        for url in re.findall(r'(?:href|src)="([^"]*/_static/gracia/[^"]*)"', self.page()):
+        for url in re.findall(
+            r'(?:href|src)="([^"]*/_static/gracia/[^"]*)"', self.page()
+        ):
             self.assertIn(f"/:version:{version}/", url)
 
     def test_a_file_is_served_for_a_year_so_a_browser_keeps_it(self):
-        css = re.search(r'href="([^"]*bootstrap\.min\.css[^"]*)"', self.page())[1]
+        css = must_search(r'href="([^"]*bootstrap\.min\.css[^"]*)"', self.page())[1]
         response = self.web.get(css)
         self.assertEqual(response.status_int, 200)
         self.assertIn("max-age=31536000", response.headers["Cache-Control"])
@@ -57,7 +68,7 @@ class HeadTest(JobsViewCase):
         self.assertIn("Bootstrap", response.text[:300])
 
     def test_the_script_bundle_has_what_the_views_need_in_one_request(self):
-        script = re.search(r'src="([^"]*jobs\.js[^"]*)"', self.page())[1]
+        script = must_search(r'src="([^"]*jobs\.js[^"]*)"', self.page())[1]
         response = self.web.get(script)
         self.assertEqual(response.status_int, 200)
         for part in ("bootstrap.Modal", "DOMContentLoaded", "data-progress-dialog"):
@@ -70,26 +81,31 @@ class HeadTest(JobsViewCase):
 
     def test_a_file_that_is_not_there_is_not_found(self):
         for path in ("/_static/gracia/nope.js", "/_static/nolibrary/x.js", "/_static/"):
-            self.assertEqual(self.web.get(path, expect_errors=True).status_int, 404, path)
+            self.assertEqual(
+                self.web.get(path, expect_errors=True).status_int, 404, path
+            )
 
     def test_data_is_left_alone(self):
         response = self.web.get("/library/jobs/list", headers=as_user("ed"))
         self.assertNotIn("_static", response.text)
 
     def test_the_icon_is_versioned_too(self):
-        icon = re.search(r'rel="icon"[^>]*href="([^"]+)"', self.page())[1]
+        icon = must_search(r'rel="icon"[^>]*href="([^"]+)"', self.page())[1]
         self.assertIn("/:version:", icon)
         self.assertEqual(self.web.get(icon).status_int, 200)
 
 
 class WidgetsTest(JobsCase):
-    """What a widget of a form needs is added to the page: once, with what it depends on."""
+    """What a widget of a form needs is added to the page: once, with what it depends
+    on."""
 
     def needed(self, form) -> list[str]:
         needed = fanstatic.init_needed()
         try:
             static.need_form(form)
-            return [r.relpath for r in sort_resources(needed.resources())]  # as it is written
+            return [
+                r.relpath for r in sort_resources(needed.resources())
+            ]  # as it is written
         finally:
             fanstatic.del_needed()
 
@@ -102,9 +118,15 @@ class WidgetsTest(JobsCase):
         return deform.Form(Schema())
 
     def test_a_widget_brings_its_scripts_after_jquery(self):
-        found = [n for n in self.needed(self.form()) if n.endswith(".js")]  # the styles come first
+        found = [
+            n for n in self.needed(self.form()) if n.endswith(".js")
+        ]  # the styles come first
         self.assertEqual(found[0], "scripts/jquery-2.0.3.min.js")
-        for name in ("scripts/deform.js", "pickadate/picker.date.js", "scripts/deform-load.js"):
+        for name in (
+            "scripts/deform.js",
+            "pickadate/picker.date.js",
+            "scripts/deform-load.js",
+        ):
             self.assertIn(name, found)
         self.assertLess(
             found.index("scripts/jquery.form-3.09.js"), found.index("scripts/deform.js")
@@ -125,18 +147,26 @@ class WidgetsTest(JobsCase):
     def test_a_file_of_a_declared_library_is_needed_and_served(self):
         found = self.needed(self.widgets_of(EXT / "widget.js"))
         self.assertIn("widget.js", found)
-        self.assertLess(found.index("scripts/jquery-2.0.3.min.js"), found.index("widget.js"))
+        self.assertLess(
+            found.index("scripts/jquery-2.0.3.min.js"), found.index("widget.js")
+        )
         from webtest import TestApp
 
         from gracia.main import make_config
 
-        web = TestApp(make_config({"gracia.application": self.application}).make_wsgi_app())
+        web = TestApp(
+            make_config({"gracia.application": self.application}).make_wsgi_app()
+        )
         got = web.get("/_static/gracia-test-ext/widget.js")
         self.assertEqual(got.text, "window.widget = 1;")
-        # a library publishes its own directory (that is why it is declared on purpose, and why
+        # a library publishes its own directory (that is why it is declared on purpose,
+        # and why
         # a directory that holds more than assets is never made into one on the fly)
         self.assertEqual(
-            web.get("/_static/gracia-test-ext/secret.txt", expect_errors=True).status_int, 200
+            web.get(
+                "/_static/gracia-test-ext/secret.txt", expect_errors=True
+            ).status_int,
+            200,
         )
 
     def test_a_file_in_no_library_is_an_error_that_says_what_to_do(self):
@@ -144,7 +174,9 @@ class WidgetsTest(JobsCase):
         with self.assertRaises(LookupError) as caught:
             self.needed(self.widgets_of(self.tmp / "loose.js"))
         self.assertIn("declare a fanstatic Library", str(caught.exception))
-        self.assertFalse([n for n in fanstatic.get_library_registry() if n.startswith("dir-")])
+        self.assertFalse(
+            [n for n in fanstatic.get_library_registry() if n.startswith("dir-")]
+        )
 
     def test_a_file_in_a_library_but_not_one_of_its_resources_is_refused(self):
         with self.assertRaises(LookupError) as caught:
@@ -174,7 +206,9 @@ class WidgetsTest(JobsCase):
         seen = {}
 
         def view(request):
-            seen["response"] = render_form(request, "T", "t", "<p>x</p>", widgets=self.form())
+            seen["response"] = render_form(
+                request, "T", "t", "<p>x</p>", widgets=self.form()
+            )
             return seen["response"]
 
         from pyramid.config import Configurator
@@ -195,10 +229,14 @@ class SettingsTest(JobsViewCase):
         config = None
         from gracia.main import make_config
 
-        with mock.patch.object(static.library, "signature", wraps=static.library.signature) as sig:
+        with mock.patch.object(
+            static.library, "signature", wraps=static.library.signature
+        ) as sig:
             from webtest import TestApp
 
-            config = make_config({**self.settings(), "gracia.fanstatic.recompute_hashes": "true"})
+            config = make_config(
+                {**self.settings(), "gracia.fanstatic.recompute_hashes": "true"}
+            )
             web = TestApp(config.make_wsgi_app())
             web.get("/library/jobs", headers=as_user("ed"))
             self.assertTrue(sig.called)

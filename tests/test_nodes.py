@@ -1,5 +1,3 @@
-"""The nodes of the tree know the repository they are in, without a request."""
-
 from test_edit import EditCase
 
 from gracia.resources import Jobs, Node, Record, Type
@@ -42,7 +40,7 @@ class RepositoryOfNodeTest(EditCase):
         node = Node()
         self.assertFalse(hasattr(node, "repository"))
         with self.assertRaises(AttributeError):
-            node.repository
+            _ = node.repository
 
     def test_it_is_found_once(self):
         record = self.repo["person"]["1"]
@@ -51,5 +49,7 @@ class RepositoryOfNodeTest(EditCase):
 
     def test_the_request_gets_the_store_from_the_repository_of_its_context(self):
         web = self.client()
-        self.assertEqual(web.get("/library/person/1", headers=self.admin).status_int, 200)
+        self.assertEqual(
+            web.get("/library/person/1", headers=self.admin).status_int, 200
+        )
         self.assertEqual(web.get("/library/", headers=self.admin).json["id"], "library")

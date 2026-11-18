@@ -1,7 +1,3 @@
-"""Content types: a type that is a folder. Found by the registry, added to a repository, and the
-counter of its numbers works, all without a change to gracia: the tests make their own content
-types as packages in a temporary directory, and ask the registry what there is."""
-
 import base64
 import contextlib
 import importlib
@@ -26,24 +22,35 @@ from gracia.utils import assets
 EX = "http://example.org/"
 ADMIN = ("admin", "sekretsekret")
 SCHEMA = """
-@prefix sh: <http://www.w3.org/ns/shacl#> . @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> . @prefix xsd:
+  <http://www.w3.org/2001/XMLSchema#> .
 @prefix ex: <http://example.org/> .
 <urn:t:S> a sh:NodeShape ; sh:targetClass <@CLASS@> ;
     sh:property [ sh:path ex:label ; sh:name "Label" ; sh:order 1 ;
         sh:datatype xsd:string ; sh:minCount 1 ; sh:maxCount 1 ] ,
-    [ sh:path ex:note ; sh:name "Note" ; sh:order 2 ; sh:datatype xsd:string ; sh:maxCount 1 ] .
+    [ sh:path ex:note ; sh:name "Note" ; sh:order 2 ; sh:datatype xsd:string ;
+      sh:maxCount 1 ] .
 """
 
 
 def basic(user: str, password: str) -> dict:
-    return {"Authorization": "Basic " + base64.b64encode(f"{user}:{password}".encode()).decode()}
+    return {
+        "Authorization": "Basic "
+        + base64.b64encode(f"{user}:{password}".encode()).decode()
+    }
 
 
 def make_content_type(
-    test, package="widgets_ct", name="Widget", slug="widget", class_uri=EX + "Widget", schema=None
+    test,
+    package="widgets_ct",
+    name="Widget",
+    slug="widget",
+    class_uri=EX + "Widget",
+    schema=None,
 ):
-    """A content type as a package: a descriptor and one schema file. It is put on the path
-    (and taken off again), so that it can be imported, and found by its dotted name."""
+    """A content type as a package: a descriptor and one schema file. It is put on the
+    path (and taken off again), so that it can be imported, and found by its dotted
+    name."""
     root = Path(tempfile.mkdtemp())
     test.addCleanup(lambda: __import__("shutil").rmtree(root, ignore_errors=True))
     schema = schema or f"{name}-minimal-01.ttl"
@@ -64,14 +71,17 @@ def make_content_type(
     top = package.split(".")[0]
     test.addCleanup(
         lambda: [
-            sys.modules.pop(m) for m in list(sys.modules) if m == top or m.startswith(top + ".")
+            sys.modules.pop(m)
+            for m in list(sys.modules)
+            if m == top or m.startswith(top + ".")
         ]
     )
     return package
 
 
 def content_label(form):
-    """The `label` of the content: the record has a read-only `gracia:label` of its own."""
+    """The `label` of the content: the record has a read-only `gracia:label` of its
+    own."""
     return next(f for f in form.fields["label"] if "readonly" not in f.attrs)
 
 
@@ -79,9 +89,13 @@ class DescriptorTest(WebCase):
     count = 0
 
     def bad(self, message: str, **res_type):
-        type(self).count += 1  # a package is imported once, so every call has a name of its own
+        type(
+            self
+        ).count += 1  # a package is imported once, so every call has a name of its own
         package = make_content_type(
-            self, f"bad_ct_{type(self).count}", **{"name": "Bad", "slug": "bad", **res_type}
+            self,
+            f"bad_ct_{type(self).count}",
+            **{"name": "Bad", "slug": "bad", **res_type},
         )
         with self.assertRaises(ValueError, msg=res_type) as caught:
             types.describe(package)
@@ -93,7 +107,9 @@ class DescriptorTest(WebCase):
             (found.name, found.slug, found.class_uri, found.schema, found.assets),
             ("Widget", "widget", EX + "Widget", "Widget-minimal-01.ttl", "widgets_ct:"),
         )
-        self.assertIsNotNone(assets.shape(found.assets, found.schema, found.class_uri, found.name))
+        self.assertIsNotNone(
+            assets.shape(found.assets, found.schema, found.class_uri, found.name)
+        )
 
     def test_a_nested_package_names_its_directory_the_way_assets_do(self):
         self.assertEqual(
@@ -107,11 +123,15 @@ class DescriptorTest(WebCase):
         self.bad("slug", slug="Bad Slug")
         self.bad("name", name="bad name")
         self.bad("class", class_uri="not an uri")
-        self.bad("class", class_uri="http://example.org/a>b")  # it would break the Turtle
+        self.bad(
+            "class", class_uri="http://example.org/a>b"
+        )  # it would break the Turtle
         self.bad("a view", slug="manage")
         self.bad("system type", name="User", slug="usr")
         self.bad("system type", name="Thing", slug="user")
-        self.bad("not a file of it", schema="Other-minimal-01.ttl")  # another type's name
+        self.bad(
+            "not a file of it", schema="Other-minimal-01.ttl"
+        )  # another type's name
 
     def test_a_missing_schema_file_is_said(self):
         package = make_content_type(self)
@@ -128,7 +148,11 @@ class DescriptorTest(WebCase):
 
     def test_nothing_that_goes_into_the_turtle_can_break_it(self):
         found = types.describe(make_content_type(self))
-        for attribute, value in (("name", 'W"; <x> <y> "z'), ("schema", "x\\n"), ("assets", 'a"b')):
+        for attribute, value in (
+            ("name", 'W"; <x> <y> "z'),
+            ("schema", "x\\n"),
+            ("assets", 'a"b'),
+        ):
             broken = SimpleNamespace(**{**found.__dict__, attribute: value})
             with self.assertRaises(ValueError):
                 init.type_turtle("rec:type:9", broken)
@@ -137,7 +161,9 @@ class DescriptorTest(WebCase):
 class DiscoveryTest(WebCase):
     def test_a_folder_in_gracia_types_is_found_without_being_listed_anywhere(self):
         self.assertIn("person", types.available())  # nothing names it: it is a folder
-        self.assertNotIn("user", types.available())  # the system types are not content types
+        self.assertNotIn(
+            "user", types.available()
+        )  # the system types are not content types
 
     def test_a_package_can_be_added_by_its_dotted_name(self):
         package = make_content_type(self)
@@ -156,7 +182,9 @@ class DiscoveryTest(WebCase):
 
     def test_two_content_types_with_one_slug_are_refused(self):
         first = make_content_type(self, "one_ct")
-        second = make_content_type(self, "two_ct", name="Gadget", class_uri=EX + "Gadget")
+        second = make_content_type(
+            self, "two_ct", name="Gadget", class_uri=EX + "Gadget"
+        )
         with self.assertRaises(ValueError) as caught:
             types.available([first, second])
         self.assertIn("the slug 'widget'", str(caught.exception))
@@ -169,7 +197,9 @@ class DiscoveryTest(WebCase):
         sys.path.insert(0, str(root))
         self.addCleanup(sys.path.remove, str(root))
         self.addCleanup(sys.modules.pop, "code_only", None)
-        self.assertNotIn("code_only", [k.package for k in types.available(["code_only"]).values()])
+        self.assertNotIn(
+            "code_only", [k.package for k in types.available(["code_only"]).values()]
+        )
         self.assertIn(
             "code_only", types.packages({"gracia.types": "code_only"})
         )  # but it is included
@@ -188,7 +218,9 @@ class RegistryTest(WebCase):
         by_slug = registry.queryUtility(IGraciaType, "user")
         self.assertIs(by_slug, registry.queryUtility(IGraciaType, uri.USER_CLASS))
         self.assertTrue(IGraciaType.providedBy(by_slug))
-        self.assertEqual((by_slug.name, by_slug.slug, by_slug.system), ("User", "user", True))
+        self.assertEqual(
+            (by_slug.name, by_slug.slug, by_slug.system), ("User", "user", True)
+        )
         self.assertIsNone(registry.queryUtility(IGraciaType, "nothing"))
 
     def test_the_types_can_be_listed_once_each_with_their_names(self):
@@ -207,14 +239,16 @@ class RegistryTest(WebCase):
             {"repository", "type", "user", "group"},
         )
         self.assertEqual(
-            set(types.content_types(registry)) & {"repository", "type", "user", "group"},
+            set(types.content_types(registry))
+            & {"repository", "type", "user", "group"},
             set(),
         )
 
     def test_the_code_of_a_type_hangs_on_the_same_utility(self):
         registry = self.registry()
         self.assertEqual(
-            registry.queryUtility(IGraciaType, "user").record_class.__name__, "UserRecord"
+            registry.queryUtility(IGraciaType, "user").record_class.__name__,
+            "UserRecord",
         )
         self.assertIsNone(
             registry.queryUtility(IGraciaType, "person").record_class
@@ -227,7 +261,9 @@ class RegistryTest(WebCase):
             if res_type.slug is None:
                 continue
             self.assertIsNotNone(
-                assets.shape(res_type.assets, res_type.schema, res_type.class_uri, res_type.name),
+                assets.shape(
+                    res_type.assets, res_type.schema, res_type.class_uri, res_type.name
+                ),
                 res_type.slug,
             )
 
@@ -235,7 +271,9 @@ class RegistryTest(WebCase):
         package = make_content_type(self)
         registry = self.registry(**{"gracia.types": package})
         found = registry.queryUtility(IGraciaType, "widget")
-        self.assertEqual((found.name, found.package, found.system), ("Widget", package, False))
+        self.assertEqual(
+            (found.name, found.package, found.system), ("Widget", package, False)
+        )
         self.assertIn("widget", types.content_types(registry))
 
     def test_two_types_with_the_same_class_or_slug_are_a_conflict(self):
@@ -246,7 +284,9 @@ class RegistryTest(WebCase):
         with self.assertRaises((ConfigurationConflictError, Exception)):
             self.registry(**{"gracia.types": f"{one} {other}"})
 
-    def test_the_name_of_a_type_that_has_no_content_type_is_looked_up_with_a_clear_error(self):
+    def test_the_name_of_a_type_that_has_no_content_type_is_looked_up_with_a_clear_error(  # noqa: E501
+        self,
+    ):
         registry = self.registry()
         with self.assertRaises(ValueError) as caught:
             types.find_content_type(registry, "nothing")
@@ -282,12 +322,15 @@ class RepositoryTest(WebCase):
         self.application.create_repository(
             "library", admin=ADMIN, content_types=[self.widget, self.person]
         )
-        self.assertEqual(self.slugs(), ["repository", "type", "user", "group", "widget", "person"])
+        self.assertEqual(
+            self.slugs(), ["repository", "type", "user", "group", "widget", "person"]
+        )
         node = self.application["library"]
         self.addCleanup(node.close)
         self.assertEqual(node["widget"].record, "rec:type:5")
         self.assertEqual(
-            (node["widget"].schema, node["widget"].assets), (self.widget.schema, "widgets_ct:")
+            (node["widget"].schema, node["widget"].assets),
+            (self.widget.schema, "widgets_ct:"),
         )
 
     def test_a_content_type_that_is_wrong_is_refused_before_anything_is_made(self):
@@ -296,7 +339,9 @@ class RepositoryTest(WebCase):
             self.application.create_repository("library", content_types=[broken])
         self.assertEqual(self.application.list_repositories(), [])
         with self.assertRaises(ValueError):  # the same type twice
-            self.application.create_repository("library", content_types=[self.widget, self.widget])
+            self.application.create_repository(
+                "library", content_types=[self.widget, self.widget]
+            )
         self.assertEqual(self.application.list_repositories(), [])
 
     def test_a_content_type_is_added_to_a_repository_that_exists(self):
@@ -304,9 +349,15 @@ class RepositoryTest(WebCase):
         with self.application.open_repository("library") as store:
             record = types.add_content_type(store, "library", self.widget)
             self.assertEqual(record, "rec:type:5")
-            self.assertIsNone(types.add_content_type(store, "library", self.widget))  # it has it
-            self.assertEqual(types.add_content_type(store, "library", self.person), "rec:type:6")
-        self.assertEqual(self.slugs(), ["repository", "type", "user", "group", "widget", "person"])
+            self.assertIsNone(
+                types.add_content_type(store, "library", self.widget)
+            )  # it has it
+            self.assertEqual(
+                types.add_content_type(store, "library", self.person), "rec:type:6"
+            )
+        self.assertEqual(
+            self.slugs(), ["repository", "type", "user", "group", "widget", "person"]
+        )
 
     def test_adding_one_leaves_the_rest_of_the_repository_as_it_was(self):
         self.application.create_repository("library", admin=ADMIN)
@@ -315,15 +366,27 @@ class RepositoryTest(WebCase):
             self.assertGreater(len(before), 0)
             types.add_content_type(store, "library", self.widget)
             after = store.get("rec:repository:1")
-        wanted = {q.predicate.value for q in before if not isinstance(q.object, ox.BlankNode)}
-        kept = {q.predicate.value for q in after if not isinstance(q.object, ox.BlankNode)}
+        wanted = {
+            q.predicate.value for q in before if not isinstance(q.object, ox.BlankNode)
+        }
+        kept = {
+            q.predicate.value for q in after if not isinstance(q.object, ox.BlankNode)
+        }
         self.assertTrue(wanted <= kept)  # title, assets, schema: still there
         web = self.client()
-        self.assertEqual(web.get("/library/user", headers=basic(*ADMIN)).status_int, 200)
-        self.assertEqual(web.get("/library/manage", headers=basic(*ADMIN)).status_int, 200)
+        self.assertEqual(
+            web.get("/library/user", headers=basic(*ADMIN)).status_int, 200
+        )
+        self.assertEqual(
+            web.get("/library/manage", headers=basic(*ADMIN)).status_int, 200
+        )
 
-    def test_the_content_type_works_in_the_web_application_without_a_line_of_code_for_it(self):
-        self.application.create_repository("library", admin=ADMIN, content_types=[self.widget])
+    def test_the_content_type_works_in_the_web_application_without_a_line_of_code_for_it(  # noqa: E501
+        self,
+    ):
+        self.application.create_repository(
+            "library", admin=ADMIN, content_types=[self.widget]
+        )
         web = self.client(make_config({**self.settings, "gracia.types": self.package}))
         admin = basic(*ADMIN)
         self.assertEqual(web.get("/library/widget").status_int, 200)  # public to read
@@ -335,11 +398,17 @@ class RepositoryTest(WebCase):
         again = web.get("/library/widget/add", headers=admin).forms[0]
         content_label(again).value = "Second"
         self.assertTrue(
-            again.submit("save", headers=admin).location.endswith("/widget/2/edit?saved=1")
+            again.submit("save", headers=admin).location.endswith(
+                "/widget/2/edit?saved=1"
+            )
         )
-        body = web.get("/library/widget/2", headers={**admin, "Accept": "application/json"}).json
+        body = web.get(
+            "/library/widget/2", headers={**admin, "Accept": "application/json"}
+        ).json
         self.assertEqual(body["resource"][EX + "label"], ["Second"])
-        self.assertEqual(web.get("/library/widget", headers=admin).json["records"], [1, 2])
+        self.assertEqual(
+            web.get("/library/widget", headers=admin).json["records"], [1, 2]
+        )
 
 
 class CounterTest(WebCase):
@@ -368,9 +437,16 @@ class CounterTest(WebCase):
         with self.application.open_repository("library") as store:
             self.put(store, "rec:gizmo:50")
             self.put(store, "rec:gizmo:20")  # lower: the counter stays
-            for subject in ("urn:x:1", "rec:gizmo:0", "rec:repository:other", "rec:gizmo:abc"):
+            for subject in (
+                "urn:x:1",
+                "rec:gizmo:0",
+                "rec:repository:other",
+                "rec:gizmo:abc",
+            ):
                 with self.subTest(subject=subject), self.assertRaises(ValueError):
-                    self.put(store, subject)  # not a record: refused, the counter is not moved
+                    self.put(
+                        store, subject
+                    )  # not a record: refused, the counter is not moved
             self.assertEqual(store.mint_id("gizmo"), 51)
 
     def test_the_counter_moves_inside_the_transaction_of_the_write(self):
@@ -379,7 +455,13 @@ class CounterTest(WebCase):
             before = store.mint_id("gizmo")
             with self.assertRaises(ValueError):  # an orphan blank node: put refuses it
                 store.put(
-                    ox.Dataset([ox.Quad(ox.BlankNode(), ox.NamedNode("urn:p"), ox.Literal("x"))])
+                    ox.Dataset(
+                        [
+                            ox.Quad(
+                                ox.BlankNode(), ox.NamedNode("urn:p"), ox.Literal("x")
+                            )
+                        ]
+                    )
                 )
             self.assertEqual(store.mint_id("gizmo"), before + 1)
 
@@ -395,12 +477,15 @@ class CounterTest(WebCase):
         form = web.get("/library/widget/add", headers=basic(*ADMIN)).forms[0]
         content_label(form).value = "After the import"
         self.assertTrue(
-            form.submit("save", headers=basic(*ADMIN)).location.endswith("/widget/31/edit?saved=1")
+            form.submit("save", headers=basic(*ADMIN)).location.endswith(
+                "/widget/31/edit?saved=1"
+            )
         )
 
 
 class CommandsTest(DbTestCase):
-    """The commands build their own copy of the registry, as the web application does."""
+    """The commands build their own copy of the registry, as the web application
+    does."""
 
     def setUp(self):
         super().setUp()
@@ -422,7 +507,13 @@ class CommandsTest(DbTestCase):
         password.write_text("sekretsekret\n")
         password.chmod(0o600)
         return self.run_cli(
-            "repo", "create", *ids, "--admin", "admin", "--admin-password-file", str(password)
+            "repo",
+            "create",
+            *ids,
+            "--admin",
+            "admin",
+            "--admin-password-file",
+            str(password),
         )
 
     def test_available_lists_what_there_is_and_the_listed_packages(self):
@@ -436,7 +527,9 @@ class CommandsTest(DbTestCase):
         )  # the system types are not offered
 
     def test_a_new_repository_gets_the_content_types_the_config_names(self):
-        self.config(**{"gracia.types": self.package, "gracia.content_types": "person widget"})
+        self.config(
+            **{"gracia.types": self.package, "gracia.content_types": "person widget"}
+        )
         self.assertEqual(self.create("library")[0], 0)
         out = self.run_cli("-r", "library", "types", "list")[1]
         self.assertEqual(
@@ -449,7 +542,8 @@ class CommandsTest(DbTestCase):
         self.create("library")
         out = self.run_cli("-r", "library", "types", "list")[1]
         self.assertEqual(
-            [line.split()[0] for line in out.splitlines()], ["repository", "type", "user", "group"]
+            [line.split()[0] for line in out.splitlines()],
+            ["repository", "type", "user", "group"],
         )
 
     def test_a_name_in_the_config_that_is_no_content_type_is_a_clear_error(self):
@@ -459,10 +553,14 @@ class CommandsTest(DbTestCase):
         self.assertIn("no content type 'nothing'", err)
         self.assertEqual(self.run_cli("repo", "list")[1], "")  # nothing was made
 
-    def test_add_puts_a_content_type_in_a_repository_that_exists_and_says_when_it_is_there(self):
+    def test_add_puts_a_content_type_in_a_repository_that_exists_and_says_when_it_is_there(  # noqa: E501
+        self,
+    ):
         self.config(**{"gracia.types": self.package})
         self.create("library")
-        code, out, err = self.run_cli("-r", "library", "types", "add", "person", "widget")
+        code, out, err = self.run_cli(
+            "-r", "library", "types", "add", "person", "widget"
+        )
         self.assertEqual(code, 0, err)
         self.assertIn("person: added as rec:type:5", out)
         self.assertIn("widget: added as rec:type:6", out)
@@ -474,7 +572,9 @@ class CommandsTest(DbTestCase):
     def test_add_by_the_dotted_name_of_the_package(self):
         self.config()
         self.create("library")
-        code, out, _ = self.run_cli("-r", "library", "types", "add", "gracia.types.person")
+        code, out, _ = self.run_cli(
+            "-r", "library", "types", "add", "gracia.types.person"
+        )
         self.assertEqual(code, 0)
         self.assertIn("person: added", out)
 

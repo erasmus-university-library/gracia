@@ -1,5 +1,6 @@
 import colander
 import deform
+import deform.widget
 
 from gracia import uri
 from gracia.extensions import Extension, extension
@@ -24,10 +25,16 @@ class PrefixItem(colander.MappingSchema):
     prefix = colander.SchemaNode(
         colander.String(),
         title="Prefix",
-        widget=deform.widget.TextInputWidget(attributes={"placeholder": "prefix", "size": 10}),
+        widget=deform.widget.TextInputWidget(
+            attributes={"placeholder": "prefix", "size": 10}
+        ),
         validator=colander.All(
-            colander.Regex(r"^[A-Za-z_][A-Za-z0-9_.-]*$", msg="Letters, digits, _ . - only"),
-            colander.Function(lambda p: not p.lower().startswith("xml"), "xml… is reserved"),
+            colander.Regex(
+                r"^[A-Za-z_][A-Za-z0-9_.-]*$", msg="Letters, digits, _ . - only"
+            ),
+            colander.Function(
+                lambda p: not p.lower().startswith("xml"), "xml… is reserved"
+            ),
         ),
     )
     namespace = colander.SchemaNode(

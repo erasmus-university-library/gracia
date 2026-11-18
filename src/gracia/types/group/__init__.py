@@ -1,5 +1,3 @@
-"""User groups: changing groups changes who may do what, so it needs `manage`."""
-
 from gracia import uri
 from gracia.resources import Record
 

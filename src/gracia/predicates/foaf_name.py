@@ -9,14 +9,16 @@ GIVEN, FAMILY = FOAF + "givenName", FOAF + "familyName"
 
 @predicate(FOAF + "name")
 class FoafNamePredicate(Predicate):
-    """`foaf:name`: the name as it is shown. A name is there, or the two parts it is made of: when
-    it is empty and the given name and the family name are both there it is made of them (the
-    given name, a space, the family name), and a name that is there is kept as it is.
+    """`foaf:name`: the name as it is shown. A name is there, or the two parts it is
+    made of: when it is empty and the given name and the family name are both there it
+    is made of them (the given name, a space, the family name), and a name that is there
+    is kept as it is.
 
-    The shapes of a person say it with `sh:or` (a name, or both parts): SHACL checks it where
-    records are checked, and `sibling_validator` is the same rule for the form, where a field of
-    the name cannot be required (it may be empty) and the shape's `sh:or` is not a field's. The
-    SQL looks at the node (the blank node of the content) that has the parts."""
+    The shapes of a person say it with `sh:or` (a name, or both parts): SHACL checks it
+    where records are checked, and `sibling_validator` is the same rule for the form,
+    where a field of the name cannot be required (it may be empty) and the shape's
+    `sh:or` is not a field's. The SQL looks at the node (the blank node of the content)
+    that has the parts."""
 
     def sibling_validator(self, nodes):
         by_property = {getattr(node, "predicate", None): node for node in nodes}
@@ -26,8 +28,12 @@ class FoafNamePredicate(Predicate):
         has_parts = GIVEN in by_property and FAMILY in by_property
 
         def validate(mapping, value):
-            filled = lambda node: bool((value.get(node.name) or "").strip())  # noqa: E731
-            if filled(name) or (has_parts and filled(by_property[GIVEN]) and filled(by_property[FAMILY])):
+            def filled(node):
+                return bool((value.get(node.name) or "").strip())
+
+            if filled(name) or (
+                has_parts and filled(by_property[GIVEN]) and filled(by_property[FAMILY])
+            ):
                 return
             error = colander.Invalid(mapping)
             error[name.name] = (
@@ -47,9 +53,11 @@ class FoafNamePredicate(Predicate):
                 SELECT s, loc, {name}, NULL, full_name, NULL, NULL FROM (
                     SELECT s, loc,
                            concat_ws(' ', max(lit) FILTER (WHERE p = {given}),
-                                          max(lit) FILTER (WHERE p = {family})) AS full_name
+                                          max(lit) FILTER (WHERE p = {family})) AS
+                                            full_name
                     FROM {flat}
-                    WHERE {context.of_type} AND p IN ({given}, {family}) AND lit IS NOT NULL
+                    WHERE {context.of_type} AND p IN ({given}, {family}) AND lit IS NOT
+                      NULL
                     GROUP BY s, loc HAVING count(DISTINCT p) = 2
                 ) n
                 WHERE NOT EXISTS (SELECT 1 FROM {flat} f

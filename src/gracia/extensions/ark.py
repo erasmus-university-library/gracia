@@ -16,8 +16,10 @@ class ArkSettings(colander.MappingSchema):
         colander.String(),
         title="Authority number",
         description=(
-            "The authority number of the ARKs of this repository (fixed for now). 99999 is for "
-            "tests: the ARKs are not persistent until it is a number you have registered."
+            "The authority number of the ARKs of this repository (fixed for now). "
+            "99999 is for "
+            "tests: the ARKs are not persistent until it is a number you have "
+            "registered."
         ),
         default=uri.DEFAULT_NAAN,
         missing=uri.DEFAULT_NAAN,
@@ -42,7 +44,8 @@ class ArkSettings(colander.MappingSchema):
 class ArkExtension(Extension):
     title = "ARK"
     description = (
-        "Persistent identifiers for the resources, ark:/<authority>/<prefix>/<type>/<number>, "
+        "Persistent identifiers for the resources, "
+        "ark:/<authority>/<prefix>/<type>/<number>, "
         "and a resolver at /<repository>/ark:/…. Always on."
     )
     settings_schema = ArkSettings
@@ -57,12 +60,16 @@ class ArkExtension(Extension):
 
 
 @view_config(
-    context=Repository, name="ark:", enabled_extension="ark", request_method=("GET", "HEAD")
+    context=Repository,
+    name="ark:",
+    enabled_extension="ark",
+    request_method=("GET", "HEAD"),
 )
 def resolve_ark(request):
-    """`/<repo>/ark:/99999/ir/person/34` goes to the record whose resource it names. An ARK in the
-    form the repository makes is read as it is; any other (the `gracia:resource_uri` of a record
-    that says its own) is looked up. A record the caller may not see is not found."""
+    """`/<repo>/ark:/99999/ir/person/34` goes to the record whose resource it names. An
+    ARK in the form the repository makes is read as it is; any other (the
+    `gracia:resource_uri` of a record that says its own) is looked up. A record the
+    caller may not see is not found."""
     repository = request.context
     settings = repository.extension("ark").settings
     parts = tuple(request.subpath)

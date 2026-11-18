@@ -1,18 +1,3 @@
-"""What the shapes say about a property besides how to validate it.
-
-A property shape can carry, next to `sh:path`, two kinds of hint that SHACL ignores:
-
-* a role, `dash:propertyRole` with `dash:LabelRole`, `dash:KeyInfoRole` or `dash:DescriptionRole`
-  (the DASH vocabulary, http://datashapes.org/dash): the values of the properties that have the
-  role make the label of a record (in the order of `sh:order`), its `identifiers`, and its
-  `text`;
-* `dash:uniqueValueForClass <class>`: only one record of the class may have a given value of
-  this property (a userid). The database enforces it (`unique_values`).
-
-`roles(shapes, shape, class_uri)` reads them from the shape of a type's records (the record shape
-with the shape of the content embedded), including what is below `sh:node`.
-"""
-
 import pyoxigraph as ox
 
 from gracia import forms
@@ -40,8 +25,9 @@ def paths(shapes: Graph, shape) -> set[str]:
 
 
 def names(shapes: Graph, shape) -> dict[str, str]:
-    """What a person calls every property `shape` describes (`sh:name`), by property uri, the ones
-    below `sh:node` too; a property that has no name is called by the last part of its uri."""
+    """What a person calls every property `shape` describes (`sh:name`), by property
+    uri, the ones below `sh:node` too; a property that has no name is called by the last
+    part of its uri."""
     found: dict[str, str] = {}
 
     def walk(node) -> None:
@@ -56,10 +42,13 @@ def names(shapes: Graph, shape) -> dict[str, str]:
     return found
 
 
-def roles(shapes: Graph, shape, class_uri: str | None = None) -> list[tuple[str, str, int]]:
-    """The hints of the properties of `shape`, the ones below it too, as (role, property uri,
-    place): the outer properties first, each level in `sh:order`; `place` counts them. `role` is
-    `label`, `key_info`, `description` or, for `dash:uniqueValueForClass <class_uri>`, `unique`."""
+def roles(
+    shapes: Graph, shape, class_uri: str | None = None
+) -> list[tuple[str, str, int]]:
+    """The hints of the properties of `shape`, the ones below it too, as (role, property
+    uri, place): the outer properties first, each level in `sh:order`; `place` counts
+    them. `role` is `label`, `key_info`, `description` or, for `dash:uniqueValueForClass
+    <class_uri>`, `unique`."""
     found: list[tuple[str, str, int]] = []
 
     def walk(node) -> None:

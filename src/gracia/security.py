@@ -1,10 +1,3 @@
-"""Security policies for the web application.
-
-`UsersPolicy` is the policy of the application: the users and groups of each repository, logged
-in with HTTP Basic. Another policy replaces it through the `gracia.security_policy` setting (or
-`config.set_security_policy`).
-"""
-
 import base64
 import binascii
 
@@ -17,18 +10,18 @@ from gracia.resources import Repository
 class UsersPolicy:
     """Logging in with HTTP Basic against the users of the repository a request reaches.
 
-    A user is a record of type User; its `gracia:memberOf` lists the resource uris of group records, and the name of a
-    group is its principal: members of `admin` are `group:admin`, which the ACLs already know.
-    Users of one repository mean nothing in another. Use it over TLS or on localhost only.
-    Browsers show their own login box when the forbidden view answers 401 with
-    `WWW-Authenticate` (`challenge`).
-    """
+    A user is a record of type User; its `gracia:memberOf` lists the resource uris of
+    group records, and the name of a group is its principal: members of `admin` are
+    `group:admin`, which the ACLs already know. Users of one repository mean nothing in
+    another. Use it over TLS or on localhost only. Browsers show their own login box
+    when the forbidden view answers 401 with `WWW-Authenticate` (`challenge`)."""
 
     challenge = True
 
     def _login(self, request, context):
-        """(userid, group names) of the caller in the repository of `context`, or None. Checked
-        once per request and repository: a password check is meant to be slow."""
+        """(userid, group names) of the caller in the repository of `context`, or None.
+        Checked once per request and repository: a password check is meant to be
+        slow."""
         header = request.headers.get("Authorization", "")
         scheme, _, value = header.partition(" ")
         if scheme.lower() != "basic":
@@ -37,7 +30,9 @@ class UsersPolicy:
             userid, _, password = base64.b64decode(value).decode("utf-8").partition(":")
         except (binascii.Error, UnicodeDecodeError):
             return None
-        repository = next((n for n in lineage(context) if isinstance(n, Repository)), None)
+        repository = next(
+            (n for n in lineage(context) if isinstance(n, Repository)), None
+        )
         cache = request.environ.setdefault("gracia.login", {})
         key = repository.__name__ if repository else None
         if key not in cache:
@@ -59,7 +54,11 @@ class UsersPolicy:
         login = self._login(request, context)
         if login:
             userid, groups = login
-            principals |= {Authenticated, f"user:{userid}", *(f"group:{g}" for g in groups)}
+            principals |= {
+                Authenticated,
+                f"user:{userid}",
+                *(f"group:{g}" for g in groups),
+            }
         return ACLHelper().permits(context, principals, permission)
 
     def remember(self, request, userid, **kw):

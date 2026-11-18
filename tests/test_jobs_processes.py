@@ -1,6 +1,3 @@
-"""Jobs as processes: spawning, stopping, killing, reconciling and cleaning up, with real
-processes that reach the database through a Quack owner, as in production."""
-
 import contextlib
 import io
 import os
@@ -48,14 +45,17 @@ class ProcessCase(JobsCase):
             "gracia.stages = jobs_support\n"
             "gracia.jobs_workers = 3\n"
         )
-        # a run in this process forks workers too: they reach the database through the owner
+        # a run in this process forks workers too: they reach the database through the
+        # owner
         self.settings = {
             "gracia.db": self.uri,
             "gracia.db.token": self.token,
             "gracia.stages": "jobs_support",
             "gracia.jobs_workers": "3",
         }
-        self.hold = self.tmp / "hold"  # a batch that is given this file waits until it is gone
+        self.hold = (
+            self.tmp / "hold"
+        )  # a batch that is given this file waits until it is gone
         self.marker = self.tmp / "started"
         patcher = mock.patch.dict(os.environ, {"PYTHONPATH": TESTS})
         patcher.start()
@@ -67,15 +67,18 @@ class ProcessCase(JobsCase):
     def kill_everything(self):
         with JobsDb(self.application) as db:
             for job in db.list_jobs():
-                # the group, whether or not its leader is still there (never the one pytest is in:
-                # a test may record pytest's own pid, which leads a group when run from a shell)
+                # the group, whether or not its leader is still there (never the one
+                # pytest is in:
+                # a test may record pytest's own pid, which leads a group when run from
+                # a shell)
                 if job["pid"] and job["pid"] != os.getpid():
                     with contextlib.suppress(ProcessLookupError):
                         os.killpg(job["pid"], signal.SIGKILL)
         procs.reap_children()
 
     def held(self, **params) -> dict:
-        """A stage whose batches wait for as long as `self.hold` exists, and say when they start."""
+        """A stage whose batches wait for as long as `self.hold` exists, and say when
+        they start."""
         self.hold.write_text("")
         return echo(hold=str(self.hold), marker=str(self.marker), **params)
 
@@ -129,7 +132,9 @@ class SpawnTest(ProcessCase):
         self.assertEqual(job["pid"], pid)
         self.assertEqual(len(self.lines(job_id, "01-Mark/batch-00001.jsonl")), 2)
         self.assertEqual(self.stage(job_id, "Mark")["processed"], 6)
-        self.wait_gone(pid, job["pid_started"])  # it ends just after it has said it is done
+        self.wait_gone(
+            pid, job["pid_started"]
+        )  # it ends just after it has said it is done
 
     def test_the_batches_run_in_worker_processes_of_the_job(self):
         job_id = self.make(echo(n_items=8, size=1, marker=str(self.marker), sleep=0.2))
@@ -137,10 +142,14 @@ class SpawnTest(ProcessCase):
         self.wait_for(job_id, ("done", "failed"))
         logged = (self.jobs_dir / job_id / "luigi.log").read_text()
         pids = {line.split()[2] for line in logged.splitlines() if line[:2] == "20"}
-        self.assertGreater(len(pids), 1)  # the job process and its workers write one log
+        self.assertGreater(
+            len(pids), 1
+        )  # the job process and its workers write one log
         self.assertEqual(sorted(self.started()), [str(n) for n in range(8)])
 
-    def test_a_started_job_leads_its_own_session_reports_progress_and_cannot_be_started_twice(self):
+    def test_a_started_job_leads_its_own_session_reports_progress_and_cannot_be_started_twice(  # noqa: E501
+        self,
+    ):
         job_id = self.make(self.held(n_items=4, size=1))
         pid = self.start(job_id)
         self.wait_started()
@@ -148,15 +157,22 @@ class SpawnTest(ProcessCase):
         self.assertNotEqual(os.getsid(pid), os.getsid(0))
         with self.assertRaises(procs.JobStateError):
             self.start(job_id)  # it is running
-        job = self.wait_for(job_id, ("running",), until=lambda j: j["progress"] is not None)
+        job = self.wait_for(
+            job_id, ("running",), until=lambda j: j["progress"] is not None
+        )
         stage = job["progress"]["stages"][0]
         self.assertEqual(
-            (stage["name"], stage["state"], stage["batches"]["total"]), ("Echo", "running", 4)
+            (stage["name"], stage["state"], stage["batches"]["total"]),
+            ("Echo", "running", 4),
         )
-        self.assertGreater(stage["batches"]["running"], 0)  # the scheduler says what runs now
+        self.assertGreater(
+            stage["batches"]["running"], 0
+        )  # the scheduler says what runs now
         self.assertIsNotNone(job["heartbeat_at"])
         self.hold.unlink()
-        self.assertEqual(self.wait_for(job_id, ("done",))["progress"]["stages"][0]["state"], "done")
+        self.assertEqual(
+            self.wait_for(job_id, ("done",))["progress"]["stages"][0]["state"], "done"
+        )
         with self.assertRaises(procs.JobStateError):
             self.start(job_id)  # done
 
@@ -195,16 +211,23 @@ class StopTest(ProcessCase):
         self.wait_started()
         started = time.monotonic()
         self.assertEqual(self.stop(job_id, grace=20), "stopped")
-        self.assertLess(time.monotonic() - started, 10)  # the grace period was not used up
+        self.assertLess(
+            time.monotonic() - started, 10
+        )  # the grace period was not used up
         job = self.job(job_id)
         self.assertEqual(job["state"], "stopped")
-        self.assertEqual(json_state(self.jobs_dir / job_id), "stopped")  # it said so itself
+        self.assertEqual(
+            json_state(self.jobs_dir / job_id), "stopped"
+        )  # it said so itself
         procs.reap_children()
         self.assertFalse(procs.is_alive(job["pid"], job["pid_started"]))
         self.assertLess(len(self.started()), 40)  # it did not go on to the end
 
-    def test_a_job_that_does_not_stop_in_time_is_killed_with_the_workers_it_forked(self):
-        """The process leads a group; a stop signals the group, so the workers it forked go too."""
+    def test_a_job_that_does_not_stop_in_time_is_killed_with_the_workers_it_forked(
+        self,
+    ):
+        """The process leads a group; a stop signals the group, so the workers it forked
+        go too."""
         job_id = self.running(n_items=3, size=1)  # batches that never end
         pid = self.job(job_id)["pid"]
         self.assertEqual(os.getpgid(pid), pid)
@@ -214,7 +237,9 @@ class StopTest(ProcessCase):
         job = self.job(job_id)
         self.assertEqual(job["state"], "stopped")
         deadline = time.monotonic() + 10
-        while time.monotonic() < deadline:  # a killed process is a zombie until it is reaped
+        while (
+            time.monotonic() < deadline
+        ):  # a killed process is a zombie until it is reaped
             procs.reap_children()
             try:
                 os.killpg(pid, 0)
@@ -226,7 +251,9 @@ class StopTest(ProcessCase):
 
     def test_stopping_what_is_not_running(self):
         queued = self.make(ECHO)
-        self.assertEqual(self.stop(queued), "stopped")  # a queued job is just set to stopped
+        self.assertEqual(
+            self.stop(queued), "stopped"
+        )  # a queued job is just set to stopped
         self.assertEqual(self.job(queued)["state"], "stopped")
         self.assertEqual(self.stop(queued), "already")
         done = self.make(ECHO)
@@ -267,11 +294,14 @@ class StopTest(ProcessCase):
         job_id = self.make(ECHO)
         with JobsDb(self.application) as db:
             db.update_job(
-                job_id, {"state": "running", "pid": 123, "pid_started": 1, "host": "elsewhere"}
+                job_id,
+                {"state": "running", "pid": 123, "pid_started": 1, "host": "elsewhere"},
             )
             with self.assertRaises(RuntimeError):
                 procs.stop_job(db, job_id)
-            self.assertEqual(db.get(job_id)["state"], "stopping")  # honest: it was being stopped
+            self.assertEqual(
+                db.get(job_id)["state"], "stopping"
+            )  # honest: it was being stopped
 
 
 def json_state(job_dir: Path) -> str | None:
@@ -346,8 +376,12 @@ class ReconcileTest(ProcessCase):
                 },
             )
             with mock.patch.object(procs, "SPAWN_SETTLE", 60.0):
-                self.assertEqual(procs.reconcile(db, self.jobs_dir), [])  # young: not judged yet
-            self.assertEqual(procs.reconcile(db, self.jobs_dir), [young])  # now it is old enough
+                self.assertEqual(
+                    procs.reconcile(db, self.jobs_dir), []
+                )  # young: not judged yet
+            self.assertEqual(
+                procs.reconcile(db, self.jobs_dir), [young]
+            )  # now it is old enough
             self.assertEqual(db.get(live)["state"], "running")
             self.assertEqual(
                 db.get(elsewhere)["state"], "running"
@@ -360,7 +394,9 @@ class ReconcileTest(ProcessCase):
         started = procs.start_time(pid)
         os.kill(pid, signal.SIGKILL)
         time.sleep(0.3)
-        self.assertFalse(procs.is_alive(pid, started))  # a zombie, until it is collected
+        self.assertFalse(
+            procs.is_alive(pid, started)
+        )  # a zombie, until it is collected
         procs.reap_children()
 
 
@@ -371,7 +407,8 @@ class CleanTest(ProcessCase):
         (self.jobs_dir / job_id / "job.log").write_text("x" * 2048)
         with JobsDb(self.application) as db:
             db.update_job(
-                job_id, {"state": state, "finished_at": naive_utc(timedelta(hours=-hours_ago))}
+                job_id,
+                {"state": state, "finished_at": naive_utc(timedelta(hours=-hours_ago))},
             )
         return job_id
 
@@ -382,7 +419,11 @@ class CleanTest(ProcessCase):
             )
 
     def test_old_finished_jobs_go_with_their_directories_and_the_rest_stays(self):
-        old, older, recent = self.finished(9), self.finished(30, "failed"), self.finished(2)
+        old, older, recent = (
+            self.finished(9),
+            self.finished(30, "failed"),
+            self.finished(2),
+        )
         running = self.make(ECHO)
         (self.jobs_dir / running).mkdir(parents=True)
         report = self.clean()
@@ -398,7 +439,10 @@ class CleanTest(ProcessCase):
     def test_a_running_job_is_never_cleaned_however_old(self):
         job_id = self.make(ECHO)
         with JobsDb(self.application) as db:
-            db.update_job(job_id, {"state": "running", "finished_at": naive_utc(timedelta(days=9))})
+            db.update_job(
+                job_id,
+                {"state": "running", "finished_at": naive_utc(timedelta(days=9))},
+            )
         self.assertEqual(self.clean().jobs, [])
 
     def test_a_dry_run_only_reports(self):
@@ -501,16 +545,21 @@ class CommandsTest(ProcessCase):
         self.assertEqual(out, "")
         self.assertIn("stages.0.stage", err)
         self.assertIn("stages.1.params", err)
-        self.assertEqual(self.cli("jobs", "list", "--json")[1].strip(), "[]")  # nothing was made
+        self.assertEqual(
+            self.cli("jobs", "list", "--json")[1].strip(), "[]"
+        )  # nothing was made
 
     def test_a_repository_that_does_not_exist_is_refused(self):
-        code, _, err = self.cli("jobs", "validate", "--repo", "nowhere", "--type", "person")
+        code, _, err = self.cli(
+            "jobs", "validate", "--repo", "nowhere", "--type", "person"
+        )
         self.assertEqual(code, 1)
         self.assertIn("no such repository: nowhere", err)
 
     def test_create_takes_a_job_from_stdin(self):
         with mock.patch(
-            "sys.stdin", io.StringIO('{"repo": "library", "stages": [{"stage": "Echo"}]}')
+            "sys.stdin",
+            io.StringIO('{"repo": "library", "stages": [{"stage": "Echo"}]}'),
         ):
             code, out, err = self.cli("jobs", "create", "-", "--no-start")
         self.assertEqual(code, 0, err)

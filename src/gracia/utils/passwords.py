@@ -1,10 +1,3 @@
-"""Password hashing: salted scrypt from the standard library, stored as one string.
-
-    scrypt$<N>$<r>$<p>$<salt, base64>$<hash, base64>
-
-The parameters are part of the string, so they can be raised later and old hashes still verify.
-"""
-
 import base64
 import hashlib
 import hmac
@@ -42,8 +35,8 @@ _DUMMY = None
 
 
 def verify_nothing(password: str) -> bool:
-    """Spend the time of a verification when there is no hash to check, so that an unknown user
-    takes as long to refuse as a wrong password does."""
+    """Spend the time of a verification when there is no hash to check, so that an
+    unknown user takes as long to refuse as a wrong password does."""
     global _DUMMY
     if _DUMMY is None:
         _DUMMY = hash_password("not a password")

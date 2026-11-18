@@ -1,5 +1,3 @@
-"""rdfxml-to-html.xsl and the `transform` command."""
-
 import io
 import sys
 from html.parser import HTMLParser
@@ -42,20 +40,27 @@ def html_for(path, **params: str) -> str:
 class BundledFilesTest(DbTestCase):
     def test_every_stylesheet_the_code_names_exists(self):
         names = set(xslt.bundled_names())
-        for filename in (xslt.NESTED, *(s for sheets in xslt.FORMATS.values() for s in sheets)):
+        for filename in (
+            xslt.NESTED,
+            *(s for sheets in xslt.FORMATS.values() for s in sheets),
+        ):
             self.assertIn(filename, names)
 
 
 class HtmlTableTest(DbTestCase):
     def test_page_for_a_database(self):
         self.load(DATA / "01_simple.ttl")
-        code, out, err = self.gracia("export", "-f", "html-table", "-p", "ex=http://example.org/")
+        code, out, err = self.gracia(
+            "export", "-f", "html-table", "-p", "ex=http://example.org/"
+        )
         self.assertEqual(code, 0, err)
         page = Page(out)
         self.assertTrue(out.lower().startswith("<!doctype html>"))
         self.assertEqual(page.tags.count("section"), 2)  # alice and book1
         self.assertIn("rec:book:1", page.links)
-        self.assertIn("ex:Book", page.text)  # type, as prefixed name from the --prefix option
+        self.assertIn(
+            "ex:Book", page.text
+        )  # type, as prefixed name from the --prefix option
         self.assertIn("dcterms:title", page.text)
         self.assertIn("@fr", page.text)  # language note
         self.assertIn("^^integer", page.text)  # datatype note
@@ -65,12 +70,15 @@ class HtmlTableTest(DbTestCase):
         _, out, _ = self.gracia("export", "-f", "html-table", "-u", "rec:doc:1")
         page = Page(out)
         self.assertEqual(page.tags.count("section"), 1)
-        self.assertGreater(page.tags.count("table"), 3)  # doc1, the part bnode, order items
+        self.assertGreater(
+            page.tags.count("table"), 3
+        )  # doc1, the part bnode, order items
         self.assertEqual(page.tags.count("ol"), 1)  # ex:order ( [..] [..] )
         self.assertEqual(page.tags.count("li"), 2)
 
     def test_shared_blank_node_links_to_its_section(self):
-        """Raw json-triples with a bnode used twice: written once, linked from both uses."""
+        """Raw json-triples with a bnode used twice: written once, linked from both
+        uses."""
         html = html_for(DATA / "04_complex.ttl")
         page = Page(html)
         targets = [link for link in page.links if link.startswith("#b-")]
@@ -88,7 +96,9 @@ class HtmlTableTest(DbTestCase):
         self.assertIn("<title>My &lt;data&gt;</title>", page)
 
     def test_empty_database(self):
-        self.gracia("import", str(self.write("empty.ttl", "")))  # creates an empty database
+        self.gracia(
+            "import", str(self.write("empty.ttl", ""))
+        )  # creates an empty database
         code, out, err = self.gracia("export", "-f", "html-table")
         self.assertEqual(code, 0, err)
         self.assertIn("0 resource(s)", out)
@@ -125,7 +135,10 @@ class TransformCommandTest(DbTestCase):
         source.write_text("<a/>", encoding="utf-8")
         for args, needle in [
             (["transform", str(self.tmp / "nope.xsl"), str(source)], "nope.xsl"),
-            (["transform", "rdfxml-to-html.xsl", str(self.tmp / "missing.xml")], "missing.xml"),
+            (
+                ["transform", "rdfxml-to-html.xsl", str(self.tmp / "missing.xml")],
+                "missing.xml",
+            ),
             (["transform", "rdfxml-to-html.xsl", "--param", "oops"], "NAME=VALUE"),
         ]:
             with self.subTest(args=args[1:]):

@@ -1,5 +1,3 @@
-"""Who may do what: permissions named per record class, granted by the ACLs of the resources."""
-
 from unittest import mock
 
 import pyoxigraph as ox
@@ -11,7 +9,8 @@ from gracia.main import make_config
 
 
 class PrincipalsPolicy:
-    """The caller has the principals the `X-Principals` header lists (comma separated)."""
+    """The caller has the principals the `X-Principals` header lists (comma
+    separated)."""
 
     challenge = False  # a refusal is a plain 403
 
@@ -21,7 +20,10 @@ class PrincipalsPolicy:
     identity = authenticated_userid
 
     def permits(self, request, context, permission):
-        principals = {Everyone, *filter(None, request.headers.get("X-Principals", "").split(","))}
+        principals = {
+            Everyone,
+            *filter(None, request.headers.get("X-Principals", "").split(",")),
+        }
         return ACLHelper().permits(context, principals, permission)
 
     def remember(self, request, userid, **kw):
@@ -42,7 +44,9 @@ class PermissionsCase(EditCase):
 
     def can(self, path, *principals):
         response = self.client().get(path, headers=as_(*principals), expect_errors=True)
-        self.assertIn(response.status_int, (200, 403, 404), path)  # 404: not there for them
+        self.assertIn(
+            response.status_int, (200, 403, 404), path
+        )  # 404: not there for them
         return response.status_int == 200
 
 
@@ -78,7 +82,8 @@ class EditorsTest(PermissionsCase):
 
 
 class SpecialPermissionsTest(PermissionsCase):
-    """`super_edit` is for users, `manage` for groups, and both can be granted on their own."""
+    """`super_edit` is for users, `manage` for groups, and both can be granted on their
+    own."""
 
     def acls(self, **extra):
         acls = dict(resources.TYPE_ACLS)
@@ -95,11 +100,14 @@ class SpecialPermissionsTest(PermissionsCase):
             self.assertTrue(self.can("/library/user/1/edit", "group:useradmin"))
             self.assertTrue(self.can("/library/user/add", "group:useradmin"))
             self.assertFalse(self.can("/library/group/1/edit", "group:useradmin"))
-            self.assertFalse(self.can("/library/person/1/edit", "group:useradmin"))  # not `edit`
+            self.assertFalse(
+                self.can("/library/person/1/edit", "group:useradmin")
+            )  # not `edit`
             self.assertFalse(self.can("/library/manage", "group:useradmin"))
 
     def test_edit_is_not_enough_for_users(self):
-        # even where an ACL gives editors everything on the users' type, the edit view of a
+        # even where an ACL gives editors everything on the users' type, the edit view
+        # of a
         # user asks for super_edit, which `edit` does not include
         grant = [
             (Allow, "group:editor", ["view", "edit", "add"]),
@@ -108,7 +116,9 @@ class SpecialPermissionsTest(PermissionsCase):
         with self.acls(USER_CLASS=grant):
             self.assertFalse(self.can("/library/user/1/edit", "group:editor"))
             self.assertFalse(self.can("/library/user/add", "group:editor"))
-            self.assertTrue(self.can("/library/user/1", "group:editor"))  # reading is `view`
+            self.assertTrue(
+                self.can("/library/user/1", "group:editor")
+            )  # reading is `view`
 
     def test_manage_alone_opens_the_groups(self):
         grant = [
@@ -127,13 +137,15 @@ class SpecialPermissionsTest(PermissionsCase):
         config = make_config(self.settings)
         config.add_record_class("http://xmlns.com/foaf/0.1/Person", Person)
         web = self.client(config)
-        # `edit` no longer opens it: the class asks for edit_people, which nobody has yet
+        # `edit` no longer opens it: the class asks for edit_people, which nobody has
+        # yet
         response = web.get(
             "/library/person/1/edit", headers=as_("group:editor"), expect_errors=True
         )
         self.assertEqual(response.status_int, 403)
         self.assertEqual(
-            web.get("/library/person/1/edit", headers=as_("group:admin")).status_int, 200
+            web.get("/library/person/1/edit", headers=as_("group:admin")).status_int,
+            200,
         )
         # adding is still `add`
         self.assertEqual(
@@ -159,17 +171,24 @@ class NeverPublicTest(PermissionsCase):
             self.assertFalse(self.can(path), path)
             self.assertFalse(self.can(path, "group:editor"), path)
             self.assertTrue(self.can(path, "group:admin"), path)
-        self.assertTrue(self.can("/library/type/2"))  # Type itself and other types stay public
+        self.assertTrue(
+            self.can("/library/type/2")
+        )  # Type itself and other types stay public
         self.assertTrue(self.can("/library/type/5"))
 
     def test_the_type_list_does_not_name_them_to_the_public(self):
         public = self.client().get("/library/type", headers=as_()).json["records"]
         self.assertEqual(public, [2, 5])  # Type itself and Person
-        admin = self.client().get("/library/type", headers=as_("group:admin")).json["records"]
+        admin = (
+            self.client()
+            .get("/library/type", headers=as_("group:admin"))
+            .json["records"]
+        )
         self.assertEqual(admin, [1, 2, 3, 4, 5])
 
     def test_a_record_cannot_open_itself_up(self):
-        """Whatever a record of a private type says about itself, its own ACL stays closed."""
+        """Whatever a record of a private type says about itself, its own ACL stays
+        closed."""
         with self.application.open_repository("library") as store:
             data = store.get("rec:user:1")
             public = ox.Quad(
@@ -190,7 +209,8 @@ class NeverPublicTest(PermissionsCase):
 
 
 class ManagersTest(PermissionsCase):
-    """Managers do what editors do, and also add and change users. Groups stay with admins."""
+    """Managers do what editors do, and also add and change users. Groups stay with
+    admins."""
 
     def test_managers_edit_and_add_like_editors(self):
         for path in ("/library/person/1/edit", "/library/person/add"):
@@ -215,7 +235,8 @@ class ManagersTest(PermissionsCase):
             "/library/type/4",  # the type record that describes the groups
         ):
             self.assertFalse(self.can(path, "group:manager"), path)
-        # the type record of the users follows the ACL of the users: managers may read it
+        # the type record of the users follows the ACL of the users: managers may read
+        # it
         self.assertTrue(self.can("/library/type/3", "group:manager"))
 
     def test_editors_still_cannot_touch_users(self):
@@ -226,15 +247,22 @@ class ManagersTest(PermissionsCase):
         web = self.client()
         form = web.get("/library/user/add", headers=as_("group:manager")).forms[0]
         form["userid"], form["password"] = "made-by-manager", "long enough pw"
-        self.assertEqual(form.submit("save", headers=as_("group:manager")).status_int, 302)
+        self.assertEqual(
+            form.submit("save", headers=as_("group:manager")).status_int, 302
+        )
         self.assertEqual(self.can("/library/group/add", "group:manager"), False)
 
 
 class TheClosedNodesDoNotAnswerForUnknownThingsTest(PermissionsCase):
-    """404 for what is not there and 403 for what is would list the users to the public."""
+    """404 for what is not there and 403 for what is would list the users to the
+    public."""
 
     def status(self, path, *principals):
-        return self.client().get(path, headers=as_(*principals), expect_errors=True).status_int
+        return (
+            self.client()
+            .get(path, headers=as_(*principals), expect_errors=True)
+            .status_int
+        )
 
     def test_unknown_records_of_users_and_groups_look_like_known_ones(self):
         # (a record that exists, one that does not, what the public is told about both)

@@ -1,5 +1,3 @@
-"""The shape files of the person content type: what the full profile asks that the minimal does not."""
-
 import unittest
 
 import pyoxigraph as ox
@@ -14,12 +12,16 @@ SHAPES = "gracia.types:person/shacl/"
 
 def person(**props) -> ox.Dataset:
     """A foaf:Person with the given properties: text for a string, `<...>` for a URI."""
-    lines = ["@prefix foaf: <http://xmlns.com/foaf/0.1/> .", "<urn:p:1> a foaf:Person ;"]
+    lines = [
+        "@prefix foaf: <http://xmlns.com/foaf/0.1/> .",
+        "<urn:p:1> a foaf:Person ;",
+    ]
     for name, value in props.items():
         values = value if isinstance(value, list) else [value]
         for v in values:
             lines.append(
-                f"  foaf:{name} {v if v.startswith('<') else repr(v).replace(chr(39), chr(34))} ;"
+                f"  foaf:{name} "
+                f"{v if v.startswith('<') else repr(v).replace(chr(39), chr(34))} ;"
             )
     lines[-1] = lines[-1][:-1] + "."
     return ox.Dataset(ox.parse("\n".join(lines).encode(), format=ox.RdfFormat.TURTLE))
@@ -38,7 +40,9 @@ class ProfilesTest(unittest.TestCase):
         for profile in ("minimal", "full"):
             with self.subTest(profile=profile):
                 path = assets.resolve(f"{SHAPES}Person-{profile}-01.ttl")
-                assets.load_shape(path, f"{FOAF}Person")  # a ValueError when there is none
+                assets.load_shape(
+                    path, f"{FOAF}Person"
+                )  # a ValueError when there is none
         self.assertEqual(
             assets.schemas_of("gracia.types:person/"),
             ["Person-full-01.ttl", "Person-minimal-01.ttl"],
@@ -57,8 +61,12 @@ class ProfilesTest(unittest.TestCase):
         for profile in ("minimal", "full"):
             with self.subTest(profile=profile):
                 # the write hook of foaf:name makes the name of the two parts
-                self.assertTrue(conforms(profile, givenName="Ada", familyName="Lovelace"))
-                self.assertFalse(conforms(profile, **{**GOOD, "name": ["Ada", "Lady Ada"]}))
+                self.assertTrue(
+                    conforms(profile, givenName="Ada", familyName="Lovelace")
+                )
+                self.assertFalse(
+                    conforms(profile, **{**GOOD, "name": ["Ada", "Lady Ada"]})
+                )
                 self.assertFalse(conforms(profile, **{**GOOD, "name": ""}))
                 self.assertFalse(conforms(profile))  # nothing
         self.assertFalse(conforms("minimal", givenName="Ada"))  # one part is not a name
@@ -86,14 +94,20 @@ class ProfilesTest(unittest.TestCase):
             with self.subTest(bad=bad):
                 self.assertFalse(conforms("full", **GOOD, **bad))
 
-    def test_the_edit_form_has_the_fields_that_are_one_plain_string_in_the_order_of_the_shape(self):
+    def test_the_edit_form_has_the_fields_that_are_one_plain_string_in_the_order_of_the_shape(  # noqa: E501
+        self,
+    ):
         path = assets.resolve(f"{SHAPES}Person-full-01.ttl")
         schema = forms.schema_from_shape(*assets.load_shape(path, f"{FOAF}Person"))
         self.assertEqual(
-            [n.name for n in schema.children], ["name", "givenName", "familyName", "nick", "title"]
+            [n.name for n in schema.children],
+            ["name", "givenName", "familyName", "nick", "title"],
         )
         self.assertEqual(
-            [n.title for n in schema.children][:3], ["Name", "Given name", "Family name"]
+            [n.title for n in schema.children][:3],
+            ["Name", "Given name", "Family name"],
         )
         required = [n.name for n in schema.children if n.required]
-        self.assertEqual(required, [])  # a name, or both parts: the shape says it, not a field
+        self.assertEqual(
+            required, []
+        )  # a name, or both parts: the shape says it, not a field

@@ -1,5 +1,3 @@
-"""`xsl:import href="type:<slug>/<file>"`: a stylesheet of one type uses one of another type."""
-
 import sys
 import tempfile
 import unittest
@@ -28,7 +26,8 @@ WORK = sheet(
 
 
 class TypeImportsCase(WebCase):
-    """A repository with the types Person and Work, their files in temporary directories."""
+    """A repository with the types Person and Work, their files in temporary
+    directories."""
 
     def setUp(self):
         super().setUp()
@@ -49,11 +48,14 @@ class TypeImportsCase(WebCase):
             f"<rec:type:{10 + n}> a gracia:Record ;"
             f" gracia:resource_uri <http://example.org/{slug.title()}> ;"
             f' gracia:resource [ a gracia:Type ; gracia:name "{slug.title()}" ;'
-            f' gracia:slug "{slug}" ; gracia:class <http://example.org/{slug.title()}> ;'
+            f' gracia:slug "{slug}" ; gracia:class <http://example.org/{slug.title()}> '
+            ";"
             f' gracia:assets "{path}/" ] .\n'
             for n, (slug, path) in enumerate(dirs.items())
         )
-        listing = " ".join(f"<http://example.org/{slug.title()}>" for slug in dirs)  # the classes: the resource uris
+        listing = " ".join(
+            f"<http://example.org/{slug.title()}>" for slug in dirs
+        )  # the classes: the resource uris
         text = (
             "@prefix gracia: <https://gracia.pub/ns/> .\n"
             "@prefix dct: <http://purl.org/dc/terms/> .\n"
@@ -75,11 +77,15 @@ class ReferencesTest(unittest.TestCase):
         text = sheet(
             "",
             head=(
-                '<xsl:import href="type:person/view.xsl"/><xsl:include href="type:work/a.xsl"/>'
-                '<xsl:import href="other.xsl"/><xsl:import href="http://example.org/x.xsl"/>'
+                '<xsl:import href="type:person/view.xsl"/><xsl:include '
+                'href="type:work/a.xsl"/>'
+                '<xsl:import href="other.xsl"/><xsl:import '
+                'href="http://example.org/x.xsl"/>'
             ),
         )
-        self.assertEqual(xslt.type_references(text), ["type:person/view.xsl", "type:work/a.xsl"])
+        self.assertEqual(
+            xslt.type_references(text), ["type:person/view.xsl", "type:work/a.xsl"]
+        )
 
     def test_text_that_is_not_xml_has_no_references(self):
         self.assertEqual(xslt.type_references("<xsl:import"), [])
@@ -115,7 +121,9 @@ class ImportTest(TypeImportsCase):
 
     def test_a_relative_import_inside_a_type_still_works(self):
         (self.dirs["person"] / "name.xsl").write_text(
-            sheet('<xsl:template name="who"><xsl:text>relative</xsl:text></xsl:template>')
+            sheet(
+                '<xsl:template name="who"><xsl:text>relative</xsl:text></xsl:template>'
+            )
         )
         (self.dirs["person"] / "view.xsl").write_text(
             sheet("", head='<xsl:import href="name.xsl"/>')
@@ -123,16 +131,21 @@ class ImportTest(TypeImportsCase):
         self.assertEqual(self.run_work(), "work by relative")
 
     def test_a_repository_can_give_a_type_other_files(self):
-        """The address is the type of *this repository*: another repository whose person type
-        points elsewhere gets that stylesheet."""
+        """The address is the type of *this repository*: another repository whose person
+        type points elsewhere gets that stylesheet."""
         elsewhere = self.root / "person-archive"
         elsewhere.mkdir()
         (elsewhere / "view.xsl").write_text(
-            sheet('<xsl:template name="who"><xsl:text>archive person</xsl:text></xsl:template>')
+            sheet(
+                '<xsl:template name="who"><xsl:text>archive '
+                "person</xsl:text></xsl:template>"
+            )
         )
         self.application.create_repository("archive")
         self.add_types("archive", {"person": elsewhere, "work": self.dirs["work"]})
-        self.assertEqual(self.run_work(self.repository("archive")), "work by archive person")
+        self.assertEqual(
+            self.run_work(self.repository("archive")), "work by archive person"
+        )
         self.assertEqual(self.run_work(self.repository("library")), "work by person")
 
     def test_an_unknown_type_or_file_is_a_clear_error(self):
@@ -159,7 +172,8 @@ class ImportTest(TypeImportsCase):
 
 
 class OverrideImportTest(TypeImportsCase):
-    """A type imported by address is resolved file by file, so an override applies to it."""
+    """A type imported by address is resolved file by file, so an override applies to
+    it."""
 
     def test_an_overridden_file_is_the_one_imported_and_others_fall_through(self):
         # the type's files live in a package, so that override_asset can name them
@@ -187,7 +201,10 @@ class OverrideImportTest(TypeImportsCase):
         replacement = self.root / "replacement"
         replacement.mkdir()
         (replacement / "view.xsl").write_text(
-            sheet('<xsl:template name="who"><xsl:text>overridden</xsl:text></xsl:template>')
+            sheet(
+                "<xsl:template "
+                'name="who"><xsl:text>overridden</xsl:text></xsl:template>'
+            )
         )
         config = Configurator()
         config.override_asset("typefiles:person/", f"{replacement}/")
@@ -195,7 +212,9 @@ class OverrideImportTest(TypeImportsCase):
         repository = self.repository()
         self.assertEqual(
             xslt.transform(
-                "<a/>", self.dirs["work"] / "view.xsl", res_types=repository.resolve_type
+                "<a/>",
+                self.dirs["work"] / "view.xsl",
+                res_types=repository.resolve_type,
             ),
             "work by person",  # outside the application's registry: no overrides
         )
@@ -203,7 +222,9 @@ class OverrideImportTest(TypeImportsCase):
         try:
             self.assertEqual(
                 xslt.transform(
-                    "<a/>", self.dirs["work"] / "view.xsl", res_types=repository.resolve_type
+                    "<a/>",
+                    self.dirs["work"] / "view.xsl",
+                    res_types=repository.resolve_type,
                 ),
                 "work by overridden",
             )

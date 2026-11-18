@@ -1,18 +1,10 @@
-"""The same repository operations through a database owner process (Quack) as locally.
-
-Several web workers cannot each open the file: they all work through `gracia serve-db`. The
-remote path differs from the local one in many small ways (see `RemoteConnection` in
-gracia/store.py), so the
-operations the application depends on are exercised here against a real owner.
-"""
-
 import socket
 import threading
 import unittest
 
 import duckdb
 import pyoxigraph as ox
-from base import DbTestCase, REC, rec
+from base import REC, DbTestCase, rec
 from test_serve_db import quack_available
 
 from gracia import cli, store
@@ -56,9 +48,7 @@ class RemoteApplicationTest(DbTestCase):
         self.assertFalse(self.app.create_repository("library"))
         self.assertEqual(self.app.list_repositories(), ["library"])
         with self.app.open_repository("library") as store:
-            self.assertEqual(
-                store.records_of_type("repository"), ["rec:repository:1"]
-            )
+            self.assertEqual(store.records_of_type("repository"), ["rec:repository:1"])
 
     def test_the_repository_lands_in_its_own_schema(self):
         """Over Quack an unqualified table silently lands in the owner's main schema."""
@@ -104,13 +94,17 @@ class RemoteApplicationTest(DbTestCase):
         self.app.create_repository("library")
         with self.app.open_repository("library") as store:
             store.put(dataset("book"))
-            self.assertEqual(store.export_ntriples(self.tmp / "book.nt", [REC["book"]]), 1)
+            self.assertEqual(
+                store.export_ntriples(self.tmp / "book.nt", [REC["book"]]), 1
+            )
             with store.fork() as fork:
                 self.assertEqual(len(fork.get(REC["book"])), 1)
 
     def test_concurrent_writers_do_not_clash(self):
         self.app.create_repository("library")
-        with self.app.open_repository("library") as store:  # the type is there before the writers start
+        with self.app.open_repository(
+            "library"
+        ) as store:  # the type is there before the writers start
             store.set_type_ids([("book", 20)])
         errors = []
 
@@ -160,7 +154,8 @@ class RemoteApplicationTest(DbTestCase):
 
         def auth(user, password):
             return {
-                "Authorization": "Basic " + base64.b64encode(f"{user}:{password}".encode()).decode()
+                "Authorization": "Basic "
+                + base64.b64encode(f"{user}:{password}".encode()).decode()
             }
 
         admin = auth("admin", "correct horse")
@@ -168,9 +163,13 @@ class RemoteApplicationTest(DbTestCase):
         form["userid"], form["password"] = "second", "another password"
         response = form.submit("save", headers=admin)
         self.assertEqual(response.status_int, 302)
-        self.assertEqual(web.get("/library/user", headers=admin).json["records"], [1, 2])
+        self.assertEqual(
+            web.get("/library/user", headers=admin).json["records"], [1, 2]
+        )
         again = web.get(
-            "/library/user/2", headers=auth("second", "another password"), expect_errors=True
+            "/library/user/2",
+            headers=auth("second", "another password"),
+            expect_errors=True,
         )
         self.assertEqual(again.status_int, 403)  # logged in, but users are for admins
 
@@ -207,10 +206,14 @@ class OwnerDiscoveryTest(DbTestCase):
 
     def test_without_an_owner_or_token_file_the_file_is_used(self):
         db = str(self.tmp / "t.db")
-        self.assertEqual(cli._discover_owner({"gracia.db": db})["gracia.db"], db)  # no token file
+        self.assertEqual(
+            cli._discover_owner({"gracia.db": db})["gracia.db"], db
+        )  # no token file
         (self.tmp / "t.db.token").write_text("0123456789abcdef0123456789\n")
         (self.tmp / "t.db.token").chmod(0o600)
-        found = cli._discover_owner({"gracia.db": db}, port=free_port())  # nobody listens
+        found = cli._discover_owner(
+            {"gracia.db": db}, port=free_port()
+        )  # nobody listens
         self.assertEqual(found["gracia.db"], db)
 
     def test_an_explicit_quack_target_is_left_alone(self):

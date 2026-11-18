@@ -1,26 +1,3 @@
-"""The jobs view of a repository: `/<repo>/jobs`.
-
-    GET  /<repo>/jobs               the page: the jobs to start, and the jobs there are (list_jobs)
-    GET  /<repo>/jobs/list          the jobs as JSON, asked for every second by the job panel
-                                    (list_jobs); `?job=validate&subject=person` filters them
-    POST /<repo>/jobs/start?job=N   start the job N with the answers of its form
-                                    (start_N_job): 200 with the id, 422 with the form again
-    GET  /<repo>/jobs/<id>          one job as JSON (view_job)
-    GET  /<repo>/jobs/<id>/download what the job rejected, as a file (view_job)
-    GET  /<repo>/jobs/<id>/log      its log, `?name=luigi|job&offset=N`: the text from that byte on
-                                    and the new offset in `X-Log-Offset` (view_job)
-    GET  /<repo>/jobs/<id>/logs     the page that follows it: its script asks for what is new every
-                                    second, so no request is held open (view_job); `?embed=1` is
-                                    the bare log, for the iframe in the job panel
-    POST /<repo>/jobs/<id>/stop     stop it: 202, the stop runs in a process of its own (stop_job)
-
-The page is made of the job panel (`templates/job_panel.pt`, `static/scripts/jobs.js`), which any
-other page can include: it lists the jobs, shows the progress of every stage of the one being
-watched and stops it. The permissions are in the ACLs of `resources.Jobs` and `resources.JobRun`.
-The page runs on HTTP Basic, which a browser sends by itself, so every POST checks that it comes
-from this site (`same_origin`) until the sessions that the plan names are there.
-"""
-
 import contextlib
 from pathlib import Path
 
@@ -38,7 +15,9 @@ from gracia.jobs.spec import JobSpecError, validate_spec
 from gracia.resources import JobRun, Jobs
 from gracia.views import render, same_origin
 
-LIST_LIMIT = 50  # the newest jobs of the list; the finished ones go with `gracia jobs clean`
+LIST_LIMIT = (
+    50  # the newest jobs of the list; the finished ones go with `gracia jobs clean`
+)
 LOG_CHUNK = 64 * 1024
 LOGS = {"luigi": "luigi.log", "job": "job.log"}
 
@@ -68,8 +47,8 @@ def _label(request, job: dict) -> str:
 
 
 def _stages(job: dict) -> list[dict]:
-    """The stages of a job for the panel: the last snapshot, or, before there is one, the
-    definition with everything pending."""
+    """The stages of a job for the panel: the last snapshot, or, before there is one,
+    the definition with everything pending."""
     snapshot = (job.get("progress") or {}).get("stages")
     if snapshot:
         return snapshot
@@ -126,7 +105,9 @@ def summary(request, jobs_node: Jobs, job: dict) -> dict:
         "determinate": job["state"] == "done" or known,
         "stages": stages,
         "rejected": rejected,
-        "download_url": request.resource_url(node, "download") if job["download_file"] else None,
+        "download_url": request.resource_url(node, "download")
+        if job["download_file"]
+        else None,
         "log_url": request.resource_url(node, "log"),
         "logs_url": request.resource_url(node, "logs"),
         "created_at": _moment(job["created_at"]),
@@ -136,10 +117,14 @@ def summary(request, jobs_node: Jobs, job: dict) -> dict:
     }
 
 
-def _visible(request, jobs_node: Jobs, db: JobsDb, job=None, subject=None) -> list[dict]:
+def _visible(
+    request, jobs_node: Jobs, db: JobsDb, job=None, subject=None
+) -> list[dict]:
     """The jobs of this repository the caller may see, newest first."""
     out = []
-    for row in db.list_jobs(repo=jobs_node.repository.__name__, job=job, subject=subject):
+    for row in db.list_jobs(
+        repo=jobs_node.repository.__name__, job=job, subject=subject
+    ):
         if request.has_permission("view_job", JobRun(jobs_node, row)):
             out.append(summary(request, jobs_node, row))
             if len(out) >= LIST_LIMIT:
@@ -148,8 +133,9 @@ def _visible(request, jobs_node: Jobs, db: JobsDb, job=None, subject=None) -> li
 
 
 def start_job(request, node: Jobs, job, params: dict) -> str:
-    """Make the job `job` (an `IJob`) of the answers `params` and start its process: returns the
-    id. The caller has checked the permission. A spec that does not pass is a `JobSpecError`."""
+    """Make the job `job` (an `IJob`) of the answers `params` and start its process:
+    returns the id. The caller has checked the permission. A spec that does not pass is
+    a `JobSpecError`."""
     spec = validate_spec(job.spec(node.repository.__name__, params))
     directory = _directory(request)
     settings = request.registry.settings
@@ -158,7 +144,11 @@ def start_job(request, node: Jobs, job, params: dict) -> str:
         job_id = db.create(spec, created_by=f"user:{who}" if who else None)
         (directory / job_id).mkdir(parents=True, exist_ok=True)
         procs.start_job(
-            db, job_id, directory, settings.get("gracia.config_file"), settings.get("gracia.db")
+            db,
+            job_id,
+            directory,
+            settings.get("gracia.config_file"),
+            settings.get("gracia.db"),
         )
     return job_id
 
@@ -173,7 +163,11 @@ def jobs_page(request):
             form = job.form(node, request)
             static.need_form(form)
             startable.append(
-                {"job": job, "form": form.render({}), "fields": len(form.schema.children)}
+                {
+                    "job": job,
+                    "form": form.render({}),
+                    "fields": len(form.schema.children),
+                }
             )
     static.jobs_js.need()
     return render(
@@ -189,13 +183,19 @@ def jobs_page(request):
 
 
 @view_config(
-    context=Jobs, name="list", permission="list_jobs", renderer="json", request_method="GET"
+    context=Jobs,
+    name="list",
+    permission="list_jobs",
+    renderer="json",
+    request_method="GET",
 )
 def jobs_list(request):
     directory = _directory(request)
     request.response.headers["Cache-Control"] = "no-store"
     with _db(request) as db:
-        procs.reconcile(db, directory)  # a job whose process is gone is `failed`, not running
+        procs.reconcile(
+            db, directory
+        )  # a job whose process is gone is `failed`, not running
         found = _visible(
             request,
             request.context,
@@ -207,7 +207,11 @@ def jobs_list(request):
 
 
 @view_config(
-    context=Jobs, name="start", permission="list_jobs", renderer="json", request_method="POST"
+    context=Jobs,
+    name="start",
+    permission="list_jobs",
+    renderer="json",
+    request_method="POST",
 )
 def start(request):
     same_origin(request)
@@ -231,7 +235,9 @@ def start(request):
         return {"errors": err.errors}
 
 
-@view_config(context=JobRun, permission="view_job", renderer="json", request_method="GET")
+@view_config(
+    context=JobRun, permission="view_job", renderer="json", request_method="GET"
+)
 def job_status(request):
     node = request.context
     with _db(request) as db:
@@ -240,9 +246,12 @@ def job_status(request):
         return summary(request, node.repository, row)
 
 
-@view_config(context=JobRun, name="download", permission="view_job", request_method="GET")
+@view_config(
+    context=JobRun, name="download", permission="view_job", request_method="GET"
+)
 def download(request):
-    """The file the job offers (what it rejected): by the name in its row, never by a path."""
+    """The file the job offers (what it rejected): by the name in its row, never by a
+    path."""
     node = request.context
     with _db(request) as db:
         row = db.get(node.__name__)
@@ -252,7 +261,9 @@ def download(request):
     if not path.is_file():
         raise HTTPNotFound("the file is gone")
     response = FileResponse(
-        str(path), request=request, content_type=row["download_content_type"] or "text/plain"
+        str(path),
+        request=request,
+        content_type=row["download_content_type"] or "text/plain",
     )
     response.headers["Content-Disposition"] = f'attachment; filename="{path.name}"'
     return response
@@ -260,10 +271,10 @@ def download(request):
 
 @view_config(context=JobRun, name="log", permission="view_job", request_method="GET")
 def log(request):
-    """Part of one of the two logs: from `offset` on (the end of the last 64 KB without one), at
-    most 64 KB; `X-Log-Offset` is where to ask next. The name is one of a fixed list. While the
-    job runs only whole lines are given: a record can be written in two pieces, and the half that
-    is there is left for the next request."""
+    """Part of one of the two logs: from `offset` on (the end of the last 64 KB without
+    one), at most 64 KB; `X-Log-Offset` is where to ask next. The name is one of a fixed
+    list. While the job runs only whole lines are given: a record can be written in two
+    pieces, and the half that is there is left for the next request."""
     node = request.context
     name = LOGS.get(request.params.get("name", "luigi"))
     if name is None:
@@ -299,7 +310,9 @@ def log_page(request):
         row = db.get(node.__name__)
     name = request.params.get("name", "luigi")
     static.job_log_js.need()
-    embedded = request.params.get("embed") == "1"  # for the iframe in the job panel: just the log
+    embedded = (
+        request.params.get("embed") == "1"
+    )  # for the iframe in the job panel: just the log
     return render(
         request,
         "gracia:assets/templates/job_log_embed.pt"
@@ -314,7 +327,11 @@ def log_page(request):
 
 
 @view_config(
-    context=JobRun, name="stop", permission="stop_job", renderer="json", request_method="POST"
+    context=JobRun,
+    name="stop",
+    permission="stop_job",
+    renderer="json",
+    request_method="POST",
 )
 def stop(request):
     same_origin(request)
@@ -326,7 +343,10 @@ def stop(request):
     settings = request.registry.settings
     who = request.authenticated_userid or "someone"
     procs.spawn_stop(
-        node.__name__, settings.get("gracia.config_file"), settings.get("gracia.db"), by=who
+        node.__name__,
+        settings.get("gracia.config_file"),
+        settings.get("gracia.db"),
+        by=who,
     )
     request.response.status = 202
     return {"state": "stopping"}

@@ -1,5 +1,3 @@
-"""gracia.forms.Form(tabs=...): a tab for every mapping, the loose fields on the last one."""
-
 import re
 import unittest
 
@@ -15,15 +13,19 @@ class Person(colander.Schema):
 
 class Record(colander.Schema):
     subject = colander.SchemaNode(
-        colander.String(), title="Subject", missing="", validator=colander.Regex(r"^$|^http")
+        colander.String(),
+        title="Subject",
+        missing="",
+        validator=colander.Regex(r"^$|^http"),
     )
     resource = Person(title="Person")
 
 
 def pane(html: str, index: int) -> str:
     return re.findall(
-        r'<div class="tab-pane[^"]*" id="[^"]+-tab-%d".*?(?=<div class="tab-pane|<div class="mb-3 deform-form-buttons)'
-        % index,
+        rf'<div class="tab-pane[^"]*" id="[^"]+-tab-{index}".*?(?=<div '
+        r'class="tab-pane|<div '
+        r'class="mb-3 deform-form-buttons)',
         html,
         re.S,
     )[0]

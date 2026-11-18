@@ -28,4 +28,6 @@ class UriModuleTest(unittest.TestCase):
         self.assertEqual(uri.RESOURCE, "https://gracia.pub/ns/resource")
         self.assertEqual(uri.RESOURCE_URI, "https://gracia.pub/ns/resource_uri")
         self.assertEqual(uri.CLASS, "https://gracia.pub/ns/class")
-        self.assertEqual(uri.RDF_TYPE, "http://www.w3.org/1999/02/22-rdf-syntax-ns#type")
+        self.assertEqual(
+            uri.RDF_TYPE, "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+        )

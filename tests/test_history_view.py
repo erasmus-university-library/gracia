@@ -1,11 +1,9 @@
-"""The history of a record on its edit page: when it was last changed, the page with its versions,
-a version and what it changed, and Restore."""
-
 import json
 import re
 import unittest
 from datetime import datetime
 
+from support import must_search
 from test_source import SourceCase
 
 from gracia.views import last_modified
@@ -51,21 +49,31 @@ class HistoryCase(SourceCase):
         self.assertEqual(form.submit("save", headers=self.admin).status_int, 302)
 
     def version(self, txn: int, uri="/library/person/1/history") -> dict:
-        got = self.get(f"{uri}?txn={txn}", headers={**self.admin, "Accept": "application/json"})
+        got = self.get(
+            f"{uri}?txn={txn}", headers={**self.admin, "Accept": "application/json"}
+        )
         return json.loads(got.text)
 
 
 class EditPageTest(HistoryCase):
     def test_it_says_when_the_record_was_last_changed_above_the_buttons(self):
         page = self.get("/library/person/1/edit").text
-        self.assertRegex(page, r'<div class="text-end text-muted small mb-1">Last modified (just now|\d+ minutes? ago)</div>')
+        self.assertRegex(
+            page,
+            r'<div class="text-end text-muted small mb-1">Last modified (just now|\d+ '
+            r"minutes? "
+            r"ago)</div>",
+        )
         self.assertLess(page.index("Last modified"), page.index(">History</a>"))
         self.assertRegex(
             page,
-            r'<a class="btn btn-outline-secondary btn-sm" href="http://localhost/library/person/1/history">History</a>',
+            r'<a class="btn btn-outline-secondary btn-sm" '
+            r'href="http://localhost/library/person/1/history">History</a>',
         )
 
-    def test_the_source_page_has_them_too_and_a_new_record_and_a_user_have_no_history(self):
+    def test_the_source_page_has_them_too_and_a_new_record_and_a_user_have_no_history(
+        self,
+    ):
         source = self.get("/library/person/1/edit?source=turtle").text
         self.assertIn(">History</a>", source)
         self.assertIn(">Form Edit</a>", source)
@@ -73,12 +81,16 @@ class EditPageTest(HistoryCase):
         self.assertNotIn(">History</a>", add)
         self.assertNotIn("Last modified", add)
         user = self.get("/library/user/1/edit").text
-        self.assertNotIn(">History</a>", user)  # its history has the hash of the password
+        self.assertNotIn(
+            ">History</a>", user
+        )  # its history has the hash of the password
         self.assertEqual(self.status("/library/user/1/history", self.admin), 404)
 
 
 class HistoryPageTest(HistoryCase):
-    def test_the_versions_newest_first_the_current_one_marked_and_restore_for_the_others(self):
+    def test_the_versions_newest_first_the_current_one_marked_and_restore_for_the_others(  # noqa: E501
+        self,
+    ):
         self.rename("Ada King")
         self.rename("Ada Countess")
         self.assertEqual(len(self.versions()), 3)
@@ -86,17 +98,26 @@ class HistoryPageTest(HistoryCase):
         numbers = [int(n) for n in re.findall(r'id="revision-(\d+)"', page)]
         self.assertEqual(numbers, sorted(numbers, reverse=True))
         self.assertEqual(len(numbers), 3)
-        newest = re.search(rf'id="revision-{numbers[0]}".*?</div>\s*</div>', page, re.S)[0]
+        newest = must_search(
+            rf'id="revision-{numbers[0]}".*?</div>\s*</div>', page, re.S
+        )[0]
         self.assertIn("current", newest)
         self.assertNotIn(">Restore</button>", newest)
-        older = re.search(rf'id="revision-{numbers[1]}".*?</div>\s*</div>', page, re.S)[0]
+        older = must_search(
+            rf'id="revision-{numbers[1]}".*?</div>\s*</div>', page, re.S
+        )[0]
         self.assertNotIn("current", older)
         self.assertIn(">Restore</button>", older)
-        self.assertIn(f'data-history-view="http://localhost/library/person/ada-king/history?txn={numbers[1]}"', older)
+        self.assertIn(
+            f'data-history-view="http://localhost/library/person/ada-king/history?txn={numbers[1]}"',
+            older,
+        )
         self.assertRegex(older, r'data-confirm="Restore version \d+\?')  # it asks first
         self.assertIn("history.js", page.split("</head>")[0])
         self.assertIn("manage.js", page.split("</head>")[0])
-        self.assertIn('data-editor="turtle"', page)  # the editor of the edit page, read only
+        self.assertIn(
+            'data-editor="turtle"', page
+        )  # the editor of the edit page, read only
 
     def test_a_version_is_its_text_and_what_it_changed_since_the_one_before(self):
         self.rename("Ada King")
@@ -106,57 +127,87 @@ class HistoryPageTest(HistoryCase):
         self.assertIn('foaf:name "Ada King"', new["source"])
         self.assertIsNone(old["diff"])  # the first version: nothing before it
         lines = new["diff"].splitlines()
-        self.assertTrue(any(l.startswith("-") and '"Ada"' in l for l in lines), lines)
-        self.assertTrue(any(l.startswith("+") and '"Ada King"' in l for l in lines), lines)
-        self.assertEqual(self.status("/library/person/1/history?txn=99999", self.admin), 404)
-        self.assertEqual(self.status("/library/person/1/history?txn=x", self.admin), 400)
+        self.assertTrue(
+            any(line.startswith("-") and '"Ada"' in line for line in lines), lines
+        )
+        self.assertTrue(
+            any(line.startswith("+") and '"Ada King"' in line for line in lines), lines
+        )
+        self.assertEqual(
+            self.status("/library/person/1/history?txn=99999", self.admin), 404
+        )
+        self.assertEqual(
+            self.status("/library/person/1/history?txn=x", self.admin), 400
+        )
 
     def test_who_may_see_it(self):
-        self.assertEqual(self.status("/library/person/1/history"), 401)  # anonymous: log in
+        self.assertEqual(
+            self.status("/library/person/1/history"), 401
+        )  # anonymous: log in
         self.assertEqual(self.status("/library/person/1/history", self.editor), 200)
 
 
 class RestoreTest(HistoryCase):
     def restore(self, txn, headers=None, **kw):
         return self.client().post(
-            "/library/person/1/restore", {"txn": str(txn)}, headers=headers or {**self.admin, **ORIGIN}, **kw
+            "/library/person/1/restore",
+            {"txn": str(txn)},
+            headers=headers or {**self.admin, **ORIGIN},
+            **kw,
         )
 
-    def test_a_version_is_saved_as_the_new_version_and_the_history_keeps_all_of_them(self):
+    def test_a_version_is_saved_as_the_new_version_and_the_history_keeps_all_of_them(
+        self,
+    ):
         original = self.values("rec:person:1")
         self.rename("Ada King")
         first = min(txn for txn, *_ in self.versions())
         self.assertIn((FOAF + "name", "Ada King"), self.values("rec:person:1"))
         web = self.client()  # one client, so that the cookie of the flash comes back
         got = web.post(
-            "/library/person/1/restore", {"txn": str(first)}, headers={**self.admin, **ORIGIN}
+            "/library/person/1/restore",
+            {"txn": str(first)},
+            headers={**self.admin, **ORIGIN},
         )
         self.assertEqual(got.status_int, 302)
         restored = self.values("rec:person:1")
-        self.assertTrue(set(original) <= set(restored))  # what it was, and what a save makes of it
+        self.assertTrue(
+            set(original) <= set(restored)
+        )  # what it was, and what a save makes of it
         self.assertNotIn((FOAF + "name", "Ada King"), restored)
         self.assertIn(("https://gracia.pub/ns/label", "Ada"), restored)
         versions = self.versions()
         self.assertEqual(len(versions), 3)  # the restore is a version of its own
-        self.assertIn("Restored the version of", web.get(got.headers["Location"], headers=self.admin).text)
+        self.assertIn(
+            "Restored the version of",
+            web.get(got.headers["Location"], headers=self.admin).text,
+        )
         newest = self.version(versions[0][0])["source"]
         self.assertIn('foaf:name "Ada"', newest)  # the old name, in the newest version
         self.assertNotIn("Ada King", newest)
-        self.assertIn('foaf:name "Ada King"', self.version(versions[1][0])["source"])  # kept
+        self.assertIn(
+            'foaf:name "Ada King"', self.version(versions[1][0])["source"]
+        )  # kept
 
     def test_it_has_to_come_from_this_site_and_from_someone_who_may_edit(self):
         first = self.versions()[0][0]
         self.rename("Ada King")
-        self.assertEqual(self.restore(first, headers=self.admin, expect_errors=True).status_int, 400)
+        self.assertEqual(
+            self.restore(first, headers=self.admin, expect_errors=True).status_int, 400
+        )
         self.assertEqual(
             self.restore(first, headers={**ORIGIN}, expect_errors=True).status_int, 401
         )
         self.assertIn((FOAF + "name", "Ada King"), self.values("rec:person:1"))
 
-    def test_a_version_that_is_not_there_or_is_a_deleted_record_cannot_be_restored(self):
+    def test_a_version_that_is_not_there_or_is_a_deleted_record_cannot_be_restored(
+        self,
+    ):
         self.assertEqual(self.restore(99999, expect_errors=True).status_int, 404)
         with self.application.open_repository("library") as store:
             store.delete(["rec:person:1"])
         tombstone = self.versions()[0]
         self.assertTrue(tombstone[2])
-        self.assertEqual(self.restore(tombstone[0], expect_errors=True).status_int, 410)  # gone, no longer unknown
+        self.assertEqual(
+            self.restore(tombstone[0], expect_errors=True).status_int, 410
+        )  # gone, no longer unknown

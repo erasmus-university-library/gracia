@@ -1,11 +1,9 @@
-"""SHACL validation of graphs (`Graph.validate`)."""
-
 import tempfile
 import unittest
 from pathlib import Path
 
 import pyoxigraph as ox
-from base import DATA, DbTestCase, REC
+from base import DATA, REC, DbTestCase
 from support import validate
 
 from gracia.graph import ValidationError
@@ -28,29 +26,43 @@ ex:AddressShape a sh:NodeShape ;
 
 def data(turtle: str) -> ox.Dataset:
     text = (
-        "@prefix ex: <http://example.org/> .\n@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n"
+        "@prefix ex: <http://example.org/> .\n"
+        "@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n"
     )
     return ox.Dataset(ox.parse((text + turtle).encode(), format=ox.RdfFormat.TURTLE))
 
 
 class ValidateTest(unittest.TestCase):
     def test_conforming_data(self):
-        ds = data('ex:a a ex:Person ; ex:name "A" ; ex:age 30 ; ex:address [ ex:city "Ghent" ] .')
+        ds = data(
+            'ex:a a ex:Person ; ex:name "A" ; ex:age 30 ; ex:address [ ex:city "Ghent" '
+            "] ."
+        )
         report = validate(ds, SHAPES)
         self.assertTrue(report.conforms)
         self.assertEqual(report.violations, ())
 
     def test_violations_name_resource_property_and_constraint(self):
-        ds = data('ex:ok a ex:Person ; ex:name "A" .\nex:bad a ex:Person ; ex:age "old" .')
+        ds = data(
+            'ex:ok a ex:Person ; ex:name "A" .\nex:bad a ex:Person ; ex:age "old" .'
+        )
         report = validate(ds, SHAPES)
         self.assertFalse(report.conforms)
-        self.assertEqual(list(report.by_resource()), [EX + "bad"])  # only the resource that fails
+        self.assertEqual(
+            list(report.by_resource()), [EX + "bad"]
+        )  # only the resource that fails
         by_path = {v.path: v for v in report.violations}
-        self.assertIn("MinCountConstraintComponent", by_path[EX + "name"].constraint_component)
-        self.assertIn("DatatypeConstraintComponent", by_path[EX + "age"].constraint_component)
+        self.assertIn(
+            "MinCountConstraintComponent", by_path[EX + "name"].constraint_component
+        )
+        self.assertIn(
+            "DatatypeConstraintComponent", by_path[EX + "age"].constraint_component
+        )
         self.assertEqual(by_path[EX + "age"].value, '"old"')
         self.assertEqual(by_path[EX + "age"].severity, "Violation")
-        self.assertNotIn('"', by_path[EX + "name"].message)  # pyrudof wraps messages in quotes
+        self.assertNotIn(
+            '"', by_path[EX + "name"].message
+        )  # pyrudof wraps messages in quotes
         self.assertEqual(report.errors(), report.violations)
 
     def test_nested_blank_node_is_checked_through_sh_node(self):
@@ -61,7 +73,9 @@ class ValidateTest(unittest.TestCase):
 
     def test_untyped_resources_are_skipped_unless_a_shape_is_forced(self):
         ds = data('ex:untyped ex:age "old" .')
-        self.assertTrue(validate(ds, SHAPES).conforms)  # no rdf:type: no shape targets it
+        self.assertTrue(
+            validate(ds, SHAPES).conforms
+        )  # no rdf:type: no shape targets it
         report = validate(ds, SHAPES, shape=PERSON)
         self.assertFalse(report.conforms)
         self.assertEqual(set(report.by_resource()), {EX + "untyped"})
@@ -111,7 +125,9 @@ class ValidateTest(unittest.TestCase):
                 ox.NamedNode(EX + "g2"),
             ),
         ]
-        self.assertTrue(validate(ox.Dataset(quads), SHAPES).conforms)  # one graph: name is there
+        self.assertTrue(
+            validate(ox.Dataset(quads), SHAPES).conforms
+        )  # one graph: name is there
 
     def test_empty_dataset_conforms(self):
         self.assertTrue(validate(ox.Dataset(), SHAPES).conforms)
@@ -125,13 +141,23 @@ class ValidateTest(unittest.TestCase):
 
 class WithTheStoreTest(DbTestCase):
     def test_validate_what_get_returns(self):
-        """Resources read back from the database keep their blank nodes, so shapes still apply."""
+        """Resources read back from the database keep their blank nodes, so shapes still
+        apply."""
         with Store(self.db) as store:
-            store.put(data('<rec:thing:1> a ex:Person ; ex:name "A" ; ex:address [ ex:city "Ghent" ] .'))
+            store.put(
+                data(
+                    '<rec:thing:1> a ex:Person ; ex:name "A" ; ex:address [ ex:city '
+                    '"Ghent" ] .'
+                )
+            )
             store.put(data("<rec:thing:2> a ex:Person ; ex:address [ ex:zip 1 ] ."))
             report = validate(store.get([REC["a"], REC["b"]]), SHAPES)
         self.assertEqual(set(report.by_resource()), {REC["b"]})
 
     def test_validate_a_whole_parsed_file(self):
-        ds = ox.Dataset(ox.parse(path=str(DATA / "01_simple.ttl"), format=ox.RdfFormat.TURTLE))
-        self.assertTrue(validate(ds, SHAPES).conforms)  # no Person in there: nothing targeted
+        ds = ox.Dataset(
+            ox.parse(path=str(DATA / "01_simple.ttl"), format=ox.RdfFormat.TURTLE)
+        )
+        self.assertTrue(
+            validate(ds, SHAPES).conforms
+        )  # no Person in there: nothing targeted

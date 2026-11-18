@@ -1,11 +1,10 @@
-"""The index view of a record: the records its page is made of, the etag of those, and RDF/XML."""
-
 import re
 import unittest
 from datetime import datetime
 from pathlib import Path
 
 import pyoxigraph as ox
+from support import must_search
 from test_edit import EditCase
 
 from gracia.views.index import etag_of
@@ -13,9 +12,11 @@ from gracia.views.index import etag_of
 PEOPLE = """
 @prefix gracia: <https://gracia.pub/ns/> . @prefix foaf: <http://xmlns.com/foaf/0.1/> .
 <rec:person:2> a gracia:Record ; gracia:resource_uri <ark:/99999/ir/person/2> ;
-    gracia:resource [ a foaf:Person ; foaf:name "Bob" ; foaf:knows <ark:/99999/ir/person/3> ] .
+    gracia:resource [ a foaf:Person ; foaf:name "Bob" ; foaf:knows
+      <ark:/99999/ir/person/3> ] .
 <rec:person:3> a gracia:Record ; gracia:resource_uri <ark:/99999/ir/person/3> ;
-    gracia:resource [ a foaf:Person ; foaf:name "Cy" ; foaf:knows <ark:/99999/ir/person/1> ] .
+    gracia:resource [ a foaf:Person ; foaf:name "Cy" ; foaf:knows
+      <ark:/99999/ir/person/1> ] .
 <rec:person:4> a gracia:Record ; gracia:resource_uri <ark:/99999/ir/person/4> ;
     gracia:resource [ a foaf:Person ; foaf:name "Dan" ] .
 """
@@ -27,7 +28,10 @@ class EtagTest(unittest.TestCase):
 
     def test_it_follows_the_records_and_when_they_changed_and_nothing_else(self):
         versions = {"rec:a:1": self.NOW, "rec:a:2": datetime(2026, 1, 1)}
-        same = {"rec:a:2": datetime(2026, 1, 1), "rec:a:1": self.NOW}  # in another order
+        same = {
+            "rec:a:2": datetime(2026, 1, 1),
+            "rec:a:1": self.NOW,
+        }  # in another order
         self.assertEqual(etag_of(versions), etag_of(same))
         self.assertRegex(etag_of(versions), r"^[0-9a-f]{16}$")
         later = {**versions, "rec:a:2": datetime(2026, 1, 2)}
@@ -50,28 +54,39 @@ class IndexCase(EditCase):
         return self.application.open_repository("library")
 
     def rename(self, number: int, name: str) -> None:
-        """Save one of the people again with another name (the others are not touched)."""
+        """Save one of the people again with another name (the others are not
+        touched)."""
         header, *records = re.split(r"(?=<rec:person:\d+> a gracia:Record)", PEOPLE)
-        text = header + next(r for r in records if r.startswith(f"<rec:person:{number}>"))
+        text = header + next(
+            r for r in records if r.startswith(f"<rec:person:{number}>")
+        )
         text = re.sub(r'foaf:name "[^"]*"', f'foaf:name "{name}"', text)
         with self.store() as store:
             store.put(ox.Dataset(ox.parse(text.encode(), format=ox.RdfFormat.TURTLE)))
 
 
 class DependenciesTest(IndexCase):
-    def test_the_records_a_page_is_made_of_through_resource_uris_and_record_uris_and_a_cycle(self):
+    def test_the_records_a_page_is_made_of_through_resource_uris_and_record_uris_and_a_cycle(  # noqa: E501
+        self,
+    ):
         with self.store() as store:
             found = store.dependencies("rec:person:1")
-        # person 1 knows rec:person:2 (a record uri), which knows the ark of 3 (a resource uri),
-        # which knows rec:person:1 again; the type record is one of them too (gracia:type)
-        self.assertTrue({"rec:person:1", "rec:person:2", "rec:person:3", "rec:type:5"} <= set(found))
+        # person 1 knows rec:person:2 (a record uri), which knows the ark of 3 (a
+        # resource uri),
+        # which knows rec:person:1 again; the type record is one of them too
+        # (gracia:type)
+        self.assertTrue(
+            {"rec:person:1", "rec:person:2", "rec:person:3", "rec:type:5"} <= set(found)
+        )
         self.assertNotIn("rec:person:4", found)
         self.assertTrue(all(isinstance(when, datetime) for when in found.values()))
 
     def test_it_stops_at_the_depth_it_is_given(self):
         with self.store() as store:
             self.assertEqual(
-                {"rec:person:1", "rec:person:2"} - set(store.dependencies("rec:person:1", 1)), set()
+                {"rec:person:1", "rec:person:2"}
+                - set(store.dependencies("rec:person:1", 1)),
+                set(),
             )
             self.assertNotIn("rec:person:3", store.dependencies("rec:person:1", 1))
             self.assertIn("rec:person:3", store.dependencies("rec:person:1", 2))
@@ -85,7 +100,9 @@ class DependenciesTest(IndexCase):
 
 class IndexViewTest(IndexCase):
     def index(self, path="/library/person/1", **headers):
-        return self.client().get(path, headers={**self.admin, **headers}, expect_errors=True)
+        return self.client().get(
+            path, headers={**self.admin, **headers}, expect_errors=True
+        )
 
     def test_it_is_rdfxml_of_the_record_and_the_records_it_is_made_of(self):
         got = self.index()
@@ -102,10 +119,16 @@ class IndexViewTest(IndexCase):
         for number, name in ((2, "Bob"), (3, "Cy"), (1, "Ada")):
             got = self.index(f"/library/person/{number}")
             self.assertEqual(got.status_int, 200)
-            first = re.search(r'<[\w:]+ rdf:about="([^"]+)"', got.text)[1]
-            self.assertEqual(first, f"rec:person:{number}")  # whichever of the three it is
-            self.assertRegex(got.text, rf"\n +<foaf:name>{name}</foaf:name>")  # indented, nested
-        self.assertNotIn("rdf:nodeID", self.index("/library/person/2").text)  # inline, not by id
+            first = must_search(r'<[\w:]+ rdf:about="([^"]+)"', got.text)[1]
+            self.assertEqual(
+                first, f"rec:person:{number}"
+            )  # whichever of the three it is
+            self.assertRegex(
+                got.text, rf"\n +<foaf:name>{name}</foaf:name>"
+            )  # indented, nested
+        self.assertNotIn(
+            "rdf:nodeID", self.index("/library/person/2").text
+        )  # inline, not by id
 
     def test_the_shapes_of_the_types_on_the_page_are_in_it_and_no_others(self):
         text = self.index("/library/person/1").text
@@ -118,12 +141,18 @@ class IndexViewTest(IndexCase):
         self.assertIn("Mail", names)
         self.assertIn("Resource URI", names)  # the shape every record has
         self.assertIn("urn:test:PersonShape", text)
-        self.assertIn("https://gracia.pub/ns/TypeShape", text)  # the type record of the person is on the page
-        self.assertNotIn("https://gracia.pub/ns/UserShape", text)  # nothing on the page is a user
+        self.assertIn(
+            "https://gracia.pub/ns/TypeShape", text
+        )  # the type record of the person is on the page
+        self.assertNotIn(
+            "https://gracia.pub/ns/UserShape", text
+        )  # nothing on the page is a user
         self.assertNotIn("https://gracia.pub/ns/UserGroupShape", text)
         self.assertIn('xmlns:sh="http://www.w3.org/ns/shacl#"', text)
         users = self.index("/library/user/1").text
-        self.assertIn("https://gracia.pub/ns/UserShape", users)  # and a user's page has its own
+        self.assertIn(
+            "https://gracia.pub/ns/UserShape", users
+        )  # and a user's page has its own
 
     def test_the_etag_follows_the_schema_files_of_the_types_on_the_page(self):
         first = self.index("/library/person/2").headers["ETag"]
@@ -148,7 +177,9 @@ class IndexViewTest(IndexCase):
         self.assertEqual(got.body, b"")
         self.assertEqual(got.headers["ETag"], etag)
         self.rename(3, "Cyrus")
-        self.assertEqual(self.index(**{"If-None-Match": etag}).status_int, 200)  # it changed
+        self.assertEqual(
+            self.index(**{"If-None-Match": etag}).status_int, 200
+        )  # it changed
 
     def test_json_is_still_there_for_whoever_asks_for_it(self):
         got = self.index(**JSON)
@@ -158,7 +189,9 @@ class IndexViewTest(IndexCase):
     def test_the_credentials_of_a_user_are_not_in_it(self):
         got = self.index("/library/user/1")
         self.assertEqual(got.status_int, 200)
-        self.assertNotIn("<gracia:credentials", got.text)  # (the shape of a user names the property)
+        self.assertNotIn(
+            "<gracia:credentials", got.text
+        )  # (the shape of a user names the property)
         self.assertIsNone(re.search(r"scrypt|\$argon|pbkdf", got.text))
 
     def test_a_record_that_is_not_there_is_not_found(self):

@@ -1,8 +1,6 @@
-"""Users: the credentials never go in a form, a new password can be set, and users are changed
-with `super_edit`."""
-
 import colander
 import deform
+import deform.widget
 import pyoxigraph as ox
 
 from gracia import uri
@@ -11,9 +9,9 @@ from gracia.utils import passwords
 
 
 class UserRecord(Record):
-    """A user: the credentials are never in the form; a new password can be set, and the user id
-    stays unique. A new user needs a password. Users are changed with `super_edit`, which the
-    editors do not have."""
+    """A user: the credentials are never in the form; a new password can be set, and the
+    user id stays unique. A new user needs a password. Users are changed with
+    `super_edit`, which the editors do not have."""
 
     edit_permission = add_permission = "super_edit"
     supplies = frozenset({uri.CREDENTIALS})  # the hash is made from the password
@@ -25,7 +23,9 @@ class UserRecord(Record):
                 colander.String(),
                 name="password",
                 title="Password" if self.is_new else "New password",
-                description="" if self.is_new else "Leave empty to keep the current password",
+                description=""
+                if self.is_new
+                else "Leave empty to keep the current password",
                 missing=colander.required if self.is_new else "",
                 widget=deform.widget.PasswordWidget(redisplay=False),
                 validator=colander.Length(min=passwords.MINIMUM_LENGTH),

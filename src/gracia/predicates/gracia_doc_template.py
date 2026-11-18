@@ -1,5 +1,6 @@
 import colander
 import deform
+import deform.widget
 
 from gracia import uri
 from gracia.predicates import Predicate, predicate
@@ -17,6 +18,7 @@ class DocTemplatePredicate(Predicate):
         if current and current not in files:
             files = [current, *files]
         schema_node.widget = deform.widget.SelectWidget(
-            values=[("", "(the doc of every record)"), *[(f, f) for f in files]])
+            values=[("", "(the doc of every record)"), *[(f, f) for f in files]]
+        )
         schema_node.validator = colander.OneOf(["", *files])
         return schema_node

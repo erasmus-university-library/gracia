@@ -1,5 +1,3 @@
-"""The config file: settings, paths relative to the file, tokens, and what overrides what."""
-
 from pathlib import Path
 
 from base import DbTestCase
@@ -23,18 +21,27 @@ class ConfigTest(DbTestCase):
 
     def test_reads_only_gracia_settings_and_makes_paths_relative_to_the_file(self):
         settings = config.read(self.write())
-        self.assertEqual(settings["gracia.db"], "quack:localhost:9494")  # a target, not a path
+        self.assertEqual(
+            settings["gracia.db"], "quack:localhost:9494"
+        )  # a target, not a path
         self.assertEqual(settings["gracia.db.file"], str(self.tmp / "gracia.db"))
-        self.assertEqual(settings["gracia.db.token_file"], str(self.tmp / "secret.token"))
+        self.assertEqual(
+            settings["gracia.db.token_file"], str(self.tmp / "secret.token")
+        )
         self.assertNotIn("pyramid.reload", settings)
-        # a setting that is gone (the history directory) in an old file is read and not used
+        # a setting that is gone (the history directory) in an old file is read and not
+        # used
         old = config.read(self.write(INI + "gracia.history_dir = elsewhere\n"))
         self.assertEqual(old["gracia.db"], "quack:localhost:9494")
 
-    def test_the_jobs_directory_is_a_path_from_the_config_file_unless_it_is_absolute(self):
+    def test_the_jobs_directory_is_a_path_from_the_config_file_unless_it_is_absolute(
+        self,
+    ):
         relative = config.read(self.write("[app:main]\ngracia.jobs_dir = work/jobs\n"))
         self.assertEqual(relative["gracia.jobs_dir"], str(self.tmp / "work/jobs"))
-        absolute = config.read(self.write("[app:main]\ngracia.jobs_dir = /var/lib/gracia/jobs\n"))
+        absolute = config.read(
+            self.write("[app:main]\ngracia.jobs_dir = /var/lib/gracia/jobs\n")
+        )
         self.assertEqual(absolute["gracia.jobs_dir"], "/var/lib/gracia/jobs")
         self.assertNotIn("gracia.jobs_dir", config.read(self.write()))  # optional
 
@@ -45,7 +52,9 @@ class ConfigTest(DbTestCase):
             config.read(self.write("[other]\na = 1\n"))
 
     def test_targets(self):
-        self.assertEqual(config.parse_target("quack:localhost:9494"), ("localhost", 9494))
+        self.assertEqual(
+            config.parse_target("quack:localhost:9494"), ("localhost", 9494)
+        )
         for bad in ("quack:localhost", "quack::1", "quack:h:x", "file.db"):
             with self.assertRaises(ValueError):
                 config.parse_target(bad)
@@ -55,48 +64,64 @@ class ConfigTest(DbTestCase):
         token.write_text("0123456789abcdef0123\n")
         token.chmod(0o600)
         self.assertEqual(
-            config.read_token({"gracia.db.token_file": str(token)}), "0123456789abcdef0123"
+            config.read_token({"gracia.db.token_file": str(token)}),
+            "0123456789abcdef0123",
         )
         token.chmod(0o644)
         with self.assertRaises(ValueError):
             config.read_token({"gracia.db.token_file": str(token)})
         with self.assertRaises(ValueError):
             config.read_token({})
-        self.assertEqual(config.read_token({"gracia.db.token": "inline-secret"}), "inline-secret")
+        self.assertEqual(
+            config.read_token({"gracia.db.token": "inline-secret"}), "inline-secret"
+        )
 
     def test_flag_beats_environment_beats_file_beats_default(self):
         path = self.write()
         env = {"GRACIA_DB": "env.db"}
         self.assertEqual(config.resolve(path, "flag.db", env)["gracia.db"], "flag.db")
         self.assertEqual(config.resolve(path, None, env)["gracia.db"], "env.db")
-        self.assertEqual(config.resolve(path, None, {})["gracia.db"], "quack:localhost:9494")
+        self.assertEqual(
+            config.resolve(path, None, {})["gracia.db"], "quack:localhost:9494"
+        )
         empty = self.tmp / "empty"  # a directory with no config.ini in it
         empty.mkdir()
-        self.assertEqual(config.resolve(None, None, {}, cwd=empty)["gracia.db"], config.DEFAULT_DB)
+        self.assertEqual(
+            config.resolve(None, None, {}, cwd=empty)["gracia.db"], config.DEFAULT_DB
+        )
         by_env = config.resolve(None, None, {"GRACIA_CONFIG": str(path)})
         self.assertEqual(by_env["gracia.base_iri"], "http://repo.example/")
 
 
 class DefaultFileTest(DbTestCase):
-    """Which file is read: `-c`, else `$GRACIA_CONFIG`, else `config.ini` in the directory."""
+    """Which file is read: `-c`, else `$GRACIA_CONFIG`, else `config.ini` in the
+    directory."""
 
     def test_config_ini_in_the_directory_is_the_default(self):
         self.assertIsNone(config.config_file(None, {}, cwd=self.tmp))  # none there
         (self.tmp / "config.ini").write_text(INI)
-        self.assertEqual(config.config_file(None, {}, cwd=self.tmp), self.tmp / "config.ini")
+        self.assertEqual(
+            config.config_file(None, {}, cwd=self.tmp), self.tmp / "config.ini"
+        )
 
     def test_the_flag_beats_the_environment_beats_the_default(self):
         (self.tmp / "config.ini").write_text(INI)
         flag, env = self.tmp / "flag.ini", {"GRACIA_CONFIG": str(self.tmp / "env.ini")}
         self.assertEqual(config.config_file(str(flag), env, cwd=self.tmp), flag)
-        self.assertEqual(config.config_file(None, env, cwd=self.tmp), self.tmp / "env.ini")
-        self.assertEqual(config.config_file(None, {}, cwd=self.tmp), self.tmp / "config.ini")
+        self.assertEqual(
+            config.config_file(None, env, cwd=self.tmp), self.tmp / "env.ini"
+        )
+        self.assertEqual(
+            config.config_file(None, {}, cwd=self.tmp), self.tmp / "config.ini"
+        )
 
     def test_an_empty_environment_variable_means_no_file_at_all(self):
         (self.tmp / "config.ini").write_text(INI)
         self.assertIsNone(config.config_file(None, {"GRACIA_CONFIG": ""}, cwd=self.tmp))
         self.assertEqual(
-            config.resolve(None, None, {"GRACIA_CONFIG": ""}, cwd=self.tmp)["gracia.db"],
+            config.resolve(None, None, {"GRACIA_CONFIG": ""}, cwd=self.tmp)[
+                "gracia.db"
+            ],
             config.DEFAULT_DB,
         )
 
@@ -117,7 +142,9 @@ class DefaultFileTest(DbTestCase):
         self.assertEqual(
             found["gracia.db.file"], str(self.tmp / "gracia.db")
         )  # from the file's directory
-        self.assertEqual(config.resolve(None, "flag.db", {}, cwd=self.tmp)["gracia.db"], "flag.db")
+        self.assertEqual(
+            config.resolve(None, "flag.db", {}, cwd=self.tmp)["gracia.db"], "flag.db"
+        )
 
     def test_commands_run_in_a_directory_with_a_config_ini_use_it_without_dash_c(self):
         import contextlib
@@ -129,9 +156,14 @@ class DefaultFileTest(DbTestCase):
 
         (self.tmp / "config.ini").write_text("[app:main]\ngracia.db = site.duckdb\n")
         with contextlib.chdir(self.tmp), mock.patch.dict(os.environ):
-            os.environ.pop("GRACIA_CONFIG", None)  # the tests set it empty; here it is not set
+            os.environ.pop(
+                "GRACIA_CONFIG", None
+            )  # the tests set it empty; here it is not set
             out = io.StringIO()
-            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            with (
+                contextlib.redirect_stdout(out),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
                 self.assertEqual(
                     cli.main(
                         [
@@ -147,7 +179,9 @@ class DefaultFileTest(DbTestCase):
                     0,
                 )
                 self.assertEqual(cli.main(["repo", "list"]), 0)
-        self.assertTrue((self.tmp / "site.duckdb").exists())  # the file the config names
+        self.assertTrue(
+            (self.tmp / "site.duckdb").exists()
+        )  # the file the config names
         self.assertIn("library", out.getvalue())
 
     def write_password(self) -> Path:

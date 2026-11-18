@@ -1,24 +1,3 @@
-"""The manage pages of a repository (`/<repo>/manage`) and of a type (`/<repo>/<type>/manage`).
-
-A manage page is one page with a tab strip: every pane is rendered into it (`manage.pt` has the
-strip, Bootstrap switches the panes in the browser, and `manage.js` keeps `?tab=<name>` in the
-address so that a reload or a link comes back to it). A pane is the method `pane_<name>` of the
-view, which gives its HTML; a pane may have any number of forms. Every form posts to the page, to
-`manage?tab=<pane>`, and the view finds the form from its id (the `__formid__` field): the id
-`form-repository-settings` goes to `post_repository_settings(rest)` and `form-extension-<name>`
-to `post_extension(name)`, the longest name that is a method. A handler answers a `Response` (the
-redirect after it was done), or a state, the values and errors the pane shows again in its place.
-What a handler says of its work it says with `flash`.
-
-Repository  Types       the types that are installed, each a link to the manage page of the type
-            Settings    the title of the repository
-            Extensions  the extensions there are: on or off, and a dialog with the settings of each
-            Predicates  the predicates that are registered, by the URI of their property
-Type        Settings    the edit form of the type's own record (name, slug, assets, schema, label
-                        query): the one place a type is configured. The edit address of the record
-                        sends the caller here.
-"""
-
 import inspect
 from html import escape
 
@@ -43,7 +22,11 @@ def _size(number) -> str:
     number = float(number or 0)
     for unit in ("B", "KB", "MB", "GB", "TB"):
         if number < 1000 or unit == "TB":
-            return f"{number:.0f} {unit}" if unit == "B" or number >= 100 else f"{number:.1f} {unit}"
+            return (
+                f"{number:.0f} {unit}"
+                if unit == "B" or number >= 100
+                else f"{number:.1f} {unit}"
+            )
         number /= 1000
     return ""
 
@@ -70,8 +53,8 @@ class Manage(View):
         return f"form-{self.scope}-{name}"
 
     def action(self, pane: str) -> str:
-        """Where a form of the pane posts: this page, with the pane named so that it stays in
-        focus."""
+        """Where a form of the pane posts: this page, with the pane named so that it
+        stays in focus."""
         return self.request.resource_url(self.context, "manage", query={"tab": pane})
 
     def page(self) -> Response:
@@ -80,7 +63,9 @@ class Manage(View):
         active = request.GET.get("tab")
         states: dict[str, dict] = {}
         if request.method == "POST":
-            same_origin(request)  # it changes data, and the browser sends the credentials itself
+            same_origin(
+                request
+            )  # it changes data, and the browser sends the credentials itself
             result = self._post(request.POST.get("__formid__", ""))
             if isinstance(result, Response):
                 return result
@@ -99,7 +84,9 @@ class Manage(View):
         ]
         static.jobs_js.need()  # the job panel that a pane may include
         static.manage_js.need()
-        return self.render(heading=self.heading(), subtitle=self.subtitle(), panes=panes)
+        return self.render(
+            heading=self.heading(), subtitle=self.subtitle(), panes=panes
+        )
 
     def _post(self, form_id: str):
         parts = form_id.split("-")
@@ -132,7 +119,8 @@ class RepositoryManage(Manage):
     def subtitle(self) -> str:
         return self.context.uri
 
-    # ---- Types ------------------------------------------------------------------------------
+    # ---- Types
+    # ------------------------------------------------------------------------------
 
     def pane_types(self, state):
         request = self.request
@@ -155,16 +143,23 @@ class RepositoryManage(Manage):
             }
             for res_type in self.context.res_types.values()
         ]
-        return fragment(request, "gracia:assets/templates/repository_tab_types.pt", types=types)
+        return fragment(
+            request, "gracia:assets/templates/repository_tab_types.pt", types=types
+        )
 
-    # ---- Settings ---------------------------------------------------------------------------
+    # ---- Settings
+    # ---------------------------------------------------------------------------
 
     def _settings_form(self) -> tuple[Form, colander.Schema]:
         """The form of the repository resource, from the shape named by the resource."""
         schema = colander.Schema()
         for node in forms.schema_from_shape(*self.context.shape(self.store)).children:
-            code = predicates.find(node.predicate)  # another widget, a rule: what a predicate adds
-            changed = code.schema_node(None, self.request, node) if code is not None else node
+            code = predicates.find(
+                node.predicate
+            )  # another widget, a rule: what a predicate adds
+            changed = (
+                code.schema_node(None, self.request, node) if code is not None else node
+            )
             if changed is not None:
                 changed.predicate = node.predicate
                 schema.add(changed)
@@ -181,7 +176,9 @@ class RepositoryManage(Manage):
         static.need_form(form)
         if "html" in state:  # the form as it was posted, with what was wrong
             return state["html"]
-        subject, resource = self.context.content(self.store)  # the content of the repository
+        subject, resource = self.context.content(
+            self.store
+        )  # the content of the repository
         current = {
             n.name: next((o.value for o in resource.objects(subject, n.predicate)), "")
             for n in schema.children
@@ -200,27 +197,39 @@ class RepositoryManage(Manage):
         for node in schema.children:
             predicate = ox.NamedNode(node.predicate)
             for quad in [
-                q for q in resource.quads_for_subject(subject) if q.predicate == predicate
+                q
+                for q in resource.quads_for_subject(subject)
+                if q.predicate == predicate
             ]:
                 resource.discard(quad)
             if data[node.name]:
                 resource.add(
-                    ox.Quad(subject, predicate, ox.Literal(data[node.name]), ox.DefaultGraph())
+                    ox.Quad(
+                        subject,
+                        predicate,
+                        ox.Literal(data[node.name]),
+                        ox.DefaultGraph(),
+                    )
                 )
         record = repository.record(resource)
         record.save(store)  # the label of the repository follows its title
         flash(self.request, "Saved.")
         return HTTPFound(self.action("settings"))
 
-    # ---- Extensions -------------------------------------------------------------------------
-    # A card for every extension there is: on or off, and a dialog with its settings. The dialog
-    # has two tabs, the Deform form of the extension and the same settings as JSON to copy or
-    # paste. Each of its forms names itself `form-extension-<name>`, and what a button does is the
+    # ---- Extensions
+    # -------------------------------------------------------------------------
+    # A card for every extension there is: on or off, and a dialog with its settings.
+    # The dialog
+    # has two tabs, the Deform form of the extension and the same settings as JSON to
+    # copy or
+    # paste. Each of its forms names itself `form-extension-<name>`, and what a button
+    # does is the
     # name of the button.
 
     def _extension_form(self, extension):
-        """The settings form of an extension, made the same way to show it and to read a post, so
-        that what comes back after an error is the same form (with its button)."""
+        """The settings form of an extension, made the same way to show it and to read a
+        post, so that what comes back after an error is the same form (with its
+        button)."""
         return settings_form(
             extension,
             self.request,
@@ -240,7 +249,9 @@ class RepositoryManage(Manage):
                 form = self._extension_form(extension)
                 static.need_form(form)
                 form_html = (
-                    state["html"] if asked and "html" in state else form.render(extension.settings)
+                    state["html"]
+                    if asked and "html" in state
+                    else form.render(extension.settings)
                 )
             cards.append(
                 {
@@ -263,7 +274,9 @@ class RepositoryManage(Manage):
         if any(card["settings"] for card in cards):
             static.editor_js.need()  # the settings as JSON are an editor
         return fragment(
-            self.request, "gracia:assets/templates/repository_tab_extensions.pt", cards=cards
+            self.request,
+            "gracia:assets/templates/repository_tab_extensions.pt",
+            cards=cards,
         )
 
     def post_extension(self, name):
@@ -303,11 +316,20 @@ class RepositoryManage(Manage):
             }
         return HTTPFound(self.action("extensions"))
 
-    # ---- Search -----------------------------------------------------------------------------
-    # The fields the docs can have (the schema mode of the doc stylesheets of the types) against the fields of
-    # the indexes (the settings of the Search extension). A field the docs have and the index lacks is shown
-    # greyed, with a button to add it to the settings; the button of the others takes it out. Changing the
-    # settings is all it does: an index that is not what they say is stale, and the job Rebuild search makes it.
+    # ---- Search
+    # -----------------------------------------------------------------------------
+    # The fields the docs can have (the schema mode of the doc stylesheets of the types)
+    # against the
+    # fields of
+    # the indexes (the settings of the Search extension). A field the docs have and the
+    # index lacks
+    # is shown
+    # greyed, with a button to add it to the settings; the button of the others takes it
+    # out.
+    # Changing the
+    # settings is all it does: an index that is not what they say is stale, and the job
+    # Rebuild
+    # search makes it.
 
     def pane_search(self, state):
         request, repository = self.request, self.context
@@ -325,28 +347,50 @@ class RepositoryManage(Manage):
         sections, problem = [], None
         if notice is None:
             try:
-                offered = application.cache.docs.schema(repository, list(repository.res_types))
-            except Exception as err:  # a stylesheet that does not work is a message, not a failed page
-                offered, problem = [], f"The doc stylesheets could not make the schema: {err}"
+                offered = application.cache.docs.schema(
+                    repository, list(repository.res_types)
+                )
+            except (
+                Exception
+            ) as err:  # a stylesheet that does not work is a message, not a failed page
+                offered, problem = (
+                    [],
+                    f"The doc stylesheets could not make the schema: {err}",
+                )
             for definition in search.definitions_for(repository):
                 rows = search.compare(offered, definition)
                 counts = indexes.field_stats(repository.__name__, definition)
                 for row in rows:
-                    row["docs"] = f"{counts[row['name']]:,}" if counts.get(row["name"]) is not None else None
+                    row["docs"] = (
+                        f"{counts[row['name']]:,}"
+                        if counts.get(row["name"]) is not None
+                        else None
+                    )
                     row["measured"] = row["name"] in counts
-                    row["every_type"] = bool(row["types"]) and set(row["types"]) == set(repository.res_types)
+                    row["every_type"] = bool(row["types"]) and set(row["types"]) == set(
+                        repository.res_types
+                    )
+                stats = indexes.stats(repository.__name__, [definition])
+                documents = stats[0]["documents"]
                 sections.append(
                     {
                         "name": definition.name,
                         "state": indexes.status(repository.__name__, definition),
-                        "documents": f"{indexes.stats(repository.__name__, [definition])[0]['documents']:,}",
+                        "documents": f"{documents:,}",
                         "rows": rows,
                     }
                 )
         jobs_node = repository["jobs"]
-        job = next((j for j in all_jobs(request.registry) if j.name == "rebuild_search"), None)
+        job = next(
+            (j for j in all_jobs(request.registry) if j.name == "rebuild_search"), None
+        )
         rebuild = (
-            {"title": job.title, "url": request.resource_url(jobs_node, "start", query={"job": job.name})}
+            {
+                "title": job.title,
+                "url": request.resource_url(
+                    jobs_node, "start", query={"job": job.name}
+                ),
+            }
             if job and request.has_permission(job.start_permission, jobs_node)
             else None
         )
@@ -364,22 +408,33 @@ class RepositoryManage(Manage):
         )
 
     def post_repository_search(self, _rest):
-        """Add (`add=<field>`) or remove (`remove=<field>`) a field of the index `index` in the settings."""
+        """Add (`add=<field>`) or remove (`remove=<field>`) a field of the index `index`
+        in the settings."""
         request, repository = self.request, self.context
         post = request.POST
         index = post.get("index", "")
         try:
             extension = repository.extension("search")
             if "add" in post:
-                offered = request.root.cache.docs.schema(repository, list(repository.res_types))
+                offered = request.root.cache.docs.schema(
+                    repository, list(repository.res_types)
+                )
                 field = next((f for f in offered if f["name"] == post["add"]), None)
                 if field is None:
                     raise ExtensionError([f"no doc has a field {post['add']!r}"])
                 extension.add_field(index, field)
-                flash(request, f"{post['add']} is in the index {index}: the index needs a rebuild.")
+                flash(
+                    request,
+                    f"{post['add']} is in the index {index}: "
+                    "the index needs a rebuild.",
+                )
             elif "remove" in post:
                 extension.remove_field(index, post["remove"])
-                flash(request, f"{post['remove']} is out of the index {index}: the index needs a rebuild.")
+                flash(
+                    request,
+                    f"{post['remove']} is out of the index {index}: "
+                    "the index needs a rebuild.",
+                )
             else:
                 raise HTTPBadRequest("nothing to do")
         except KeyError:
@@ -388,11 +443,13 @@ class RepositoryManage(Manage):
             return {"errors": err.errors}
         return HTTPFound(self.action("search"))
 
-    # ---- Predicates -------------------------------------------------------------------------
+    # ---- Predicates
+    # -------------------------------------------------------------------------
 
     def _titles(self) -> dict[str, tuple[str, str]]:
-        """The `sh:name` and `sh:description` that the shapes give a property, by its URI: the
-        record shape and the shapes of the types of the repository (the first that names it)."""
+        """The `sh:name` and `sh:description` that the shapes give a property, by its
+        URI: the record shape and the shapes of the types of the repository (the first
+        that names it)."""
         found: dict[str, tuple[str, str]] = {}
 
         def walk(dataset, shape):
@@ -424,29 +481,38 @@ class RepositoryManage(Manage):
                     "title": title or code.uri.rsplit("/", 1)[-1].rsplit("#", 1)[-1],
                     "description": description,
                     "name": f"{type(code).__module__}.{type(code).__qualname__}",
-                    # the class's own docstring (getdoc would take the base class's), without markup
+                    # the class's own docstring (getdoc would take the base class's),
+                    # without markup
                     "doc": inspect.cleandoc(type(code).__doc__ or "").replace("`", ""),
                     "values": used.get(code.uri, 0),
                     "parts": [
                         part
                         for part in ("schema_node", "on_write_sql")
-                        if getattr(type(code), part) is not getattr(predicates.Predicate, part)
+                        if getattr(type(code), part)
+                        is not getattr(predicates.Predicate, part)
                     ],
                 }
             )
         cards.sort(key=lambda card: card["uri"])
         return fragment(
-            self.request, "gracia:assets/templates/repository_tab_predicates.pt", cards=cards
+            self.request,
+            "gracia:assets/templates/repository_tab_predicates.pt",
+            cards=cards,
         )
 
-
-    # ---- Stats ------------------------------------------------------------------------------
-    # What there is: the types, the caches, and what waits for the worker that follows the writes. The
-    # buttons start the jobs of the Jobs tab, whose panel (it is on the page) follows them.
+    # ---- Stats
+    # ------------------------------------------------------------------------------
+    # What there is: the types, the caches, and what waits for the worker that follows
+    # the writes.
+    # The
+    # buttons start the jobs of the Jobs tab, whose panel (it is on the page) follows
+    # them.
     def pane_stats(self, state):
         request, repository = self.request, self.context
         store, application = request.store, request.root
-        installed = {res_type.slug: res_type for res_type in repository.res_types.values()}
+        installed = {
+            res_type.slug: res_type for res_type in repository.res_types.values()
+        }
         found = store.type_stats()
         empty = {"records": 0, "published": 0, "bytes": 0, "modified": None}
         types = []
@@ -456,11 +522,15 @@ class RepositoryManage(Manage):
                 {
                     "name": res_type.name if res_type else slug,
                     "slug": slug,
-                    "system": bool(res_type and res_type.class_uri in uri.SYSTEM_CLASSES),
+                    "system": bool(
+                        res_type and res_type.class_uri in uri.SYSTEM_CLASSES
+                    ),
                     "records": stats["records"],
                     "published": stats["published"],
                     "size": _size(stats["bytes"]),
-                    "average": _size(stats["bytes"] / stats["records"]) if stats["records"] else "",
+                    "average": _size(stats["bytes"] / stats["records"])
+                    if stats["records"]
+                    else "",
                     "modified": _when(stats["modified"]),
                 }
             )
@@ -468,7 +538,12 @@ class RepositoryManage(Manage):
         totals = {
             "records": total,
             "size": _size(sum(stats["bytes"] for stats in found.values())),
-            "modified": _when(max((s["modified"] for s in found.values() if s["modified"]), default=None)),
+            "modified": _when(
+                max(
+                    (s["modified"] for s in found.values() if s["modified"]),
+                    default=None,
+                )
+            ),
         }
         cache = application.cache
         pages = store.etag_stats()
@@ -499,7 +574,8 @@ class RepositoryManage(Manage):
                 "name": row["name"],
                 "state": row["state"],
                 "documents": f"{row['documents']:,}",
-                # of the records there are: what the index lacks is what is not in it yet
+                # of the records there are: what the index lacks is what is not in it
+                # yet
                 "of": f"{sum(s['records'] for s in found.values()):,}",
                 "size": _size(row["bytes"]),
             }
@@ -512,7 +588,9 @@ class RepositoryManage(Manage):
             "rows": pending["rows"],
             "records": pending["records"],
             "size": _size(pending["bytes"]),
-            "by_action": ", ".join(f"{n:,} {action}" for action, n in sorted(pending["actions"].items())),
+            "by_action": ", ".join(
+                f"{n:,} {action}" for action, n in sorted(pending["actions"].items())
+            ),
             "since": _when(pending["since"]),
             "oldest": pending["oldest"],
             "last": pending["last"],
@@ -521,7 +599,9 @@ class RepositoryManage(Manage):
         buttons = {
             job.name: {
                 "title": job.title,
-                "url": request.resource_url(jobs_node, "start", query={"job": job.name}),
+                "url": request.resource_url(
+                    jobs_node, "start", query={"job": job.name}
+                ),
             }
             for job in all_jobs(request.registry)
             if job.name in ("update_cache", "rebuild_search", "process_actions")
@@ -550,7 +630,11 @@ class RepositoryManage(Manage):
     def _worker_line(worker, repo: str) -> dict:
         """What to say of the worker that follows the writes: a state, and a detail."""
         if worker is None:
-            return {"state": "off", "text": "Off: the setting gracia.worker is not on.", "ok": False}
+            return {
+                "state": "off",
+                "text": "Off: the setting gracia.worker is not on.",
+                "ok": False,
+            }
         status = worker.status(repo)
         if not status["running"]:
             text = (
@@ -560,18 +644,36 @@ class RepositoryManage(Manage):
             )
             return {"state": "stopped", "text": text, "ok": False}
         if status["failures"]:
-            retry = f", the next try in {status['retry_in']:.0f} s" if status["retry_in"] is not None else ""
+            retry = (
+                f", the next try in {status['retry_in']:.0f} s"
+                if status["retry_in"] is not None
+                else ""
+            )
             return {
                 "state": "failing",
-                "text": f"Running, but this repository failed {status['failures']} time(s) in a row{retry}.",
+                "text": (
+                    f"Running, but this repository failed {status['failures']} "
+                    f"time(s) in a row{retry}."
+                ),
                 "ok": False,
             }
-        text = "Running; this repository is waiting for its turn." if status["in_line"] else "Running; nothing to do here."
+        text = (
+            "Running; this repository is waiting for its turn."
+            if status["in_line"]
+            else "Running; nothing to do here."
+        )
         return {"state": "running", "text": text, "ok": True}
 
-    # ---- Jobs -------------------------------------------------------------------------------
-    # The jobs about the repository as a whole; one is started with its button (`jobs.js`).
-    REPOSITORY_JOBS = ("rebuild_etags", "update_cache", "rebuild_search", "process_actions")
+    # ---- Jobs
+    # -------------------------------------------------------------------------------
+    # The jobs about the repository as a whole; one is started with its button
+    # (`jobs.js`).
+    REPOSITORY_JOBS = (
+        "rebuild_etags",
+        "update_cache",
+        "rebuild_search",
+        "process_actions",
+    )
 
     def pane_jobs(self, state):
         request, repository = self.request, self.context
@@ -581,7 +683,9 @@ class RepositoryManage(Manage):
                 "name": job.name,
                 "title": job.title,
                 "description": job.description,
-                "url": request.resource_url(jobs_node, "start", query={"job": job.name}),
+                "url": request.resource_url(
+                    jobs_node, "start", query={"job": job.name}
+                ),
             }
             for job in all_jobs(request.registry)
             if job.name in self.REPOSITORY_JOBS
@@ -592,7 +696,9 @@ class RepositoryManage(Manage):
             request,
             "gracia:assets/templates/repository_tab_jobs.pt",
             jobs=items,
-            job_filter=",".join(self.REPOSITORY_JOBS),  # the list shows the jobs of all of them
+            job_filter=",".join(
+                self.REPOSITORY_JOBS
+            ),  # the list shows the jobs of all of them
             list_url=request.resource_url(jobs_node, "list"),
             can_list=request.has_permission("list_jobs", jobs_node),
         )
@@ -600,7 +706,11 @@ class RepositoryManage(Manage):
 
 class TypeManage(Manage):
     scope = "type"
-    panes = (("settings", "Settings"), ("identification", "Identification"), ("jobs", "Jobs"))
+    panes = (
+        ("settings", "Settings"),
+        ("identification", "Identification"),
+        ("jobs", "Jobs"),
+    )
 
     @view_config(context=Type, name="manage", permission="manage")
     def manage(self):
@@ -615,7 +725,9 @@ class TypeManage(Manage):
     def _record(self) -> Record:
         """The record of the type in the type `type`."""
         res_type = self.context
-        return res_type.repository["type"].by_number(res_type.record.rsplit(":", 1)[1])  # not `[number]`: that redirects to the slug
+        return res_type.repository["type"].by_number(
+            res_type.record.rsplit(":", 1)[1]
+        )  # not `[number]`: that redirects to the slug
 
     def _form(self, record: Record) -> Form:
         return Form(
@@ -631,14 +743,19 @@ class TypeManage(Manage):
         static.need_form(form)
         html = state["html"] if "html" in state else form.render(record.edit_values())
         errors = "".join(
-            f'<div class="alert alert-danger">{escape(e)}</div>' for e in state.get("errors", [])
+            f'<div class="alert alert-danger">{escape(e)}</div>'
+            for e in state.get("errors", [])
         )
         return errors + html
 
-    # ---- Identification: the numbers of the records of the type ---------------------------------
-    # The numbers are given out one after the other, past the highest record there is. A person can
-    # reserve a swath of them (before an import of records that come with their own numbers): the
-    # next number is then past the number that was set. It cannot be set lower than a number that
+    # ---- Identification: the numbers of the records of the type
+    # ---------------------------------
+    # The numbers are given out one after the other, past the highest record there is. A
+    # person can
+    # reserve a swath of them (before an import of records that come with their own
+    # numbers): the
+    # next number is then past the number that was set. It cannot be set lower than a
+    # number that
     # is in use, only higher; lowering a reservation to what is in use gives it up.
 
     class IdentificationForm(colander.MappingSchema):
@@ -646,9 +763,9 @@ class TypeManage(Manage):
             colander.Integer(),
             title="Numbers up to this are taken",
             description=(
-                "The next record gets the number after this one. Set it higher to keep the numbers "
-                "up to it for records that are going to be imported with numbers of their own; it "
-                "cannot be lower than a number that is in use."
+                "The next record gets the number after this one. Set it higher to keep "
+                "the numbers up to it for records that are going to be imported with "
+                "numbers of their own; it cannot be lower than a number that is in use."
             ),
             validator=colander.Range(min=0, max=999_999_999_999_999),
         )
@@ -665,16 +782,25 @@ class TypeManage(Manage):
         numbering = self.store.numbering(self.context.slug)
         form = self._identification_form()
         static.need_form(form)
-        html = state["html"] if "html" in state else form.render({"last": numbering["last"]})
+        html = (
+            state["html"]
+            if "html" in state
+            else form.render({"last": numbering["last"]})
+        )
         errors = "".join(
-            f'<div class="alert alert-danger">{escape(e)}</div>' for e in state.get("errors", [])
+            f'<div class="alert alert-danger">{escape(e)}</div>'
+            for e in state.get("errors", [])
         )
         facts = (
             f'<dl class="row small text-muted">'
-            f'<dt class="col-sm-3">Highest used</dt><dd class="col-sm-9">{numbering["highest"]}</dd>'
-            f'<dt class="col-sm-3">Last given out</dt><dd class="col-sm-9">{numbering["given"]}</dd>'
-            f'<dt class="col-sm-3">Reserved up to</dt><dd class="col-sm-9">{numbering["reserved"]}</dd>'
-            f'<dt class="col-sm-3">Next number</dt><dd class="col-sm-9">{numbering["next"]}</dd>'
+            f'<dt class="col-sm-3">Highest used</dt>'
+            f'<dd class="col-sm-9">{numbering["highest"]}</dd>'
+            f'<dt class="col-sm-3">Last given out</dt>'
+            f'<dd class="col-sm-9">{numbering["given"]}</dd>'
+            f'<dt class="col-sm-3">Reserved up to</dt>'
+            f'<dd class="col-sm-9">{numbering["reserved"]}</dd>'
+            f'<dt class="col-sm-3">Next number</dt>'
+            f'<dd class="col-sm-9">{numbering["next"]}</dd>'
             "</dl>"
         )
         return errors + html + facts
@@ -693,7 +819,8 @@ class TypeManage(Manage):
         flash(self.request, "Saved.")
         return HTTPFound(self.action("identification"))
 
-    # The jobs about the records of the type. A button starts one with the fields of its own form
+    # The jobs about the records of the type. A button starts one with the fields of its
+    # own form
     # (`jobs.js`); the validate job also asks for the schema file to check them against.
     TYPE_JOBS = ("validate", "export", "rewrite", "purge_slugs")
 
@@ -706,9 +833,11 @@ class TypeManage(Manage):
                 job.start_permission, jobs_node
             ):
                 continue
-            files = [(f, f) for f in assets.schemas_of(res_type.assets)] if (
-                job.name == "validate" and res_type.assets
-            ) else []
+            files = (
+                [(f, f) for f in assets.schemas_of(res_type.assets)]
+                if (job.name == "validate" and res_type.assets)
+                else []
+            )
             if files:
                 files.insert(0, ("", "the schema the type is on"))
             items.append(
@@ -716,7 +845,9 @@ class TypeManage(Manage):
                     "name": job.name,
                     "title": job.title,
                     "description": job.description,
-                    "url": request.resource_url(jobs_node, "start", query={"job": job.name}),
+                    "url": request.resource_url(
+                        jobs_node, "start", query={"job": job.name}
+                    ),
                     "schemas": files,
                     "fields": "res_type,schema" if files else "res_type",
                 }

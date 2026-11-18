@@ -1,16 +1,19 @@
-"""The code behind `gracia:` predicates: the form of a record is one Colander schema made from the
-shape of the record (SHACL, with the shape of its content embedded), and a predicate is the code for
-one property, registered under the URI of that property."""
-
 import re
 
 import pyoxigraph as ox
 from pyramid.exceptions import ConfigurationConflictError
+from support import must_search
 from test_edit import EditCase
 
 from gracia import predicates, uri
 from gracia.main import make_config
-from gracia.predicates import Predicate, gracia_label, gracia_resource_uri, gracia_schema_template, predicate
+from gracia.predicates import (
+    Predicate,
+    gracia_label,
+    gracia_resource_uri,
+    gracia_schema_template,
+    predicate,
+)
 from gracia.utils import assets
 
 FOAF = "http://xmlns.com/foaf/0.1/"
@@ -19,15 +22,19 @@ SH = "http://www.w3.org/ns/shacl#"
 
 @predicate(FOAF + "mbox")
 class MboxPredicate(Predicate):
-    """The code for a property of the content of a person: another description, and what is stored
-    is the address in lower case."""
+    """The code for a property of the content of a person: another description, and what
+    is stored is the address in lower case."""
 
     def schema_node(self, record, request, schema_node=None):
         schema_node.description = "in lower case"
         return schema_node
 
     def on_write_sql(self, context):
-        return [f"UPDATE {context.flat} SET lit = lower(lit) WHERE {context.of_type} AND p = '{FOAF}mbox'"]
+        return [
+            f"UPDATE {context.flat} SET lit = lower(lit) WHERE {context.of_type} AND p "
+            "= "
+            f"'{FOAF}mbox'"
+        ]
 
 
 class PredicateCase(EditCase):
@@ -60,7 +67,9 @@ class RegistryTest(PredicateCase):
             (uri.SCHEMA_TEMPLATE, gracia_schema_template),
             (uri.LABEL, gracia_label),
         ):
-            self.assertEqual(type(predicates.find(property_uri)).__module__, module.__name__)
+            self.assertEqual(
+                type(predicates.find(property_uri)).__module__, module.__name__
+            )
         self.assertIsNone(predicates.find(FOAF + "mbox"))  # nothing for it
         self.assertIsNone(predicates.find(uri.NAME))
 
@@ -90,7 +99,9 @@ class RegistryTest(PredicateCase):
 
 
 class RecordShapeTest(PredicateCase):
-    def test_the_shape_of_a_record_embeds_the_shape_of_its_content_on_gracia_resource(self):
+    def test_the_shape_of_a_record_embeds_the_shape_of_its_content_on_gracia_resource(
+        self,
+    ):
         self.config.begin()
         self.addCleanup(self.config.end)
         data, node = self.repo()["person"].record_shape()
@@ -109,41 +120,70 @@ class RecordShapeTest(PredicateCase):
         classes = data.objects(embedded[0], ox.NamedNode(SH + "targetClass"))
         self.assertEqual([c.value for c in classes], [FOAF + "Person"])
         required = data.objects(properties[uri.RESOURCE], ox.NamedNode(SH + "class"))
-        self.assertEqual([c.value for c in required], [FOAF + "Person"])  # and it has to be one
+        self.assertEqual(
+            [c.value for c in required], [FOAF + "Person"]
+        )  # and it has to be one
 
     def test_a_type_without_a_shape_still_has_the_record_shape_and_its_class(self):
         data, node = assets.record_shape(None, FOAF + "Person")
         properties = data.objects(node, ox.NamedNode(SH + "property"))
         self.assertEqual(len(properties), 7)
-        classes = [c for p in properties for c in data.objects(p, ox.NamedNode(SH + "class"))]
+        classes = [
+            c for p in properties for c in data.objects(p, ox.NamedNode(SH + "class"))
+        ]
         self.assertEqual([c.value for c in classes], [FOAF + "Person"])
 
     def test_the_fields_follow_sh_order_with_the_content_on_a_tab_of_its_own(self):
         record = self.repo()["person"]["1"]
         self.assertEqual(
-            [c.name for c in record.edit_schema().children], ["resource_uri", "label", "slug", "resource", "is_published", "created_at", "modified_at"],
+            [c.name for c in record.edit_schema().children],
+            [
+                "resource_uri",
+                "label",
+                "slug",
+                "resource",
+                "is_published",
+                "created_at",
+                "modified_at",
+            ],
         )
         tabs = re.findall(r'data-bs-toggle="tab"[^>]*>([^<]+)', self.page().text)
-        self.assertEqual(tabs, ["Person", "Record"])  # the content is a tab, loose fields another
+        self.assertEqual(
+            tabs, ["Person", "Record"]
+        )  # the content is a tab, loose fields another
 
     def test_every_node_knows_the_property_it_is_for(self):
         record = self.repo()["person"]["1"]
         schema = record.edit_schema()
         self.assertEqual(
-            [c.predicate for c in schema.children], [uri.RESOURCE_URI, uri.LABEL, uri.SLUG, uri.RESOURCE, uri.IS_PUBLISHED, uri.CREATED_AT, uri.MODIFIED_AT],
+            [c.predicate for c in schema.children],
+            [
+                uri.RESOURCE_URI,
+                uri.LABEL,
+                uri.SLUG,
+                uri.RESOURCE,
+                uri.IS_PUBLISHED,
+                uri.CREATED_AT,
+                uri.MODIFIED_AT,
+            ],
         )
         content = schema["resource"]
-        self.assertEqual([c.predicate for c in content.children], [FOAF + "name", FOAF + "mbox"])
+        self.assertEqual(
+            [c.predicate for c in content.children], [FOAF + "name", FOAF + "mbox"]
+        )
 
 
 class PropertyCodeTest(PredicateCase):
     predicates = (MboxPredicate,)
 
-    def test_a_predicate_changes_the_field_the_shape_made_and_stores_the_value_itself(self):
+    def test_a_predicate_changes_the_field_the_shape_made_and_stores_the_value_itself(
+        self,
+    ):
         client = self.client(self.config)
         form = client.get("/library/person/1/edit", headers=self.admin).forms[0]
         self.assertIn(
-            "in lower case", client.get("/library/person/1/edit", headers=self.admin).text
+            "in lower case",
+            client.get("/library/person/1/edit", headers=self.admin).text,
         )
         form["mbox"] = "ADA@Example.ORG"
         self.assertEqual(form.submit("save", headers=self.admin).status_int, 302)
@@ -158,14 +198,17 @@ class PropertyCodeTest(PredicateCase):
 
 
 class ResourceUriTest(PredicateCase):
-    """`gracia:resource_uri`: all of its code is in `predicates/gracia_resource_uri.py`."""
+    """`gracia:resource_uri`: all of its code is in
+    `predicates/gracia_resource_uri.py`."""
 
     def test_a_new_record_gets_the_ark_from_the_predicate(self):
         client = self.client(self.config)
         form = client.get("/library/person/add", headers=self.admin).forms[0]
         form["name"] = "Grace"
         form.submit("save", headers=self.admin)
-        self.assertIn((uri.RESOURCE_URI, "ark:/99999/ir/person/2"), self.values("rec:person:2"))
+        self.assertIn(
+            (uri.RESOURCE_URI, "ark:/99999/ir/person/2"), self.values("rec:person:2")
+        )
 
     def test_the_core_and_the_extension_have_no_code_for_it(self):
         from gracia import resources
@@ -176,11 +219,12 @@ class ResourceUriTest(PredicateCase):
 
 
 class SchemaTest(PredicateCase):
-    """`gracia:schemaTemplate`: a select of the files of the directory `gracia:assets` names."""
+    """`gracia:schemaTemplate`: a select of the files of the directory `gracia:assets`
+    names."""
 
     def test_the_type_record_offers_the_files_of_its_directory(self):
         page = self.page("/library/person/manage").text
-        select = re.search(r'<select name="schema".*?</select>', page, re.S)[0]
+        select = must_search(r'<select name="schema".*?</select>', page, re.S)[0]
         self.assertEqual(
             re.findall(r'<option[^>]*value="([^"]+)"', select),
             ["Person-full-01.ttl", "Person-minimal-01.ttl"],
@@ -194,7 +238,10 @@ class SchemaTest(PredicateCase):
     def test_the_predicate_is_the_one_for_gracia_schema_wherever_the_shape_has_it(self):
         self.config.begin()
         self.addCleanup(self.config.end)
-        self.assertIsInstance(predicates.find(uri.SCHEMA_TEMPLATE), gracia_schema_template.SchemaTemplatePredicate)
+        self.assertIsInstance(
+            predicates.find(uri.SCHEMA_TEMPLATE),
+            gracia_schema_template.SchemaTemplatePredicate,
+        )
 
 
 class RecordMark(Predicate):
@@ -222,14 +269,16 @@ class HookTest(PredicateCase):
 
 
 class BatchHookTest(PredicateCase):
-    """The SQL of a predicate works on all the records of a batch at once, and can be run again."""
+    """The SQL of a predicate works on all the records of a batch at once, and can be
+    run again."""
 
     predicates = (MboxPredicate,)
 
     def people(self) -> ox.Dataset:
         text = "".join(
-            f'<rec:person:{n}> a <{uri.RECORD_CLASS}> ; '
-            f'<{uri.RESOURCE}> [ a <{FOAF}Person> ; <{FOAF}name> "P{n}" ; <{FOAF}mbox> "A{n}@X.ORG" ] .\n'
+            f"<rec:person:{n}> a <{uri.RECORD_CLASS}> ; "
+            f'<{uri.RESOURCE}> [ a <{FOAF}Person> ; <{FOAF}name> "P{n}" ; <{FOAF}mbox> '
+            f'"A{n}@X.ORG" ] .\n'
             for n in (1, 2, 3)
         )
         return ox.Dataset(ox.parse(text.encode(), format=ox.RdfFormat.TURTLE))
@@ -248,8 +297,13 @@ class BatchHookTest(PredicateCase):
         node = self.repo()
         once = node.with_hooks(self.people())
         twice = node.with_hooks(once)
-        # modified_at is the time of the run: a text that differs from what is stored is modified now
-        same = lambda graph: {str(q) for q in graph if q.predicate.value != uri.MODIFIED_AT}  # noqa: E731
+        # modified_at is the time of the run: a text that differs from what is stored is
+        # modified
+        # now
+
+        def same(graph):
+            return {str(q) for q in graph if q.predicate.value != uri.MODIFIED_AT}
+
         self.assertEqual(same(once), same(twice))
 
 
@@ -259,4 +313,6 @@ class SaveTest(PredicateCase):
         with self.application.open_repository("library") as store:
             record.save(store)
         self.assertIn((uri.LABEL, "Ada"), self.values("rec:person:1"))
-        self.assertIn((uri.RESOURCE_URI, "ark:/99999/ir/person/1"), self.values("rec:person:1"))
+        self.assertIn(
+            (uri.RESOURCE_URI, "ark:/99999/ir/person/1"), self.values("rec:person:1")
+        )
