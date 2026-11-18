@@ -5,7 +5,6 @@ import threading
 import pyoxigraph as ox
 from base import DbTestCase
 
-from gracia import history
 from gracia.graph import Graph
 from gracia.store import DuplicateValue, Store
 

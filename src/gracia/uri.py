@@ -35,6 +35,8 @@ GRACIA_NS = "https://gracia.pub/ns/"
 G_NS = NS(GRACIA_NS)
 RDF_NS = NS("http://www.w3.org/1999/02/22-rdf-syntax-ns#")
 SH_NS = NS("http://www.w3.org/ns/shacl#")
+XSD_NS = NS("http://www.w3.org/2001/XMLSchema#")
+XSL_NS = NS("http://www.w3.org/1999/XSL/Transform")
 
 # classes
 REPOSITORY_CLASS = G_NS.Repository

@@ -8,10 +8,6 @@ from gracia.views import fragment
 
 
 class SchemaWidget(deform.widget.SelectWidget):
-    """The select of `gracia:schemaTemplate` of a type, with a Validate button at its end: the validate
-    job checks every record of the type against the file chosen, before it is saved. The page
-    includes the job panel (compact) for the dialog that follows the job."""
-
     def __init__(self, values, request, jobs, res_type: str, **kw):
         super().__init__(values=values, **kw)
         self.request, self.jobs, self.res_type = request, jobs, res_type
@@ -35,10 +31,6 @@ class SchemaWidget(deform.widget.SelectWidget):
 
 @predicate(uri.SCHEMA_TEMPLATE)
 class SchemaTemplatePredicate(Predicate):
-    """`gracia:schemaTemplate` of a type (or of the repository): one of the files in the directory that
-    `gracia:assets` of the same content names. The field is a select of those files, so a name
-    that is not a file of it cannot be saved; where the directory is not known (a type that is
-    being made) it stays the text field the shape made."""
 
     def schema_node(self, record, request, schema_node=None):
         prefix = record.content_value(uri.ASSETS)
@@ -47,7 +39,7 @@ class SchemaTemplatePredicate(Predicate):
             return schema_node
         current = record.content_value(uri.SCHEMA_TEMPLATE)
         if current and current not in files:
-            files = [current, *files]  # what is there now stays a choice: a form must not lose it
+            files = [current, *files]
         choices = [(f, f) for f in files]
         slug = record.content_value(uri.SLUG)
         if request is not None and record.type.class_uri == uri.TYPE_CLASS and slug:

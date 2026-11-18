@@ -2,7 +2,7 @@
 
 It comes from the doc cache when the doc there was made from the record as it is now and by the
 stylesheets as they are now; otherwise it is made from the graph of the record by the doc stylesheet of the
-repository (`gracia.docs`) and kept. For whoever may manage (`manage`).
+repository (`DocStore`) and kept. For whoever may manage (`manage`).
 
     GET .../doc      the doc, as JSON (500 with `{"record", "error"}` when it cannot be made)
 """

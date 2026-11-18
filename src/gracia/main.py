@@ -1,28 +1,10 @@
-"""The web application (Pyramid), by traversal. This is where everything starts.
-
-    /                  the repositories
-    /<repo-id>/        one repository: 200 with its figures, 404 when it does not exist
-    /<repo-id>/api     the OpenAPI document of that repository, for the caller
-    /<repo-id>/manage  an HTML form for the repository resource, generated from its stored shape
-
-The resource tree is in `gracia.resources` (the `Application` is the root, with a `Repository` for every
-repository) and the views are in `gracia.views`, registered with `@view_config` and found by
-`config.scan`. Every view needs a permission (`view` unless it says otherwise): default deny.
-Handlers are plain functions on a WSGI stack: each request runs in a server thread and gets its
-own `Store` on its own cursor.
-
-`gracia.main` is a Pyramid add-on: `config.include("gracia.main")`, with the database in the
-`gracia.db` setting (default `$GRACIA_DB`, else `gracia.db`), or an open `Application` in
-`gracia.application` (tests). Extensions include their own packages the same way, and describe
-what they add with `config.add_api_operation(...)`.
-"""
-
 import importlib
 import os
 import secrets
 
 from pyramid.config import Configurator
 from pyramid.session import SignedCookieSessionFactory
+from pyramid.events import ApplicationCreated, NewResponse
 
 from gracia import (
     apidoc,
@@ -38,39 +20,7 @@ from gracia.jobs import job as jobs_job
 from gracia.jobs.stage import load_modules
 from gracia.security import UsersPolicy
 from gracia.views import deform as views_deform
-
-
-def store(request):
-    """`request.store`: the `Store` of the repository the request reached, opened on first use
-    (by the node, which closes it when the request is finished). `request.root` is the
-    `Application`. `request.context.repository` is the repository itself."""
-    repository = getattr(request.context, "repository", None)
-    if repository is None:
-        raise LookupError("this request did not reach a repository")
-    return repository.store()
-
-
-def _follow_the_writes(config: Configurator, application: Application, settings: dict) -> None:
-    """The worker that hands the changes of every repository to the subscribers of
-    `gracia.actions.RecordsChanged` (see there): started when the application is made, woken by a
-    response to a request that may have written something, kept running by `Cache.check`."""
-    from pyramid.events import ApplicationCreated, NewResponse
-
-    from gracia.actions import BATCH, BATCH_BYTES, POLL, Worker, lock_dir_for
-
-    worker = Worker(
-        application,
-        config.registry,
-        lock_dir=lock_dir_for(settings),
-        batch=int(settings.get("gracia.worker.batch") or BATCH),
-        batch_bytes=int(settings.get("gracia.worker.batch_bytes") or BATCH_BYTES),
-        poll=float(settings.get("gracia.worker.poll") or POLL),
-    )
-    application.cache.worker = worker
-    config.add_subscriber(lambda event: worker.start(), ApplicationCreated)
-    config.add_subscriber(
-        lambda event: event.request.method in ("GET", "HEAD", "OPTIONS") or worker.wake(), NewResponse
-    )
+from gracia.actions import BATCH, BATCH_BYTES, POLL, Worker, lock_dir_for
 
 
 def includeme(config: Configurator) -> None:
@@ -87,15 +37,37 @@ def includeme(config: Configurator) -> None:
         )
     config.registry["application"] = application
     config.registry["application_owned"] = owned
+    
+    def store(request):
+        repository = getattr(request.context, "repository", None)
+        if repository is None:
+            raise LookupError("this request did not reach a repository")
+        return repository.store()
     config.add_request_method(store, name="store", reify=True)
+    
     if settings.get("gracia.index_dir"):  # the search index follows what the worker hands over
         from gracia import search
         from gracia.actions import RecordsChanged
 
         application.indexes = search.Indexes(settings["gracia.index_dir"])
         config.add_subscriber(search.on_records_changed, RecordsChanged)
+        
     if str(settings.get("gracia.worker", "")).lower() in ("1", "true", "yes", "on"):
-        _follow_the_writes(config, application, settings)
+        # spawn the worker thread, that watches the actions queue 
+        worker = Worker(
+            application,
+            config.registry,
+            lock_dir=lock_dir_for(settings),
+            batch=int(settings.get("gracia.worker.batch") or BATCH),
+            batch_bytes=int(settings.get("gracia.worker.batch_bytes") or BATCH_BYTES),
+            poll=float(settings.get("gracia.worker.poll") or POLL),
+        )
+        application.cache.worker = worker
+        config.add_subscriber(lambda event: worker.start(), ApplicationCreated)
+        config.add_subscriber(
+            lambda event: event.request.method in (
+                "GET", "HEAD", "OPTIONS") or worker.wake(), NewResponse
+        )
 
     config.set_root_factory(lambda request: request.registry["application"])
     policy = settings.get("gracia.security_policy")
@@ -184,7 +156,8 @@ def includeme(config: Configurator) -> None:
         at="jobs",
     )
     config.add_api_operation(
-        "/jobs/{id}", "One job: state, task, progress", "view_job", at="jobs", shown="list_jobs"
+        "/jobs/{id}", "One job: state, task, progress",
+        "view_job", at="jobs", shown="list_jobs"
     )
     config.add_api_operation(
         "/jobs/{id}/stop",
@@ -197,13 +170,10 @@ def includeme(config: Configurator) -> None:
 
 
 def make_config(settings: dict | None = None) -> Configurator:
-    """A configurator with gracia included. The application and the tests build their
-    configuration the same way; an extension is one more `config.include(...)`."""
     config = Configurator(settings=dict(settings or {}))
     config.include("gracia.main")
     return config
 
 
 def make_app(settings: dict | None = None):
-    """The WSGI application. `app.registry["application"]` is the open `Application`."""
     return make_config(settings).make_wsgi_app()

@@ -22,7 +22,7 @@ record, with the etag it was made at. An entry is used only when that etag is th
 nothing has to be invalidated: a stale entry is never matched, and the next write of the record
 replaces it.
 
-The doc of a record (`gracia.docs`: the JSON made of its graph by the doc stylesheets) is kept in a second LMDB
+The doc of a record (`DocStore`: the JSON made of its graph by the doc stylesheets) is kept in a second LMDB
 directory (`<graph dir>/docs`) with the etag of the graph and the fingerprint of the stylesheets it was made
 with. The compiled doc stylesheet of a repository is kept with its generation: SaxonC resolves the imports
 when it compiles, so it must not outlive a change of the repository (a type with another `docTemplate` is a
@@ -35,12 +35,14 @@ import logging
 import os
 import threading
 from pathlib import Path
+from xml.sax.saxutils import quoteattr
 
 import duckdb
 import lmdb
 import pyoxigraph as ox
 
-from gracia.utils import xslt
+from gracia.uri import XSL_NS
+from gracia.utils import assets, xslt
 
 log = logging.getLogger(__name__)
 
@@ -131,17 +133,133 @@ class GraphStore:
 
 
 class DocStore(GraphStore):
-    """Docs (JSON) by repository and record id, each with the etag of the graph it was made from and the
-    fingerprint of the stylesheets that made it: the entry is used only for both. The same file layout and
-    the same behaviour when the map is full as `GraphStore`."""
+    """The docs (JSON) of records: made by the doc stylesheet of a repository and kept in LMDB by repository
+    and record id, each with the etag of the graph it was made from and the fingerprint of the stylesheet that
+    made it (the entry is used only for both). The same file layout and the same behaviour when the map is
+    full as `GraphStore`. Without a `path` nothing is kept: docs are made every time.
+
+    The doc stylesheet of a repository is the base and the `docTemplate` of each of its types, imported by one
+    generated stylesheet and compiled once. The store keeps it for as long as the repository stays as it is
+    (`drop`, called by `Cache.check` when the repository was written): SaxonC resolves the imports when it
+    compiles, so a compiled stylesheet must not outlive a change of the files or of the types. The registry
+    of the application has to be the current one when it is compiled (a request has put it there,
+    `gracia.actions` does it for the worker)."""
+
+    BUNDLED_BASE = "gracia.types:type/doc/doc-base-01.xsl"
+
+    def __init__(self, application, path: str | Path | None = None):
+        self._application = application
+        self._compiled: dict[str, xslt.Compiled] = {}  # repo: its doc stylesheet
+        self._lock = threading.RLock()  # compiling asks the database, which may look at the cache
+        if path is not None:
+            super().__init__(path)
+        else:
+            self._env = None
+
+    @property
+    def keeps(self) -> bool:
+        """Whether docs are kept (there is a directory) or only made."""
+        return self._env is not None
 
     def get(self, repo: str, record_id: int, etag: str, fingerprint: str = "") -> bytes | None:
+        if self._env is None:
+            return None
         tag = (etag + fingerprint).encode()
         with self._env.begin() as txn:
             value = txn.get(self._key(repo, record_id))
             if value is not None and value[: len(tag)] == tag:
                 return bytes(value[len(tag) :])
         return None
+
+    def compiled(self, repository) -> xslt.Compiled:
+        """The doc stylesheet of a repository, compiled once for as long as it stays as it is."""
+        self._application.cache.check()  # a repository that was written drops its stylesheet
+        with self._lock:
+            found = self._compiled.get(repository.__name__)
+            if found is None:
+                found = self._compiled[repository.__name__] = self._compile(repository)
+            return found
+
+    def drop(self, repo: str) -> None:
+        """Let go of the compiled doc stylesheet of a repository (the next doc compiles it again)."""
+        with self._lock:
+            old = self._compiled.pop(repo, None)
+        if old is not None:
+            old.close()  # waits for a run that is going on; one that has not started gets a fresh one (`_run`)
+
+    def _compile(self, repository) -> xslt.Compiled:
+        """Roll up the doc stylesheets: the base, then the `docTemplate` of each type that has one, by slug
+        (`import`, so what a type says is of higher precedence). A type whose file is not there, or is not
+        named right, is left out (and logged): its records get the doc of the base, and the other types go on."""
+
+        def resolve(href: str):
+            try:
+                return repository.resolve_type(href)
+            except LookupError:
+                if href == assets.DOC_BASE:  # a bare repository, made by a script, has no type `type`
+                    return assets.resolve(self.BUNDLED_BASE)
+                raise
+
+        addresses = [assets.DOC_BASE]
+        for slug, res_type in sorted(repository.res_types.items()):
+            if not res_type.doc_template:
+                continue
+            try:
+                href = assets.doc_href(slug, res_type.doc_template)
+                resolve(href)
+            except (ValueError, LookupError, FileNotFoundError) as err:
+                log.warning("%s: the doc template of %s is not used: %s", repository.__name__, slug, err)
+                continue
+            addresses.append(href)
+        imports = "".join(f'<xsl:import href="{href}"/>' for href in addresses)
+        return xslt.Compiled(f'<xsl:stylesheet version="3.0" xmlns:xsl="{XSL_NS}">{imports}</xsl:stylesheet>', resolve)
+
+    def _run(self, repository, params: dict[str, str], xml: str) -> tuple[str, xslt.Compiled]:
+        """The output of the stylesheet of the repository over `xml`, and the stylesheet that made it. One that
+        was dropped while it was waited for is made again once."""
+        for attempt in (1, 2):
+            compiled = self.compiled(repository)
+            try:
+                return compiled.transform(xml, params), compiled
+            except xslt.XsltError:
+                if attempt == 2 or not compiled.closed:
+                    raise
+        raise AssertionError("unreachable")
+
+    def bulk_update(
+        self, repository, ids: dict[str, int], rdfxml: str, etags: dict[int, str] | None = None
+    ) -> dict[str, dict]:
+        """The docs of the records `ids` (uri -> record id) of a repository, by record uri, from RDF/XML that
+        has them and what they are made of: one run of the stylesheet for all of them, and the ones that could
+        be made are kept under their etag (`etags`: record id -> etag of the graph; without it nothing is kept).
+        A doc that could not be made is `{"record": uri, "error": why}`, is logged and is not kept."""
+        if not ids:
+            return {}
+        out, compiled = self._run(repository, {"records": json.dumps(ids)}, rdfxml)
+        made = {doc["record"]: doc for doc in json.loads(out)}
+        entries = []
+        for uri, doc in made.items():
+            if "error" in doc:
+                log.warning("%s: no doc for %s: %s", repository.__name__, uri, doc["error"])
+            elif etags is not None and uri in ids:
+                entries.append((repository.__name__, ids[uri], etags[ids[uri]] + compiled.fingerprint, json.dumps(doc).encode()))
+        if entries and self._env is not None:
+            self.put_many(entries)
+        return made
+
+    def schema(self, repository, slugs: list[str]) -> list[dict]:
+        """The fields the docs of the types `slugs` have (the schema mode of the doc stylesheet): one dict for
+        each, in the form of `gracia.search.Field.as_dict()` and `types`, the slugs of the types that have it
+        (and `conflict` when two of them say it differently)."""
+        types = "".join(f"<type slug={quoteattr(slug)}/>" for slug in slugs)
+        return json.loads(self._run(repository, {"schema": "true"}, f"<types>{types}</types>")[0])
+
+    def close(self) -> None:
+        for repo in list(self._compiled):
+            self.drop(repo)
+        if self._env is not None:
+            super().close()
+            self._env = None
 
 
 def dataset_rdfxml(dataset: ox.Dataset) -> bytes:
@@ -171,8 +289,6 @@ class Cache:
         self._graph_dir = graph_dir
         self._graphs: GraphStore | None = None  # opened by the first use
         self._docs: DocStore | None = None  # likewise
-        self._compiled: dict[str, xslt.Compiled] = {}  # repo: its doc stylesheet, of the generation it is in
-        self._compiled_lock = threading.RLock()  # compiling asks the database, which may look at the cache
         self.worker = None  # what follows the writes (`gracia.actions.Worker`): kept running by `check`
 
     @property
@@ -199,9 +315,11 @@ class Cache:
         finally:
             connection.close()
 
-    def _doc_store(self) -> DocStore | None:
-        if self._docs is None and self._graph_dir:
-            self._docs = DocStore(Path(self._graph_dir) / "docs")
+    @property
+    def docs(self) -> DocStore:
+        """The docs: their cache (if there is a directory) and the doc stylesheets, opened by the first use."""
+        if self._docs is None:
+            self._docs = DocStore(self._application, Path(self._graph_dir) / "docs" if self._graph_dir else None)
         return self._docs
 
     def _graph_store(self) -> GraphStore | None:
@@ -233,7 +351,7 @@ class Cache:
             generation = self._generations.get(repo)
             if generation is None or generation[0] != moment:
                 self._generations[repo] = (moment, {})
-                self._drop_compiled(repo)
+                self.docs.drop(repo)
         self._seen = signature
 
     def etags(self, repo: str, record_ids) -> dict[int, tuple[str, tuple[str, ...]] | None]:
@@ -253,60 +371,6 @@ class Cache:
                 generation[i] = found.get(i)
         return {i: generation[i] for i in record_ids}
 
-    def _drop_compiled(self, repo: str) -> None:
-        """Let go of the compiled doc stylesheet of a repository (the next doc compiles it again)."""
-        with self._compiled_lock:
-            old = self._compiled.pop(repo, None)
-        if old is not None:
-            old.close()  # waits for a run that is going on; one that has not started gets a fresh one (`docs_made`)
-
-    def compiled(self, repo: str) -> xslt.Compiled:
-        """The doc stylesheet of a repository, compiled once for as long as the repository stays as it is
-        (see the module). The registry of the application has to be the current one: a request has put
-        it there, `gracia.actions` does it for the worker."""
-        self.check()
-        with self._compiled_lock:
-            found = self._compiled.get(repo)
-            if found is not None:
-                return found
-            from gracia import docs
-            from gracia.resources import Repository
-
-            repository = Repository(repo, self._application)
-            try:
-                found = self._compiled[repo] = docs.compile(repository)
-            finally:
-                repository.close()
-            return found
-
-    def docs_made(self, repo: str, ids: dict[str, int], rdfxml: str) -> tuple[dict[str, dict], str]:
-        """`gracia.docs.make` with the doc stylesheet of the repository: `(the docs by record uri, the
-        fingerprint of the stylesheets)`. A stylesheet that was dropped while it was waited for is made
-        again once."""
-        from gracia import docs
-
-        for attempt in (1, 2):
-            compiled = self.compiled(repo)
-            try:
-                return docs.make(compiled, ids, rdfxml), compiled.fingerprint
-            except xslt.XsltError:
-                if attempt == 2 or not compiled.closed:
-                    raise
-        raise AssertionError("unreachable")
-
-    def schema_made(self, repo: str, slugs: list[str]) -> list[dict]:
-        """`gracia.docs.schema` with the doc stylesheet of the repository."""
-        from gracia import docs
-
-        for attempt in (1, 2):
-            compiled = self.compiled(repo)
-            try:
-                return docs.schema(compiled, slugs)
-            except xslt.XsltError:
-                if attempt == 2 or not compiled.closed:
-                    raise
-        raise AssertionError("unreachable")
-
     @property
     def keeps_docs(self) -> bool:
         """Whether there is a doc cache to keep (a graph directory is set)."""
@@ -316,29 +380,23 @@ class Cache:
         """The doc of a record, or None when the record has no etag. Kept, or made from the graph and
         kept (when there is a directory for it). A doc that cannot be made is `{"record", "error"}`,
         and is not kept."""
+        from gracia.resources import Repository
+
         current = self.etags(repo, [record_id])[record_id]
         if current is None:
             return None
-        store = self._doc_store()
-        if store is not None:
-            fingerprint = self.compiled(repo).fingerprint
-            if (kept := store.get(repo, record_id, current[0], fingerprint)) is not None:
-                return json.loads(kept)
-        xml = self.graph(repo, record_id)
-        if xml is None:
-            return None
-        made, fingerprint = self.docs_made(repo, {record_uri: record_id}, xml.decode())
-        doc = made[record_uri]
-        if store is not None and "error" not in doc:
-            store.put_many([(repo, record_id, current[0] + fingerprint, json.dumps(doc).encode())])
-        return doc
-
-    def keep_docs(self, repo: str, fingerprint: str, entries) -> None:
-        """Put docs in the doc cache, `(record_id, etag, doc)` each, in one transaction."""
-        store = self._doc_store()
-        if store is None:
-            raise ValueError("there is no doc cache: set gracia.cache_dir")
-        store.put_many((repo, i, etag + fingerprint, json.dumps(doc).encode()) for i, etag, doc in entries)
+        repository = Repository(repo, self._application)
+        try:
+            if self.keeps_docs:
+                fingerprint = self.docs.compiled(repository).fingerprint
+                if (kept := self.docs.get(repo, record_id, current[0], fingerprint)) is not None:
+                    return json.loads(kept)
+            xml = self.graph(repo, record_id)
+            if xml is None:
+                return None
+            return self.docs.bulk_update(repository, {record_uri: record_id}, xml.decode(), {record_id: current[0]})[record_uri]
+        finally:
+            repository.close()
 
     def graph(self, repo: str, record_id: int) -> bytes | None:
         """The RDF/XML of a record and everything its page is made of, or None when the record has no
@@ -386,15 +444,12 @@ class Cache:
         graphs = self._graph_store()
         if graphs is not None:
             graphs.delete_many(repo, record_ids)
-        docs = self._doc_store()
-        if docs is not None:
-            docs.delete_many(repo, record_ids)
+        if self.keeps_docs:
+            self.docs.delete_many(repo, record_ids)
 
     def close(self) -> None:
         if self.worker is not None:
             self.worker.stop()
-        for repo in list(self._compiled):
-            self._drop_compiled(repo)
         if self._docs is not None:
             self._docs.close()
             self._docs = None

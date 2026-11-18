@@ -325,7 +325,7 @@ class RepositoryManage(Manage):
         sections, problem = [], None
         if notice is None:
             try:
-                offered = application.cache.schema_made(repository.__name__, list(repository.res_types))
+                offered = application.cache.docs.schema(repository, list(repository.res_types))
             except Exception as err:  # a stylesheet that does not work is a message, not a failed page
                 offered, problem = [], f"The doc stylesheets could not make the schema: {err}"
             for definition in search.definitions_for(repository):
@@ -371,7 +371,7 @@ class RepositoryManage(Manage):
         try:
             extension = repository.extension("search")
             if "add" in post:
-                offered = request.root.cache.schema_made(repository.__name__, list(repository.res_types))
+                offered = request.root.cache.docs.schema(repository, list(repository.res_types))
                 field = next((f for f in offered if f["name"] == post["add"]), None)
                 if field is None:
                     raise ExtensionError([f"no doc has a field {post['add']!r}"])

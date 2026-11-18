@@ -1,20 +1,3 @@
-"""The ARK extension: the resources of a repository are published under ARKs
-(`ark:/<authority number>/<root prefix>/<type>/<number>`, the default `gracia:resource_uri` of a
-record, made by its predicate in `predicates/gracia_resource_uri.py`), and `/<repo>/ark:/...` sends a caller to the record.
-
-It is always on and cannot be disabled: the ARKs that were given out have to keep resolving.
-
-The two settings are not editable yet, and that is a gap that is meant to be closed: changing them
-is changing the `gracia:resource_uri` of every record, and every place in the graph where one is
-used as an object, which is a bulk operation that is not there yet. Until it is, the validators
-only match `99999` and `ir` (so the form, an import and `set_settings` refuse anything else and
-say so), and the real validators are commented out beside them. The settings a repository was
-*made* with are kept (`create_repository(ark=...)`; they are read, not validated). When the bulk
-operation exists, the strict validators go and the real ones come back.
-The authority number `99999` is the one ARK keeps for tests: ARKs made with it are not persistent
-until it is a number that was registered.
-"""
-
 import functools
 
 import colander

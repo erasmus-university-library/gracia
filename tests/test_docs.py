@@ -1,4 +1,4 @@
-"""Docs: the JSON made of a record by the doc stylesheets (`gracia.docs`), their cache, the worker step that
+"""Docs: the JSON made of a record by the doc stylesheets (`DocStore`), their cache, the worker step that
 makes them and `<record>/doc`."""
 
 import base64
@@ -12,7 +12,7 @@ import pyoxigraph as ox
 from pyramid.registry import Registry
 from test_web import WebCase
 
-from gracia import docs, types
+from gracia import types
 from gracia.actions import RecordsChanged, process_pending
 from gracia.application import Application
 from gracia.utils import assets, xslt
@@ -70,6 +70,14 @@ class DocsCase(WebCase):
         with self.application.open_repository("library") as store:
             return store.record_id_of(rec_uri)
 
+    def library(self):
+        repository = self.application["library"]
+        self.addCleanup(repository.close)
+        return repository
+
+    def compiled(self):
+        return self.cache.docs.compiled(self.library())
+
     def doc(self, rec_uri: str) -> dict:
         return self.cache.doc("library", self.rid(rec_uri), rec_uri)
 
@@ -110,7 +118,7 @@ class DocTest(DocsCase):
         with self.application.open_repository("library") as store:
             store.con.execute("DELETE FROM triples WHERE s = 'rec:repository:1'")
         self.cache.etags("library", [])  # nothing: the point is the compile below
-        self.application.cache._drop_compiled("library")
+        self.application.cache.docs.drop("library")
         self.assertEqual(self.doc("rec:thing:1")["slug"], "gear")
 
     def test_the_text_never_has_a_credential(self):
@@ -119,47 +127,49 @@ class DocTest(DocsCase):
         self.assertIn("Ed", doc["text"])
 
     def test_one_run_makes_the_docs_of_records_of_many_types(self):
-        compiled = self.cache.compiled("library")
         ids = {u: self.rid(u) for u in ("rec:person:1", "rec:thing:1")}
         merged = ox.Dataset(
             quad
             for i in ids.values()
             for quad in ox.parse(self.cache.graph("library", i), format=ox.RdfFormat.RDF_XML)
         )
-        made = docs.make(compiled, ids, ox.serialize(merged, format=ox.RdfFormat.RDF_XML).decode())
+        made = self.cache.docs.bulk_update(self.library(), ids, ox.serialize(merged, format=ox.RdfFormat.RDF_XML).decode())
         self.assertEqual(set(made), set(ids))
         self.assertIn("given_name", made["rec:person:1"])
         self.assertNotIn("given_name", made["rec:thing:1"])
 
     def test_a_record_that_is_not_in_the_input_is_an_error_and_the_others_are_made(self):
-        compiled = self.cache.compiled("library")
         xml = self.cache.graph("library", self.rid("rec:thing:1")).decode()
-        made = docs.make(compiled, {"rec:thing:1": 1, "rec:thing:99": 2}, xml)
+        made = self.cache.docs.bulk_update(self.library(), {"rec:thing:1": 1, "rec:thing:99": 2}, xml)
         self.assertIn("error", made["rec:thing:99"])
         self.assertNotIn("error", made["rec:thing:1"])
 
+    def person_doc(self, repository) -> dict:
+        rid = self.rid("rec:person:1")
+        xml = self.cache.graph("library", rid).decode()
+        return self.cache.docs.bulk_update(repository, {"rec:person:1": rid}, xml)["rec:person:1"]
+
     def test_a_doc_template_that_is_not_a_file_is_left_out_and_the_others_go_on(self):
-        repository = self.application["library"]
-        self.addCleanup(repository.close)
-        repository.res_types["person"].doc_template = "doc-nothing-01.xsl"
-        self.assertEqual(docs.hrefs(repository), [assets.DOC_BASE])
-        repository.res_types["person"].doc_template = "evil/../x.xsl"
-        self.assertEqual(docs.hrefs(repository), [assets.DOC_BASE])
+        repository = self.library()
+        for name in ("doc-nothing-01.xsl", "evil/../x.xsl"):
+            repository.res_types["person"].doc_template = name
+            self.cache.docs.drop("library")
+            with self.assertLogs("gracia.cache", level="WARNING"):
+                doc = self.person_doc(repository)
+            self.assertNotIn("given_name", doc)  # the doc of the base
+            self.assertEqual(doc["type"], "person")
 
     def test_the_type_record_names_the_doc_template(self):
-        repository = self.application["library"]
-        self.addCleanup(repository.close)
+        repository = self.library()
         self.assertEqual(repository.res_types["person"].doc_template, "doc-full-01.xsl")
-        self.assertIsNone(repository.res_types["thing"].doc_template if "thing" in repository.res_types else None)
-        self.assertIn("type:person/doc/doc-full-01.xsl", docs.hrefs(repository))
+        self.assertIn("given_name", self.person_doc(repository))
 
 
 class DocCacheTest(DocsCase):
     def make_counter(self):
-        calls = []
-        real = docs.make
-        docs.make = lambda *a, **k: (calls.append(1), real(*a, **k))[1]
-        self.addCleanup(setattr, docs, "make", real)
+        calls, docs = [], self.cache.docs
+        real = docs.bulk_update
+        docs.bulk_update = lambda *a, **k: (calls.append(1), real(*a, **k))[1]
         return calls
 
     def test_a_doc_is_made_once_and_kept(self):
@@ -177,9 +187,9 @@ class DocCacheTest(DocsCase):
     def test_a_doc_made_by_other_stylesheets_is_not_used(self):
         calls = self.make_counter()
         self.doc("rec:person:1")
-        store = self.cache._doc_store()
+        store = self.cache.docs
         rid, etag = self.rid("rec:person:1"), self.cache.etags("library", [self.rid("rec:person:1")])[self.rid("rec:person:1")][0]
-        fingerprint = self.cache.compiled("library").fingerprint
+        fingerprint = self.compiled().fingerprint
         self.assertIsNotNone(store.get("library", rid, etag, fingerprint))
         self.assertIsNone(store.get("library", rid, etag, "0123456789abcdef"))
         self.assertIsNone(store.get("library", rid, "f" * 16, fingerprint))
@@ -200,13 +210,13 @@ class DocCacheTest(DocsCase):
         rid = self.rid("rec:thing:1")
         self.cache.forget("library", [rid])
         etag = self.cache.etags("library", [rid])[rid][0]
-        self.assertIsNone(self.cache._doc_store().get("library", rid, etag, self.cache.compiled("library").fingerprint))
+        self.assertIsNone(self.cache.docs.get("library", rid, etag, self.compiled().fingerprint))
 
     def test_the_compiled_stylesheet_is_kept_until_the_repository_is_written(self):
-        first = self.cache.compiled("library")
-        self.assertIs(self.cache.compiled("library"), first)
+        first = self.compiled()
+        self.assertIs(self.compiled(), first)
         self.put(THING.replace("cog wheel", "cam"))
-        second = self.cache.compiled("library")
+        second = self.compiled()
         self.assertIsNot(second, first)
         self.assertTrue(first.closed)
         self.assertEqual(second.fingerprint, first.fingerprint)  # the same files, the same stamp
@@ -229,25 +239,22 @@ class WorkerTest(DocsCase):
         self.assertTrue(all("error" not in d for d in docs_.values()))
         rid = self.rid("rec:person:1")
         etag = self.cache.etags("library", [rid])[rid][0]
-        kept = self.cache._doc_store().get("library", rid, etag, self.cache.compiled("library").fingerprint)
+        kept = self.cache.docs.get("library", rid, etag, self.compiled().fingerprint)
         self.assertEqual(json.loads(kept), docs_["rec:person:1"])
 
     def test_the_view_then_serves_what_the_worker_made(self):
         self.run_worker()
         calls = []
-        real = docs.make
-        docs.make = lambda *a, **k: (calls.append(1), real(*a, **k))[1]
-        self.addCleanup(setattr, docs, "make", real)
+        real = self.cache.docs.bulk_update
+        self.cache.docs.bulk_update = lambda *a, **k: (calls.append(1), real(*a, **k))[1]
         got = self.client().get("/library/person/1/doc", headers=basic(*ADMIN))
         self.assertEqual(got.json["given_name"], "Ada")
         self.assertEqual(calls, [])
 
     def test_a_stylesheet_that_does_not_compile_does_not_stop_the_batch(self):
-        real = docs.compile
         def broken(repository):
             raise xslt.XsltError("no")
-        docs.compile = broken
-        self.addCleanup(setattr, docs, "compile", real)
+        self.cache.docs._compile = broken
         with self.assertLogs("gracia.actions", level="ERROR"):
             events = self.run_worker()
         self.assertTrue(events)
@@ -457,7 +464,7 @@ class SchemaModeTest(DocsCase):
     def offered(self) -> dict[str, dict]:
         repository = self.application["library"]
         self.addCleanup(repository.close)
-        return {f["name"]: f for f in self.cache.schema_made("library", list(repository.res_types))}
+        return {f["name"]: f for f in self.cache.docs.schema(repository, list(repository.res_types))}
 
     def test_the_base_fields_are_for_every_type_and_a_type_adds_its_own(self):
         found = self.offered()
@@ -479,7 +486,7 @@ class SchemaModeTest(DocsCase):
         self.assertNotIn("conflict", found["label"])
 
     def test_a_type_without_a_template_has_the_base_fields_only(self):
-        found = self.cache.schema_made("library", ["thing"])
+        found = self.cache.docs.schema(self.library(), ["thing"])
         self.assertNotIn("given_name", {f["name"] for f in found})
         self.assertEqual({tuple(f["types"]) for f in found}, {("thing",)})
 
@@ -491,7 +498,7 @@ class SchemaModeTest(DocsCase):
             self.assertLessEqual(set(self.doc(record)), declared, record)
 
     def test_two_types_that_say_a_field_differently_are_a_conflict(self):
-        base = assets.resolve(docs.BUNDLED_BASE).as_uri()
+        base = assets.resolve(self.cache.docs.BUNDLED_BASE).as_uri()
         text = (
             '<xsl:stylesheet version="3.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"'
             ' xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:map="http://www.w3.org/2005/xpath-functions/map"'
@@ -505,9 +512,9 @@ class SchemaModeTest(DocsCase):
             "<xsl:sequence select=\"($b, doc:field('x', 'integer'), doc:field('same', 'text'))\"/></xsl:template>"
             "</xsl:stylesheet>"
         )
-        compiled = xslt.Compiled(text)
-        self.addCleanup(compiled.close)
-        found = {f["name"]: f for f in docs.schema(compiled, ["a", "b"])}
+        self.cache.check()  # a first look at the repository drops its stylesheet: do it before putting ours in
+        self.cache.docs._compiled["library"] = xslt.Compiled(text)  # the store closes it with the others
+        found = {f["name"]: f for f in self.cache.docs.schema(self.library(), ["a", "b"])}
         self.assertTrue(found["x"]["conflict"])
         self.assertEqual(found["x"]["types"], ["a", "b"])
         self.assertNotIn("conflict", found["same"])

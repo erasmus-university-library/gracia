@@ -70,9 +70,15 @@ class SearchCase(BatchCase):
             for c in changes
             for q in ox.parse(self.store.closure_source(c.record_id)[1].encode(), format=ox.RdfFormat.N_TRIPLES)
         )
-        made, _ = self.app.cache.docs_made(
-            "main", {c.record: c.record_id for c in changes}, ox.serialize(merged, format=ox.RdfFormat.RDF_XML).decode()
-        )
+        repository = self.app["main"]
+        try:
+            made = self.app.cache.docs.bulk_update(
+                repository,
+                {c.record: c.record_id for c in changes},
+                ox.serialize(merged, format=ox.RdfFormat.RDF_XML).decode(),
+            )
+        finally:
+            repository.close()
         return changes, made
 
 
@@ -190,8 +196,8 @@ class HandlerTest(SearchCase):
         self.add(person(1, "Ada Lovelace"), person(2, "Charles Babbage"))
         changes, docs = self.docs_of(1, 2)
         asked = []
-        real = self.app.cache.docs_made
-        self.app.cache.docs_made = lambda repo, ids, xml: (asked.append(sorted(ids)), real(repo, ids, xml))[1]
+        real = self.app.cache.docs.bulk_update
+        self.app.cache.docs.bulk_update = lambda repo, ids, xml: (asked.append(sorted(ids)), real(repo, ids, xml))[1]
         graphs = {c.record: ox.Dataset(ox.parse(self.store.closure_source(c.record_id)[1].encode(), format=ox.RdfFormat.N_TRIPLES)) for c in changes}
         on_records_changed(RecordsChanged(self.app, "main", changes, graphs, {"rec:person:1": docs["rec:person:1"]}))
         self.assertEqual(asked, [["rec:person:2"]])
@@ -637,11 +643,8 @@ class SearchTabTest(ManageCase):
         self.assertIn("turned off", self.page())
 
     def test_a_doc_stylesheet_that_does_not_work_is_a_message_and_not_a_failed_page(self):
-        from gracia import docs
-
-        real = docs.schema
-        docs.schema = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))
-        self.addCleanup(setattr, docs, "schema", real)
+        self.client()  # the application is made on first use
+        self.application.cache.docs.schema = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))
         self.assertIn("could not make the schema", self.page())
 
 

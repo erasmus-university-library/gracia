@@ -5,7 +5,7 @@ has it on, with the default settings: settings are never migrated, see `gracia.e
 repository that has it off is not indexed. Its settings are the index definitions: for each index
 its name and the fields of its schema, which is what `gracia.search` builds the Tantivy index from (the
 values are `search.IndexDefinition` and `search.Field`). What goes into an index is the doc of each record
-(`gracia.docs`, made by the doc stylesheets of the types); a doc field that the schema lacks is left out.
+(`DocStore`, made by the doc stylesheets of the types); a doc field that the schema lacks is left out.
 
 The repository ships with one, `records`, with the fields of `search.RECORDS`, for every record. The
 definition can be changed (the form, an import, `add_field` and `remove_field`, which the Search tab of the

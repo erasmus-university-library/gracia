@@ -67,7 +67,7 @@ class RecordsChanged:
     `application` and `repo` say where; `changes` is the list of `Change`; `graphs` has, for every
     record of the changes that is there, an `ox.Dataset` of it and of everything it is made of, by
     record uri (a delete has none). The datasets are the handler's to use, they are not kept.
-    `docs` has the doc of each of those records that could be made (`gracia.docs`), by record uri;
+    `docs` has the doc of each of those records that could be made (`DocStore`), by record uri;
     empty when there is no doc cache, or the stylesheets could not be compiled (logged)."""
 
     def __init__(
@@ -174,26 +174,24 @@ def _make_docs(application, registry, repo: str, changes, graphs, etags) -> dict
     """The docs of the records of a batch (one run of the doc stylesheet over their graphs) and the ones
     that could be made, in the doc cache. A cache is what a stylesheet that does not work must not stop:
     it is logged, and the batch goes on without docs (`Cache.doc` makes one when it is asked for)."""
+    from gracia.resources import Repository
+
     cache = application.cache
     if not cache.keeps_docs:
         return {}
     ids = {c.record: c.record_id for c in changes if c.record in graphs}
     merged = ox.Dataset(quad for record in ids for quad in graphs[record])
     manager.push({"registry": registry, "request": None})  # the files of the types are assets of the registry
+    repository = Repository(repo, application)
     try:
-        made, fingerprint = cache.docs_made(repo, ids, ox.serialize(merged, format=ox.RdfFormat.RDF_XML).decode())
+        made = cache.docs.bulk_update(repository, ids, ox.serialize(merged, format=ox.RdfFormat.RDF_XML).decode(), etags)
     except Exception:
         log.exception("%s: the docs of %d records could not be made", repo, len(ids))
         return {}
     finally:
+        repository.close()
         manager.pop()
-    good = {record: doc for record, doc in made.items() if "error" not in doc}
-    for record, doc in made.items():
-        if "error" in doc:
-            log.warning("%s: no doc for %s: %s", repo, record, doc["error"])
-    if good:
-        cache.keep_docs(repo, fingerprint, [(ids[record], etags[ids[record]], doc) for record, doc in good.items()])
-    return good
+    return {record: doc for record, doc in made.items() if "error" not in doc}
 
 
 def process_batch(

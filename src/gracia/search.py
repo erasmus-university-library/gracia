@@ -1,27 +1,3 @@
-"""The search index: Tantivy, one index for each repository and index definition.
-
-An `IndexDefinition` is a name and the fields of the schema. What is put in an index is the **doc** of each
-record (`gracia.docs`: the JSON the doc stylesheets make of it); a doc may have fields the schema does not,
-and they are left out here, so a type can make more than the index uses, and a change of the schema is a
-rebuild from the docs. A repository's definitions are the settings of its Search extension
-(`gracia.extensions.search`, which ships with `RECORDS` and is off or on for the repository):
-`definitions_for(repository)`. `Indexes` keeps them in a directory (`gracia.index_dir`):
-`<dir>/<repository>/<name>`, with `<name>.json` next to it holding a hash of the definition, so an index that
-was made for another one is **stale** and not written to (a rebuild makes it again, see the job; until then
-it keeps answering what it had). A change of a doc stylesheet does not make an index stale: the records
-change, and the job "Rebuild search" brings the others up to date.
-
-`on_records_changed` subscribes to `gracia.actions.RecordsChanged`. For a batch it takes the docs of the
-event (and makes the ones that are missing, when there is no doc cache), checks them against the schema, and
-puts them in the index with one commit: a record is deleted by its id and added again, so doing a record
-twice does no harm.
-
-Tantivy does not look at what it is given until the commit, and then one document of the wrong kind fails
-the whole batch (a date that is a string, a number in a field of text). So every doc is checked first
-(`check_document`), the ones that are not right are left out and reported, and the date strings of the doc
-are made dates here, which is what Tantivy wants.
-"""
-
 import hashlib
 import json
 import logging
@@ -123,7 +99,7 @@ def definitions_for(repository) -> list[IndexDefinition]:
 
 
 def compare(offered: list[dict], definition: IndexDefinition | None) -> list[dict]:
-    """The fields the docs can have (`offered`: `gracia.docs.schema`) against the fields of a definition: a row
+    """The fields the docs can have (`offered`: `DocStore.schema`) against the fields of a definition: a row
     for each, the offered ones first in their order, then what only the definition has. A row is the field
     (`name`, `type`, `stored`, `indexed`, `fast`, `tokenizer`: the definition's when it has the field, else the
     offered one), `types` (the types whose docs have it), `required`, and a `state`:
@@ -414,16 +390,16 @@ def on_records_changed(event) -> None:
     from gracia.resources import Repository
 
     repository = Repository(event.repo, event.application)  # not `application[...]`: no listing of repositories
+    docs = dict(event.docs)
     try:
         definitions = definitions_for(repository)
+        missing = {c.record: c.record_id for c in event.changes if c.action != "delete" and c.record in event.graphs and c.record not in docs}
+        if definitions and missing:  # there is no doc cache, or the docs of the worker could not be made: make them here
+            merged = ox.Dataset(quad for record in missing for quad in event.graphs[record])
+            docs.update(event.application.cache.docs.bulk_update(repository, missing, ox.serialize(merged, format=ox.RdfFormat.RDF_XML).decode()))
     finally:
         repository.close()
     if not definitions:
         return
-    docs = dict(event.docs)
-    missing = {c.record: c.record_id for c in event.changes if c.action != "delete" and c.record in event.graphs and c.record not in docs}
-    if missing:  # there is no doc cache, or the docs of the worker could not be made: make them here
-        merged = ox.Dataset(quad for record in missing for quad in event.graphs[record])
-        docs.update(event.application.cache.docs_made(event.repo, missing, ox.serialize(merged, format=ox.RdfFormat.RDF_XML).decode())[0])
     for definition in definitions:
         indexes.update(event.repo, definition, event.changes, docs)
