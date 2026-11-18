@@ -235,7 +235,7 @@ class UpdateCacheTest(GraphJobsCase):
             dataset.canonicalize(ox.CanonicalizationAlgorithm.RDFC_1_0)
             return {str(q) for q in dataset}
 
-        made = self.application.cache.graph("library", record_id)  # a hit: the kept one  # ty: ignore[invalid-argument-type]
+        made = self.application.cache.graph("library", record_id)  # ty: ignore[invalid-argument-type]
         self.assertEqual(made, kept)
         from gracia.cache import rdfxml
 

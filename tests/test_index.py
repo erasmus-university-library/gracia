@@ -39,7 +39,7 @@ class EtagTest(unittest.TestCase):
         more = {**versions, "rec:a:3": self.NOW}
         self.assertNotEqual(etag_of(versions), etag_of(more))  # ty: ignore[invalid-argument-type]
         shaped = etag_of(versions, {"person": "v1", "type": "v7"})  # ty: ignore[invalid-argument-type]
-        self.assertNotEqual(etag_of(versions), shaped)  # the shapes of the types count  # ty: ignore[invalid-argument-type]
+        self.assertNotEqual(etag_of(versions), shaped)  # ty: ignore[invalid-argument-type]
         self.assertEqual(shaped, etag_of(versions, {"type": "v7", "person": "v1"}))  # ty: ignore[invalid-argument-type]
         self.assertNotEqual(shaped, etag_of(versions, {"person": "v2", "type": "v7"}))  # ty: ignore[invalid-argument-type]
 

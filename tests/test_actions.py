@@ -791,7 +791,7 @@ class WiringTest(BatchCase):
             (worker.batch, worker.batch_bytes, worker.poll),  # ty: ignore[missing-union-attribute]
             (7, 123456, 0.25),
         )
-        self.assertEqual(worker.lock_dir, self.db.parent)  # next to the database  # ty: ignore[missing-union-attribute]
+        self.assertEqual(worker.lock_dir, self.db.parent)  # ty: ignore[missing-union-attribute]
 
     def test_without_the_setting_there_is_no_worker(self):
         from gracia.main import make_config

@@ -1040,7 +1040,7 @@ class DeltaTest(EtagCase):
     def setUp(self):
         super().setUp()
         old = store_module.ETAGS_DELTA_ABOVE
-        store_module.ETAGS_DELTA_ABOVE = 3  # "many" is more than three  # ty: ignore[invalid-assignment]
+        store_module.ETAGS_DELTA_ABOVE = 3  # ty: ignore[invalid-assignment]
         self.addCleanup(setattr, store_module, "ETAGS_DELTA_ABOVE", old)
         # org 1 is the hub; person 1 is in it; work n is by person 1 and in org 1 too (a
         # shared
