@@ -25,6 +25,7 @@ gracia = "gracia.cli:main"
 [dependency-groups]
 dev = [
     "pytest>=9.2.0",
+    "pytest-cov>=7.1.0",
     "pytest-xdist>=3.8.0",
     "ruff>=0.16",
     "ty>=0.0.105",
@@ -34,6 +35,13 @@ dev = [
 [build-system]
 requires = ["uv_build>=0.12,<0.13"]
 build-backend = "uv_build"
+
+[tool.coverage.run]
+source = ["src"]
+core = "sysmon"
+
+[tool.coverage.report]
+show_missing = true
 
 [tool.ty.src]
 include = ["src", "tests"]

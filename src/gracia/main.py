@@ -6,15 +6,14 @@ from pyramid.config import Configurator
 from pyramid.events import ApplicationCreated, NewResponse
 from pyramid.session import SignedCookieSessionFactory
 
+from gracia import config as settings_file
 from gracia import (
-    apidoc,
     extensions,
     predicates,
     resources,
     static,
     types,
 )
-from gracia import config as settings_file
 from gracia.actions import BATCH, BATCH_BYTES, POLL, Worker, lock_dir_for
 from gracia.application import Application
 from gracia.jobs import job as jobs_job
@@ -103,7 +102,9 @@ def includeme(config: Configurator) -> None:
             reissue_time=None,  # looking at the session must not set the cookie again
         )
     )
-    config.add_directive("add_api_operation", apidoc.add_api_operation)
+    config.include(
+        "gracia.api"
+    )  # the add_api_operation directive and what the API offers
     config.add_directive("add_record_class", types.add_record_class)
     config.add_directive("add_gracia_type", types.add_gracia_type)
     config.add_directive("add_gracia_library", static.add_library)
@@ -157,60 +158,6 @@ def includeme(config: Configurator) -> None:
         config.scan(target)
     extensions.include_modules(config, targets)  # and with an includeme(config)
     config.scan("gracia.views")  # the views register themselves with @view_config
-    config.add_api_operation("/", "The repository: its rows")
-    config.add_api_operation("/{type}", "A type of record: the numbers of its records")
-    config.add_api_operation("/{type}/{number}", "One record and its content")
-    config.add_api_operation("/{type}/add", "Add a record of a type (HTML form)", "add")
-    config.add_api_operation(
-        "/{type}/{number}/edit", "Edit a record (HTML form)", "edit"
-    )
-    config.add_api_operation("/user/add", "Add a user (HTML form)", "super_edit")
-    config.add_api_operation(
-        "/user/{number}/edit", "Edit a user (HTML form)", "super_edit"
-    )
-    config.add_api_operation("/group/add", "Add a group (HTML form)", "manage")
-    config.add_api_operation(
-        "/group/{number}/edit", "Edit a group (HTML form)", "manage"
-    )
-    config.add_api_operation("/manage", "Edit the repository (HTML form)", "manage")
-    config.add_api_operation(
-        "/{type}/manage",
-        "Manage a type: its schema file and validating it (HTML form)",
-        "manage",
-    )
-    config.add_api_operation(
-        "/api", "This document, for the caller (a record for a browser)"
-    )
-    config.add_api_operation("/jobs", "The jobs page (HTML)", "list_jobs", at="jobs")
-    config.add_api_operation(
-        "/jobs/list",
-        "The jobs the caller may see, with their progress",
-        "list_jobs",
-        at="jobs",
-    )
-    config.add_api_operation(
-        "/jobs/start",
-        "Start a job: POST with ?job=<name> and the fields of its form "
-        "(start_<name>_job)",
-        "list_jobs",
-        "post",
-        at="jobs",
-    )
-    config.add_api_operation(
-        "/jobs/{id}",
-        "One job: state, task, progress",
-        "view_job",
-        at="jobs",
-        shown="list_jobs",
-    )
-    config.add_api_operation(
-        "/jobs/{id}/stop",
-        "Stop a job (202; the stop goes on in a process of its own)",
-        "stop_job",
-        "post",
-        at="jobs",
-        shown="list_jobs",
-    )
 
 
 def make_config(settings: dict | None = None) -> Configurator:

@@ -4,7 +4,8 @@ from pyramid.httpexceptions import HTTPFound
 from pyramid.response import Response
 from pyramid.view import view_config
 
-from gracia import apidoc, search, static, uri
+from gracia import search, static, uri
+from gracia.api import document as api_document
 from gracia.resources import Repository, Resolved
 from gracia.views import render
 
@@ -143,14 +144,14 @@ def api(request):
     # cache
     request.response.headers["Cache-Control"] = "private"
     request.response.headers["Vary"] = "Authorization, Cookie, Accept"
-    return apidoc.document(request)
+    return api_document(request)
 
 
 @view_config(context=Repository, name="api", request_method="GET", accept="text/html")
 def api_browser(request):
     """The same document as a record for a browser: what the caller may do here, and a
     button to try the operations that read."""
-    document = apidoc.document(request)
+    document = api_document(request)
     operations = [
         {"path": path, "method": method.upper(), **found}
         for path, methods in document["paths"].items()
