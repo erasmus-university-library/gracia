@@ -1,6 +1,6 @@
 import pyoxigraph as ox
 from base import DbTestCase
-from harness import open_store
+from harness import fake_type, open_store
 
 from gracia import uri
 from gracia.graph import Graph
@@ -336,7 +336,7 @@ class RecordsTest(DbTestCase):
             )
         )
         before = {n: self.row(f"rec:thing:{n}") for n in (1, 2, 3)}
-        s.configure(lambda: (upper, []))
+        s.configure(lambda: [fake_type(upper, number=s.type_numbers()["thing"])])
         self.assertEqual(
             s.rederive("thing", (2, 2)), ["rec:thing:2"]
         )  # only the numbers asked for

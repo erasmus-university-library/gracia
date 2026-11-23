@@ -174,13 +174,15 @@ class NameTest(LabelCase):
         record = node["person"].blank_record()
         record.begin(1)
         foaf = "http://xmlns.com/foaf/0.1/"
-        record.add(record.resource, foaf + "givenName", ox.Literal("Ada"))
-        problems = record.shape_problems()
+        record.graph.add_value(record.resource, foaf + "givenName", ox.Literal("Ada"))
+        problems = record.validate()
         self.assertIn("Give a name, or both a given name and a family name", problems)
-        record.add(record.resource, foaf + "familyName", ox.Literal("Lovelace"))
+        record.graph.add_value(
+            record.resource, foaf + "familyName", ox.Literal("Lovelace")
+        )
         self.assertNotIn(
             "Give a name, or both a given name and a family name",
-            record.shape_problems(),
+            record.validate(),
         )
 
 
@@ -193,7 +195,7 @@ class LabelSqlTest(unittest.TestCase):
         def __init__(self, paths):
             self.paths = paths
 
-        def role_paths(self, role):
+        def property_role_paths(self, role):
             return self.paths if role == "label" else []
 
     def labels(self, paths, rows) -> dict[str, str]:

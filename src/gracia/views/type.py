@@ -128,7 +128,7 @@ def value_link(request, record, term) -> str | None:
 def record_page(request):
     record = request.context
     res_type = record.type
-    shapes, shape = res_type.record_shape()
+    shapes, shape = res_type.shacl_shape()
     names = hints.names(shapes, shape)
 
     def values(path: str) -> list[dict]:
@@ -145,13 +145,13 @@ def record_page(request):
     description = next(
         (
             found
-            for path in res_type.role_paths("description")
+            for path in res_type.property_role_paths("description")
             if (found := values(path))
         ),
         [],
     )
     rows = []
-    for path in dict.fromkeys(res_type.role_paths("key_info")):
+    for path in dict.fromkeys(res_type.property_role_paths("key_info")):
         if found := values(path):
             rows.append(
                 {"name": names.get(path, forms.local_name(path)), "values": found}
@@ -179,7 +179,7 @@ def res_type(request):
     prefix = f"rec:{context.slug}:"
     numbers = sorted(
         int(key.removeprefix(prefix))
-        for key in context.records()
+        for key in context.store.records_of_type(context.slug)
         if key.startswith(prefix)
     )
     if context.class_uri == uri.TYPE_CLASS:

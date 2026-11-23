@@ -65,10 +65,13 @@ class RegistryTest(PredicateCase):
             (uri.LABEL, gracia_label),
         ):
             self.assertEqual(
-                type(predicates.find(property_uri)).__module__, module.__name__
+                type(predicates.find(self.config.registry, property_uri)).__module__,
+                module.__name__,
             )
-        self.assertIsNone(predicates.find(FOAF + "mbox"))  # nothing for it
-        self.assertIsNone(predicates.find(uri.NAME))
+        self.assertIsNone(
+            predicates.find(self.config.registry, FOAF + "mbox")
+        )  # nothing for it
+        self.assertIsNone(predicates.find(self.config.registry, uri.NAME))
 
     def test_two_predicates_for_one_property_are_a_conflict_at_commit(self):
         class One(Predicate):
@@ -92,7 +95,7 @@ class RegistryTest(PredicateCase):
         config.commit()
         config.begin()
         self.addCleanup(config.end)
-        self.assertIsInstance(predicates.find(uri.LABEL), Mine)
+        self.assertIsInstance(predicates.find(config.registry, uri.LABEL), Mine)
 
 
 class RecordShapeTest(PredicateCase):
@@ -101,7 +104,7 @@ class RecordShapeTest(PredicateCase):
     ):
         self.config.begin()
         self.addCleanup(self.config.end)
-        data, node = self.repo()["person"].record_shape()
+        data, node = self.repo()["person"].shacl_shape()
         self.assertEqual(node.value, uri.RECORD_SHAPE)
         properties = {
             data.objects(prop, ox.NamedNode(SH + "path"))[0].value: prop
@@ -230,7 +233,7 @@ class SchemaTest(PredicateCase):
         self.config.begin()
         self.addCleanup(self.config.end)
         self.assertIsInstance(
-            predicates.find(uri.SCHEMA_TEMPLATE),
+            predicates.find(self.config.registry, uri.SCHEMA_TEMPLATE),
             gracia_schema_template.SchemaTemplatePredicate,
         )
 
@@ -254,7 +257,7 @@ class HookTest(PredicateCase):
     predicates = (RecordMark, ContentMark)
 
     def test_the_sql_of_the_content_comes_before_the_sql_of_the_record(self):
-        statements = self.repo()["person"].sql_hooks()
+        statements = self.repo()["person"].sql_hooks
         order = [m for s in statements for m in re.findall(r"/\* (\w+) \*/", s)]
         self.assertEqual(order, ["content", "record"])
 
@@ -274,7 +277,7 @@ class BatchHookTest(PredicateCase):
     def test_every_record_of_the_batch_goes_through_the_sql_and_nothing_is_stored(self):
         node = self.repo()
         before = node.store.counts()
-        done = node.with_hooks(self.people())
+        done = node.store.apply_hooks(self.people())
         mailboxes = {q.object.value for q in done if q.predicate.value == FOAF + "mbox"}
         self.assertEqual(mailboxes, {"a1@x.org", "a2@x.org", "a3@x.org"})
         labels = {q.object.value for q in done if q.predicate.value == uri.LABEL}
@@ -283,8 +286,8 @@ class BatchHookTest(PredicateCase):
 
     def test_the_same_sql_again_gives_the_same_rows(self):
         node = self.repo()
-        once = node.with_hooks(self.people())
-        twice = node.with_hooks(once)
+        once = node.store.apply_hooks(self.people())
+        twice = node.store.apply_hooks(once)
         # modified_at is the time of the run: a text that differs from what is stored is
         # modified
         # now

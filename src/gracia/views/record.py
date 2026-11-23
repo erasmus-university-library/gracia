@@ -72,7 +72,7 @@ class RecordView(View):
 
     @view_config(context=Type, name="add", permission="add")
     def add(self):
-        problems = self.record.cannot_be_added()
+        problems = self.record.validate_form()
         if problems:  # a record made with this form would be incomplete
             return self.page("", errors=problems, status=501)
         return self.respond()
@@ -133,7 +133,7 @@ class RecordView(View):
                         return self.saved()
                 rendered = form.render(data)
         else:
-            rendered = form.render(record.edit_values())
+            rendered = form.render(record.form_values())
         toggle = None
         if record.source_editable:
             query = {"source": DEFAULT_FORMAT}
@@ -152,7 +152,7 @@ class RecordView(View):
     def commit_form(self, data: dict) -> None:
         if self.new:
             self.record.begin(self.store.mint_id(self.res_type.slug))
-        self.record.apply(data)
+        self.record.apply_form(data)
         self.record.save()
 
     # ---- the source
@@ -181,7 +181,11 @@ class RecordView(View):
             fmt = chosen if "convert" in request.POST and not errors else was
         else:
             fmt = was = self.known_format(request.GET.get("source"))
-            start = self.res_type.skeleton() if self.new else self.record.shown_graph()
+            start = (
+                self.res_type.skeleton()
+                if self.new
+                else self.record.graph.without(self.record.hidden)
+            )
             text = start.serialize(fmt, prefix_map)
         static.source_js.need()
         static.editor_js.need()  # the text is highlighted
@@ -209,14 +213,7 @@ class RecordView(View):
     def check_source(self, graph) -> None:
         if not self.new:
             graph = self.record.with_hidden_kept(graph)  # what is never shown is kept
-        problems = self.record.structure_problems(graph, self.subject())
-        if not problems:
-            trial = self.record
-            if self.new:  # a record of its own, so that nothing is used up by the trial
-                trial = self.res_type.blank_record()
-                trial.uri, trial.__name__ = self.subject(), "0"
-            trial.graph = self.store.apply_hooks(graph)
-            problems = trial.shape_problems()
+        problems = self.record.validate(graph)
         if problems:
             raise SourceError(problems)
 

@@ -29,7 +29,7 @@ class ExtensionError(ValueError):
 
 
 def _states(repository) -> dict[str, tuple[bool | None, dict]]:
-    cached = repository.__dict__.get("_extension_states")
+    cached = repository.extension_states
     if cached is None:
         try:
             record = repository.record()
@@ -37,7 +37,7 @@ def _states(repository) -> dict[str, tuple[bool | None, dict]]:
             cached = {}
         else:
             cached = read_extension_states(record.graph, record.uri)
-        repository.__dict__["_extension_states"] = cached
+        repository.extension_states = cached
     return cached
 
 
@@ -73,7 +73,7 @@ def _write(repository, name: str, enabled: bool | None, settings: dict) -> None:
         owner = subject if quad.subject == placeholder else quad.subject
         record_graph.add(ox.Quad(owner, quad.predicate, quad.object, graph))
     store.put(record_graph)
-    repository.__dict__.pop("_extension_states", None)
+    repository.extension_states = None
 
 
 @implementer(IExtension)
@@ -129,7 +129,7 @@ class Extension:
     @property
     def settings(self) -> dict:
         states = _states(self.repository)
-        cache = self.repository.__dict__.setdefault("_extension_settings", {})
+        cache = self.repository.extension_settings
         cached = cache.get(self.name)
         if cached is None or cached[0] is not states:
             cached = cache[self.name] = (states, self._read_settings())

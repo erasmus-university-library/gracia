@@ -77,11 +77,15 @@ class Repository:
         self.__name__ = repo_id
         self.__parent__ = parent
         self._owns_store = True
+        self._extensions: dict[str, object] = {}  # by name, for this node
+        self.extension_states: dict | None = None  # read by `gracia.extensions`
+        self.extension_settings: dict = {}  # likewise
 
     def use_store(self, store) -> None:
         self.close()
-        self.__dict__["store"] = store
+        self.store = store
         self._owns_store = False
+        self.configure()
 
     @property
     def repository(self) -> "Repository":
@@ -98,9 +102,7 @@ class Repository:
     @cached_property
     def store(self):
         db = self.application.db
-        store = self.__dict__["store"] = new_store(
-            self.application.database, self.__name__, db
-        )
+        store = self.store = new_store(self.application.database, self.__name__, db)
         self._owns_store = db is None
         self.configure()
         request = get_current_request()
@@ -109,16 +111,13 @@ class Repository:
         return store
 
     def sync_roles(self) -> None:
-        for key in ("types", "_sql_hooks"):
-            self.__dict__.pop(key, None)
+        self.__dict__.pop("types", None)
         self.application.cache.invalidate(self.__name__)
         self.configure()
         self.store.sync()
 
     def configure(self) -> None:
-        self.store.configure(
-            lambda: (self.sql_hooks(), self.property_roles(), self.type_numbers())
-        )
+        self.store.configure(lambda: self.types.values())
 
     def __enter__(self) -> "Repository":
         return self
@@ -165,49 +164,6 @@ class Repository:
         ):  # a name this system does not know
             return datetime.UTC
 
-    def with_hooks(self, graph: "Graph | ox.Dataset") -> Graph:
-        return self.store.apply_hooks(graph)
-
-    def sql_hooks(self) -> list[str]:
-        if "_sql_hooks" not in self.__dict__:
-            self.__dict__["_sql_hooks"] = [
-                statement
-                for res_type in self.types.values()
-                for statement in res_type.sql_hooks()
-            ]
-        return self.__dict__["_sql_hooks"]
-
-    def property_roles(self) -> list[tuple[str, str, str, int]]:
-        return [
-            (res_type.slug, role, path, place)
-            for res_type in self.types.values()
-            for role, path, place in res_type.roles()
-        ]
-
-    def type_numbers(self) -> list[tuple[str, int]]:
-        return [(t.slug, int(t.record.rsplit(":", 1)[1])) for t in self.types.values()]
-
-    def shape(self):
-        record = self.record()
-        node = record.resource
-        if node is None:
-            raise LookupError(
-                f"the record of repository {self.__name__} has no content"
-            )
-        prefix = record.graph.value(node, _N(uri.ASSETS))
-        schema = record.graph.value(node, _N(uri.SCHEMA_TEMPLATE))
-        found = assets.shape(
-            prefix.value if prefix else None,
-            schema.value if schema else None,
-            uri.REPOSITORY_CLASS,
-            "Repository",
-        )
-        if found is None:
-            raise LookupError(
-                f"repository {self.__name__} has no shape for its resource"
-            )
-        return found
-
     @cached_property
     def types(self) -> dict[str, "Type"]:
         records, found = self.application.cache.types(self.__name__, self._type_records)
@@ -248,13 +204,12 @@ class Repository:
         return {item["prefix"]: item["namespace"] for item in items}
 
     def extension(self, name: str):
-        cache = self.__dict__.setdefault("_extension_objects", {})
-        if name not in cache:
+        if name not in self._extensions:
             found = self.registry.queryAdapter(self, IExtension, name)
             if found is None:
                 raise KeyError(name)
-            cache[name] = found
-        return cache[name]
+            self._extensions[name] = found
+        return self._extensions[name]
 
     def extensions(self) -> list:
         found = self.registry.getAdapters((self,), IExtension)
@@ -402,6 +357,7 @@ class Type(Node):
             slug,
             class_uri,
         )
+        self._shapes: dict[bool, tuple | None] = {}  # by include_record_shape
         self.graph = Graph()  # the type record
         self.assets: str | None = None  # asset spec of the directory with its files
         self.schema: str | None = (
@@ -431,21 +387,31 @@ class Type(Node):
         res_type.doc_template = doc_template.value if doc_template is not None else None
         return res_type
 
-    def shape(self):
-        return assets.shape(self.assets, self.schema, self.class_uri, self.name)
+    def shacl_shape(self, include_record_shape: bool = True):
+        if False not in self._shapes:
+            self._shapes[False] = assets.shape(
+                self.assets, self.schema, self.class_uri, self.name
+            )
+        if include_record_shape and True not in self._shapes:
+            self._shapes[True] = assets.record_shape(
+                self._shapes[False], self.class_uri
+            )
+        return self._shapes[include_record_shape]
 
-    def roles(self) -> list[tuple[str, str, int]]:
-        if "_roles" not in self.__dict__:
-            self.__dict__["_roles"] = hints.roles(*self.record_shape(), self.class_uri)
-        return self.__dict__["_roles"]
+    @property
+    def number(self) -> int:
+        return int(self.record.rsplit(":", 1)[1])
 
-    def role_paths(self, role: str) -> list[str]:
-        return [path for r, path, _place in self.roles() if r == role]
+    @cached_property
+    def property_roles(self) -> list[tuple[str, str, int]]:
+        return hints.property_roles(*self.shacl_shape(), self.class_uri)
 
+    def property_role_paths(self, role: str) -> list[str]:
+        return [path for r, path, _place in self.property_roles if r == role]
+
+    @cached_property
     def sql_hooks(self) -> list[str]:
-        if "_sql_hooks" not in self.__dict__:
-            self.__dict__["_sql_hooks"] = self._sql_plan(*self.record_shape())
-        return self.__dict__["_sql_hooks"]
+        return self._sql_plan(*self.shacl_shape())
 
     def _sql_plan(self, shapes, shape) -> list[str]:
         properties = [
@@ -457,20 +423,13 @@ class Type(Node):
             if nested is not None:
                 statements += self._sql_plan(shapes, nested)
         for path, _nested in properties:
-            code = predicates.find(path)
+            code = predicates.find(self.registry, path)
             if code is not None:
                 context = predicates.HookContext(self.repository, self, path)
                 statements += [
                     s for s in (code.on_write_sql(context) or []) if s not in statements
                 ]
         return statements
-
-    def record_shape(self):
-        if "_record_shape" not in self.__dict__:
-            self.__dict__["_record_shape"] = assets.record_shape(
-                self.shape(), self.class_uri
-            )
-        return self.__dict__["_record_shape"]
 
     @property
     def assets_version(self) -> str:
@@ -479,9 +438,6 @@ class Type(Node):
     @property
     def __acl__(self):
         return TYPE_ACLS.get(self.class_uri, [])
-
-    def records(self) -> list[str]:
-        return self.store.records_of_type(self.slug)
 
     @property
     def placeholder(self) -> str:
@@ -651,7 +607,7 @@ class Record(Node):
                 )
                 # for a property that is at both, like gracia:slug, tells them apart by
                 # it)
-            code = predicates.find(path)
+            code = predicates.find(self.registry, path)
             if code is not None:
                 node = code.schema_node(self, request, node)
             if node is not None:
@@ -660,11 +616,12 @@ class Record(Node):
                 nodes.append(node)
         return nodes
 
-    @staticmethod
-    def _sibling_validator(nodes):
+    def _sibling_validator(self, nodes):
         found = []
         for node in nodes:
-            code = predicates.find(getattr(node, "predicate", None) or "")
+            code = predicates.find(
+                self.registry, getattr(node, "predicate", None) or ""
+            )
             validator = (
                 code.sibling_validator(list(nodes)) if code is not None else None
             )
@@ -695,52 +652,14 @@ class Record(Node):
     def edit_schema(self, request=None) -> colander.Schema:
         request = request or get_current_request()
         schema = colander.Schema()
-        for node in self._nodes(*self.type.record_shape(), request):
+        for node in self._nodes(*self.type.shacl_shape(), request):
             schema.add(node)
         schema.validator = self._sibling_validator(schema.children)
         return schema
 
-    def _read(self, nodes, subject) -> dict:
-        values = {}
-        for node in nodes:
-            path = getattr(node, "predicate", None)
-            if isinstance(node.typ, colander.Mapping):
-                inner = (
-                    self.graph.value(subject, _N(path))
-                    if path and subject is not None
-                    else None
-                )
-                values[node.name] = self._read(node.children, inner)
-            elif path is None:
-                values[node.name] = (
-                    ""  # a field that is not stored as it is (a password)
-                )
-            else:
-                found = predicates.read_text(self, subject, path)
-                values[node.name] = (
-                    getattr(node, "initial", "") if found is None else found
-                )
-        return values
-
-    def edit_values(self) -> dict:
-        return self._read(
-            self.edit_schema().children, _N(self.uri) if self.uri else None
-        )
-
     @property
     def is_new(self) -> bool:
         return self.uri is None
-
-    def cannot_be_added(self) -> list[str]:
-        res_type = self.type
-        found = res_type.shape()
-        if found is None:
-            return [f"The type {res_type.name} has no shape"]
-        have = {n.predicate for n in self.fields} | set(self.supplies)
-        return [
-            f"The form cannot fill in {path}, which {res_type.name} requires"
-            for path in sorted(forms.required_paths(*found) - have)
-        ]
 
     def begin(self, number: int) -> None:
         res_type = self.type
@@ -752,9 +671,6 @@ class Record(Node):
             (content, rdf_type, _N(res_type.class_uri)),
         ):
             self.graph.add(ox.Quad(*triple, ox.DefaultGraph()))
-
-    def shown_graph(self) -> Graph:
-        return self.graph.without(self.hidden)
 
     def with_hidden_kept(self, graph: Graph) -> Graph:
         hidden = {_N(p) for p in self.hidden}
@@ -770,21 +686,88 @@ class Record(Node):
                 )
         return kept
 
-    def structure_problems(self, graph: Graph, subject: str | None = None) -> list[str]:
-        subject, problems = subject or self.uri, []
-        others = [s.value for s in graph.subjects() if s.value != subject]
-        if others:
-            problems.append(
-                f"Only the record {subject} can be written here, not "
-                f"{', '.join(others)}"
-            )
-        if _N(uri.RECORD_CLASS) not in graph.objects(subject, uri.RDF_TYPE):
-            problems.append(f"{subject} has to be a gracia:Record")
-        return problems
+    def form_values(self) -> dict:
+        def read(nodes, subject) -> dict:
+            values = {}
+            for node in nodes:
+                path = getattr(node, "predicate", None)
+                if isinstance(node.typ, colander.Mapping):
+                    inner = (
+                        self.graph.value(subject, _N(path))
+                        if path and subject is not None
+                        else None
+                    )
+                    values[node.name] = read(node.children, inner)
+                elif path is None:
+                    values[node.name] = (
+                        ""  # a field that is not stored as it is (a password)
+                    )
+                else:
+                    found = predicates.read_text(self, subject, path)
+                    values[node.name] = (
+                        getattr(node, "initial", "") if found is None else found
+                    )
+            return values
 
-    def shape_problems(self) -> list[str]:
-        shapes, _node = self.type.record_shape()
-        errors = self.graph.validate(shapes).errors()
+        return read(self.edit_schema().children, _N(self.uri) if self.uri else None)
+
+    def apply_form(self, data: dict) -> None:
+        def write(nodes, data: dict, subject) -> None:
+            for node in nodes:
+                path = getattr(node, "predicate", None)
+                if path is None or node.name not in data:
+                    continue  # a field that is not stored as it is, or nothing was said
+                if isinstance(node.typ, colander.Mapping):
+                    write(
+                        node.children,
+                        data[node.name],
+                        self.graph.value(subject, _N(path)),
+                    )
+                else:
+                    predicates.write_text(
+                        self,
+                        subject,
+                        path,
+                        data[node.name],
+                        getattr(node, "as_uri", False),
+                    )
+
+        write(self.edit_schema().children, data, _N(self.uri))
+
+    def validate_form(self) -> list[str]:
+        found = self.type.shacl_shape(include_record_shape=False)
+        if found is None:
+            return [f"The type {self.type.name} has no shape"]
+        have = {n.predicate for n in self.fields} | set(self.supplies)
+        return [
+            f"The form cannot fill in {path}, which {self.type.name} requires"
+            for path in sorted(forms.required_paths(*found) - have)
+        ]
+
+    def validate(self, graph: Graph | None = None) -> list[str]:
+        record = self
+        if graph is not None:  # text a person edited: it is about this record, with
+            subject = self.uri or self.type.placeholder  # the hooks applied to it
+            problems = []
+            others = [s.value for s in graph.subjects() if s.value != subject]
+            if others:
+                problems.append(
+                    f"Only the record {subject} can be written here, not "
+                    f"{', '.join(others)}"
+                )
+            if _N(uri.RECORD_CLASS) not in graph.objects(subject, uri.RDF_TYPE):
+                problems.append(f"{subject} has to be a gracia:Record")
+            if problems:
+                return problems
+            record = type(self)(
+                self.repository,
+                self.__name__ or "0",
+                subject,
+                self.store.apply_hooks(graph),
+            )  # a trial record: nothing of this one changes, no number is used up
+            record.__parent__ = self.__parent__
+        shapes, _node = record.type.shacl_shape()
+        errors = record.graph.validate(shapes).errors()
         nested = "http://www.w3.org/ns/shacl#NodeConstraintComponent"
         if any(v.constraint_component != nested for v in errors):
             # "the content does not conform to its shape" only says that what is listed
@@ -823,36 +806,8 @@ class Record(Node):
     def check(self, data: dict) -> list[str]:
         return []
 
-    def _home(self):
-        return self.graph.graph_name_of(_N(self.uri)) or ox.DefaultGraph()
-
-    def add(self, subject, predicate: str, term) -> None:
-        self.graph.add_value(subject, predicate, term, graph=self._home())
-
-    def replace(self, subject, predicate: str, new) -> None:
-        self.graph.replace(subject, predicate, new, graph=self._home())
-
-    def _write(self, nodes, data: dict, subject) -> None:
-        for node in nodes:
-            path = getattr(node, "predicate", None)
-            if path is None or node.name not in data:
-                continue  # a field that is not stored as it is, or nothing was said
-            if isinstance(node.typ, colander.Mapping):
-                self._write(
-                    node.children, data[node.name], self.graph.value(subject, _N(path))
-                )
-            else:
-                text = data[node.name]
-                predicates.write_text(
-                    self, subject, path, text, getattr(node, "as_uri", False)
-                )
-
-    def apply(self, data: dict) -> None:
-        self._write(self.edit_schema().children, data, _N(self.uri))
-
     def save(self) -> None:
         store = self.store
-        self.repository.configure()
         store.put(self.graph)
         self.__name__ = store.current_slug(self.uri) or self.uri.rsplit(":", 1)[1]
         if self.type.slug == "type":  # a type was made or changed: its roles are new

@@ -3,7 +3,6 @@ from dataclasses import dataclass
 import colander
 import pyoxigraph as ox
 import venusian
-from pyramid.threadlocal import get_current_registry
 
 from gracia.interfaces import IPredicate
 from gracia.store import literal
@@ -20,7 +19,7 @@ def write_text(
     record, subject, predicate_uri: str, text: str | None, as_uri: bool = False
 ) -> None:
     term = (_N(text) if as_uri else ox.Literal(text)) if text else None
-    record.replace(subject, predicate_uri, term)
+    record.graph.replace(subject, predicate_uri, term)
 
 
 class Predicate:
@@ -76,9 +75,9 @@ def add_gracia_predicate(config, cls: type) -> None:
     config.action(("gracia predicate", cls.uri), register)  # ty: ignore[missing-attribute]
 
 
-def find(predicate_uri: str) -> Predicate | None:
-    return get_current_registry().queryUtility(IPredicate, name=predicate_uri)
+def find(registry, predicate_uri: str) -> Predicate | None:
+    return registry.queryUtility(IPredicate, name=predicate_uri)
 
 
-def all_predicates() -> list[Predicate]:
-    return [p for _name, p in get_current_registry().getUtilitiesFor(IPredicate)]
+def all_predicates(registry) -> list[Predicate]:
+    return [p for _name, p in registry.getUtilitiesFor(IPredicate)]

@@ -1525,16 +1525,20 @@ class Store:
         if self._provider is None:
             return []
         if self.hooks is None:
-            provided = self._provider()
-            hooks, self._roles = provided[0], provided[1]
+            types = list(self._provider())
             self.hooks = [
-                statement.replace("@TRIPLES@", self.triples) for statement in hooks
+                statement.replace("@TRIPLES@", self.triples)
+                for res_type in types
+                for statement in res_type.sql_hooks
+            ]
+            self._roles = [
+                (res_type.slug, role, path, place)
+                for res_type in types
+                for role, path, place in res_type.property_roles
             ]
             self.set_property_roles(self._roles)
-            if (
-                len(provided) > 2
-            ):  # the numbers of the types: what the ids of the etags are made of
-                self.set_type_ids(provided[2])
+            # the numbers of the types: what the ids of the etags are made of
+            self.set_type_ids([(res_type.slug, res_type.number) for res_type in types])
         return self.hooks
 
     def flatten(self) -> None:

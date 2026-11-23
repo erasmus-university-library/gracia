@@ -171,8 +171,6 @@ def _hooks(args, store):
 
 def cmd_import(args) -> int:
     with _store(args, create=True) as store, _hooks(args, store) as node:
-        if node is not None:
-            node.configure()
         for name in args.files:
             fmt = args.format or guess_format(name)
             declared: dict[str, str] = {}

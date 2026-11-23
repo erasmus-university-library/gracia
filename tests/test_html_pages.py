@@ -144,7 +144,7 @@ class TypeIndexTest(PagesCase):
         with self.application.new_store("test_repo") as store:
             repository = self.application["test_repo"]
             self.addCleanup(repository.close)
-            store.set_type_ids(repository.type_numbers())
+            store.set_type_ids([(t.slug, t.number) for t in repository.types.values()])
             self.assertGreater(store.count_etags(), 40)
         after = self.labels(self.get("/test_repo/person/?page=2", self.admin))
         self.assertEqual(before, after)
@@ -184,7 +184,7 @@ class RecordPageTest(PagesCase):
         )
 
     def page(self, anonymous=False, roles=ROLES):
-        with mock.patch.object(Type, "roles", lambda self: roles):
+        with mock.patch.object(Type, "property_roles", roles):
             return self.get("/test_repo/person/2", None if anonymous else self.admin)
 
     def test_it_shows_the_label_and_the_type(self):

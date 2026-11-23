@@ -126,7 +126,7 @@ class RepositoryManage(Manage):
                 "slug": res_type.slug,
                 # what the shape of the type says of itself (the schema file it is on)
                 "description": forms.shape_description(*shape)
-                if (shape := res_type.shape())
+                if (shape := res_type.shacl_shape(include_record_shape=False))
                 else "",
                 "system": res_type.class_uri in uri.SYSTEM_CLASSES,
                 "url": (
@@ -146,9 +146,12 @@ class RepositoryManage(Manage):
 
     def _settings_form(self) -> tuple[Form, colander.Schema]:
         schema = colander.Schema()
-        for node in forms.schema_from_shape(*self.context.shape()).children:
+        shape = self.context.record().type.shacl_shape(include_record_shape=False)
+        if shape is None:
+            raise LookupError(f"repository {self.context.__name__} has no shape")
+        for node in forms.schema_from_shape(*shape).children:
             code = predicates.find(
-                node.predicate
+                self.context.registry, node.predicate
             )  # another widget, a rule: what a predicate adds
             changed = (
                 code.schema_node(None, self.request, node) if code is not None else node
@@ -452,14 +455,14 @@ class RepositoryManage(Manage):
                     walk(dataset, nested)
 
         for res_type in self.context.types.values():
-            walk(*res_type.record_shape())
+            walk(*res_type.shacl_shape())
         return found
 
     def pane_predicates(self, state):
         used = self.store.count_by_predicate()  # the values there are of each property
         titles = self._titles()
         cards = []
-        for code in predicates.all_predicates():
+        for code in predicates.all_predicates(self.context.registry):
             title, description = titles.get(code.uri, ("", ""))
             cards.append(
                 {
@@ -721,7 +724,7 @@ class TypeManage(Manage):
         record = self._record()
         form = self._form(record)
         static.need_form(form)
-        html = state["html"] if "html" in state else form.render(record.edit_values())
+        html = state["html"] if "html" in state else form.render(record.form_values())
         errors = "".join(
             f'<div class="alert alert-danger">{escape(e)}</div>'
             for e in state.get("errors", [])
@@ -853,7 +856,7 @@ class TypeManage(Manage):
         problems = record.check(data)
         if problems:
             return {"html": form.render(data), "errors": problems}
-        record.apply(data)
+        record.apply_form(data)
         record.save()
         flash(self.request, "Saved.")
         return HTTPFound(self.action("settings"))

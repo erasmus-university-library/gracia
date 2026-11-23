@@ -38,7 +38,7 @@ def names(shapes: Graph, shape) -> dict[str, str]:
     return found
 
 
-def roles(
+def property_roles(
     shapes: Graph, shape, class_uri: str | None = None
 ) -> list[tuple[str, str, int]]:
     found: list[tuple[str, str, int]] = []

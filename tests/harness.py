@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 
 import duckdb
 from pyramid import testing
@@ -9,7 +10,24 @@ from gracia.application import Application
 from gracia.main import init, make_config, opened, shutdown
 from gracia.store import Store
 
-__all__ = ["ConfiguredCase", "open_application", "open_store", "opened"]
+__all__ = [
+    "ConfiguredCase",
+    "fake_type",
+    "open_application",
+    "open_store",
+    "opened",
+]
+
+
+def fake_type(sql_hooks=(), property_roles=(), slug: str = "thing", number: int = 5):
+    """What a store is configured with (`Store.configure`), without a repository: a
+    type that has a number, SHACL roles and the SQL its predicates run on a write."""
+    return SimpleNamespace(
+        slug=slug,
+        number=number,
+        property_roles=list(property_roles),
+        sql_hooks=list(sql_hooks),
+    )
 
 
 def open_store(path=":memory:", triples: str = "triples", repo: str = "main", **kwargs):

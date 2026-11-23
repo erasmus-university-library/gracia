@@ -49,7 +49,7 @@ def shapes_of(record, slugs) -> list:
     types = record.repository.types
     quads = list(assets.record_shape(None, None)[0])
     for slug in sorted(set(slugs) & set(types)):
-        content = types[slug].shape()
+        content = types[slug].shacl_shape(include_record_shape=False)
         if content is not None:
             quads += list(content[0])
     return quads

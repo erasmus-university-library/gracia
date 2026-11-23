@@ -2,7 +2,7 @@ import threading
 
 import pyoxigraph as ox
 from base import DbTestCase
-from harness import open_store
+from harness import fake_type, open_store
 
 from gracia.graph import Graph
 from gracia.store import DuplicateValue
@@ -105,7 +105,12 @@ class HistoryTest(DbTestCase):
         s = self.store
         s.put(thing(1))
         s.configure(
-            lambda: (["UPDATE @FLAT@ SET lit = upper(lit) WHERE p = 'http://ex/p'"], [])
+            lambda: [
+                fake_type(
+                    ["UPDATE @FLAT@ SET lit = upper(lit) WHERE p = 'http://ex/p'"],
+                    number=s.type_numbers()["thing"],
+                )
+            ]
         )
         self.assertEqual(s.rederive("thing"), ["rec:thing:1"])
         self.assertEqual(s.last_transaction(), 2)

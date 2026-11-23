@@ -28,11 +28,11 @@ class UserRecord(Record):
             )
         ]
 
-    def apply(self, data) -> None:
-        super().apply(data)
+    def apply_form(self, data) -> None:
+        super().apply_form(data)
         if data["resource"]["password"]:
             hashed = passwords.hash_password(data["resource"]["password"])
-            self.replace(self.resource, uri.CREDENTIALS, ox.Literal(hashed))
+            self.graph.replace(self.resource, uri.CREDENTIALS, ox.Literal(hashed))
 
 
 def includeme(config):
