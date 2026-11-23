@@ -520,39 +520,27 @@ def on_records_changed(event) -> None:
     indexes = event.application.indexes
     if indexes is None:
         return
-    from gracia.resources import Repository
-
-    repository = Repository(
-        event.repo, event.application
-    )  # not `application[...]`: no listing of repositories
+    repository = event.repository  # the worker's: it closes it
     docs = dict(event.docs)
-    try:
-        definitions = definitions_for(repository)
-        missing = {
-            c.record: c.record_id
-            for c in event.changes
-            if c.action != "delete"
-            and c.record in event.graphs
-            and c.record not in docs
-        }
-        if (
-            definitions and missing
-            # there is no doc cache, or the docs of the worker could not be made: make
-            # them
-            # here
-        ):
-            merged = ox.Dataset(
-                quad for record in missing for quad in event.graphs[record]
+    definitions = definitions_for(repository)
+    missing = {
+        c.record: c.record_id
+        for c in event.changes
+        if c.action != "delete" and c.record in event.graphs and c.record not in docs
+    }
+    if (
+        definitions and missing
+        # there is no doc cache, or the docs of the worker could not be made: make them
+        # here
+    ):
+        merged = ox.Dataset(quad for record in missing for quad in event.graphs[record])
+        docs.update(
+            event.application.cache.docs.bulk_update(
+                repository,
+                missing,
+                serialize_bytes(merged, format=ox.RdfFormat.RDF_XML).decode(),
             )
-            docs.update(
-                event.application.cache.docs.bulk_update(
-                    repository,
-                    missing,
-                    serialize_bytes(merged, format=ox.RdfFormat.RDF_XML).decode(),
-                )
-            )
-    finally:
-        repository.close()
+        )
     if not definitions:
         return
     for definition in definitions:

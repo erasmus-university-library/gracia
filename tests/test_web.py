@@ -2,11 +2,11 @@ import unittest
 from urllib.parse import unquote, urlsplit
 
 import pyoxigraph as ox
+from harness import open_application
 from pyramid.authorization import ACLHelper, Authenticated, Everyone
 from webtest import TestApp
 
-from gracia.application import Application
-from gracia.main import make_app, make_config
+from gracia.main import make_app, make_config, shutdown
 from gracia.resources import Repository
 
 EX = "http://example.org/"
@@ -62,8 +62,7 @@ class FollowingApp(TestApp):
 
 class WebCase(unittest.TestCase):
     def setUp(self):
-        self.application = Application(":memory:")
-        self.addCleanup(self.application.close)
+        self.application = open_application(self, ":memory:")
         self.settings = {"gracia.application": self.application}
 
     def client(self, config=None) -> TestApp:
@@ -83,31 +82,31 @@ class RepositoryEndpointsTest(WebCase):
     def test_the_root_lists_the_repositories(self):
         web = self.client()
         self.assertEqual(web.get("/").json, {"repositories": []})
-        self.application.create_repository("library")
+        self.application.create_repository("test_repo")
         self.application.create_repository("archive")
-        self.assertEqual(web.get("/").json, {"repositories": ["archive", "library"]})
+        self.assertEqual(web.get("/").json, {"repositories": ["archive", "test_repo"]})
 
     def test_an_existing_repository_answers_200(self):
-        self.application.create_repository("library")
-        response = self.client().get("/library/")
+        self.application.create_repository("test_repo")
+        response = self.client().get("/test_repo/")
         self.assertEqual(response.status_int, 200)
         body = response.json
-        self.assertEqual(body["id"], "library")
+        self.assertEqual(body["id"], "test_repo")
         self.assertGreater(
             body["rows"], 0
         )  # a new repository holds its resource and shape
 
     def test_the_figures_follow_the_data_of_that_repository_only(self):
-        self.application.create_repository("library")
+        self.application.create_repository("test_repo")
         self.application.create_repository("archive")
-        with self.application.open_repository("library") as store:
+        with self.application.new_store("test_repo") as store:
             quad = ox.Quad(
                 ox.NamedNode("rec:thing:2"), ox.NamedNode(EX + "p"), ox.Literal("x")
             )
             store.put(ox.Dataset([quad]))
         web = self.client()
         self.assertEqual(
-            web.get("/library/").json["rows"], web.get("/archive/").json["rows"] + 1
+            web.get("/test_repo/").json["rows"], web.get("/archive/").json["rows"] + 1
         )
 
     def test_an_unknown_repository_is_404_and_creates_nothing(self):
@@ -123,9 +122,9 @@ class RepositoryEndpointsTest(WebCase):
                 self.assertEqual(web.get(path, expect_errors=True).status_int, 404)
 
     def test_the_trailing_slash_is_optional(self):
-        self.application.create_repository("library")
+        self.application.create_repository("test_repo")
         web = self.client()
-        self.assertEqual(web.get("/library").json, web.get("/library/").json)
+        self.assertEqual(web.get("/test_repo").json, web.get("/test_repo/").json)
 
     def test_repositories_created_later_are_served_at_once(self):
         web = self.client()
@@ -134,14 +133,14 @@ class RepositoryEndpointsTest(WebCase):
         self.assertEqual(web.get("/later/").status_int, 200)
 
     def test_only_get_is_served(self):
-        self.application.create_repository("library")
+        self.application.create_repository("test_repo")
         self.assertEqual(
-            self.client().post("/library/", expect_errors=True).status_int, 404
+            self.client().post("/test_repo/", expect_errors=True).status_int, 404
         )
 
     def test_an_application_can_open_its_own_database(self):
         app = make_app({"gracia.db": ":memory:"})
-        self.addCleanup(app.registry["application"].close)
+        self.addCleanup(shutdown, app.registry)
         self.assertTrue(app.registry["application_owned"])
         self.assertEqual(TestApp(app).get("/").json, {"repositories": []})
 
@@ -151,13 +150,13 @@ class RepositoryApiTest(WebCase):
 
     def setUp(self):
         super().setUp()
-        self.application.create_repository("library")
+        self.application.create_repository("test_repo")
         self.application.create_repository("archive")
         self.settings["gracia.security_policy"] = HeaderPolicy()  # ty: ignore[invalid-assignment]
 
     def test_every_repository_has_an_api_document(self):
         web = self.client()
-        for repo in ("library", "archive"):
+        for repo in ("test_repo", "archive"):
             with self.subTest(repo=repo):
                 response = web.get(f"/{repo}/api")
                 self.assertEqual(response.status_int, 200)
@@ -175,19 +174,19 @@ class RepositoryApiTest(WebCase):
     def test_a_browser_gets_the_document_as_a_page_a_program_gets_json(self):
         web = self.client()
         page = web.get(
-            "/library/api",
+            "/test_repo/api",
             headers={"Accept": "text/html,application/xhtml+xml,*/*;q=0.8"},
         )
         self.assertIn("text/html", page.content_type)
         for part in (
-            "gracia repository library",
+            "gracia repository test_repo",
             "/{type}/{number}",
             "Try it",
             "apibrowser.js",
         ):
             self.assertIn(part, page.text)
         self.assertEqual(page.headers["Cache-Control"], "private")
-        asked = web.get("/library/api", headers={"Accept": "application/json"})
+        asked = web.get("/test_repo/api", headers={"Accept": "application/json"})
         self.assertIn("application/json", asked.content_type)
 
     def test_an_unknown_repository_has_no_api(self):
@@ -196,7 +195,7 @@ class RepositoryApiTest(WebCase):
         )
 
     def test_the_document_is_never_shared_through_a_public_cache(self):
-        response = self.client().get("/library/api")
+        response = self.client().get("/test_repo/api")
         self.assertEqual(response.headers["Cache-Control"], "private")
         self.assertIn("Authorization", response.headers["Vary"])
 
@@ -211,18 +210,20 @@ class RepositoryApiTest(WebCase):
         config.add_api_operation("/stats", "Statistics", permission="admin")
         web = self.client(config)
 
-        anonymous = web.get("/library/api").json["paths"]
+        anonymous = web.get("/test_repo/api").json["paths"]
         self.assertNotIn("/stats", anonymous)
-        self.assertEqual(web.get("/library/stats", expect_errors=True).status_int, 403)
+        self.assertEqual(
+            web.get("/test_repo/stats", expect_errors=True).status_int, 403
+        )
 
-        alice = web.get("/library/api", headers={"X-User": "alice"}).json["paths"]
+        alice = web.get("/test_repo/api", headers={"X-User": "alice"}).json["paths"]
         self.assertNotIn("/stats", alice)  # logged in is not enough
 
-        admin = web.get("/library/api", headers={"X-User": "admin"}).json["paths"]
+        admin = web.get("/test_repo/api", headers={"X-User": "admin"}).json["paths"]
         self.assertIn("/stats", admin)
         self.assertEqual(admin["/stats"]["get"]["x-gracia-permission"], "admin")
         self.assertEqual(
-            web.get("/library/stats", headers={"X-User": "admin"}).status_int, 200
+            web.get("/test_repo/stats", headers={"X-User": "admin"}).status_int, 200
         )
 
     def test_a_view_without_a_permission_still_needs_one(self):
@@ -242,7 +243,8 @@ class RepositoryApiTest(WebCase):
             renderer="json",
         )
         self.assertEqual(
-            self.client(config).get("/library/open", expect_errors=True).status_int, 403
+            self.client(config).get("/test_repo/open", expect_errors=True).status_int,
+            403,
         )
 
     def test_forbidden_is_json(self):
@@ -255,7 +257,7 @@ class RepositoryApiTest(WebCase):
             renderer="json",
             permission="admin",
         )
-        response = self.client(config).get("/library/secret", expect_errors=True)
+        response = self.client(config).get("/test_repo/secret", expect_errors=True)
         self.assertEqual(response.status_int, 403)
         self.assertEqual(response.json["error"], "forbidden")
 
@@ -273,21 +275,21 @@ class ExtensionTest(WebCase):
             )
             config.add_api_operation("/count", "Number of things")
 
-        self.application.create_repository("library")
+        self.application.create_repository("test_repo")
         config = make_config(self.settings)
         config.include(includeme)
         web = self.client(config)
-        self.assertEqual(web.get("/library/count").json, {"n": 3})
-        self.assertIn("/count", web.get("/library/api").json["paths"])
+        self.assertEqual(web.get("/test_repo/count").json, {"n": 3})
+        self.assertIn("/count", web.get("/test_repo/api").json["paths"])
 
     def test_an_including_config_overrides_what_an_included_package_registered(self):
         """Pyramid's conflict resolution: the outer configuration wins, silently."""
-        self.application.create_repository("library")
+        self.application.create_repository("test_repo")
         config = make_config(self.settings)
         config.add_api_operation("/api", "Our own description of the document")
         web = self.client(config)
         self.assertEqual(
-            web.get("/library/api").json["paths"]["/api"]["get"]["summary"],
+            web.get("/test_repo/api").json["paths"]["/api"]["get"]["summary"],
             "Our own description of the document",
         )
 

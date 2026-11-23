@@ -1,6 +1,6 @@
 import json
 
-from pyramid.httpexceptions import HTTPFound
+from pyramid.httpexceptions import HTTPFound, HTTPNotFound
 from pyramid.response import Response
 from pyramid.view import view_config
 
@@ -13,8 +13,11 @@ from gracia.views import render
 @view_config(context=Resolved, request_method=("GET", "HEAD"))
 def resolve(request):
     """A record key (`/<repo>/rec:person:23`) goes to the record it names
-    (`/<repo>/person/23`)."""
-    return HTTPFound(request.resource_url(request.context.record))
+    (`/<repo>/person/23`), when the caller may see it: else it is not found."""
+    record = request.context.record
+    if not request.has_permission("view", record):
+        raise HTTPNotFound()
+    return HTTPFound(request.resource_url(record))
 
 
 def prefers_html(request) -> bool:

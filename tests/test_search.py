@@ -84,7 +84,7 @@ class SearchCase(BatchCase):
         `rec:person:<n>`."""
         changes = [
             Change(
-                self.store.record_id_of(f"rec:person:{n}"),  # ty: ignore[invalid-argument-type]
+                self.store.record_id_of(f"rec:person:{n}"),
                 f"rec:person:{n}",
                 "insert",
             )
@@ -94,7 +94,7 @@ class SearchCase(BatchCase):
             q
             for c in changes
             for q in ox.parse(
-                self.store.closure_source(c.record_id)[1].encode(),  # ty: ignore[not-subscriptable]
+                self.store.closure_source(c.record_id)[1].encode(),
                 format=ox.RdfFormat.N_TRIPLES,
             )
         )
@@ -313,7 +313,7 @@ class HandlerTest(SearchCase):
         graphs = {
             c.record: ox.Dataset(
                 ox.parse(
-                    self.store.closure_source(c.record_id)[1].encode(),  # ty: ignore[not-subscriptable]
+                    self.store.closure_source(c.record_id)[1].encode(),
                     format=ox.RdfFormat.N_TRIPLES,
                 )
             )
@@ -321,8 +321,7 @@ class HandlerTest(SearchCase):
         }
         on_records_changed(
             RecordsChanged(
-                self.app,
-                "main",
+                self.app["main"],
                 changes,
                 graphs,
                 {"rec:person:1": docs["rec:person:1"]},
@@ -352,12 +351,12 @@ class WiringTest(BatchCase):
             {"gracia.application": self.app, "gracia.index_dir": str(self.tmp / "idx")}
         )
         config.make_wsgi_app()
-        self.assertEqual(self.app.indexes.directory, self.tmp / "idx")  # ty: ignore[missing-union-attribute]
+        self.assertEqual(self.app.indexes.directory, self.tmp / "idx")
         self.store.put(person(1, "Ada Lovelace"))
         process_pending(
             self.app, config.registry
         )  # the registry of the application: it has the subscriber
-        self.assertEqual(self.app.indexes.stats("main")[0]["documents"], 1)  # ty: ignore[missing-union-attribute]
+        self.assertEqual(self.app.indexes.stats("main")[0]["documents"], 1)
 
     def test_without_the_setting_there_are_none(self):
         from gracia.main import make_config
@@ -376,7 +375,7 @@ class StatsRowTest(ManageCase):
             __import__("shutil").rmtree, self.application.indexes.directory, True
         )
 
-    def row(self, repo="library") -> str:
+    def row(self, repo="test_repo") -> str:
         _, page = self.tabs(f"/{repo}/manage?tab=stats")
         found = must_search(r'<tr id="stats-index-records".*?</tr>', page, re.S)[0]
         return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", found)).strip()
@@ -387,16 +386,16 @@ class StatsRowTest(ManageCase):
     def test_an_index_has_its_documents_of_the_records_there_are(self):
         registry = Registry()
         registry.registerHandler(on_records_changed, (RecordsChanged,))
-        process_pending(self.application, registry, "library")
+        process_pending(self.application, registry, "test_repo")
         row = self.row()
         records = sum(
-            self.application.open_repository("library").count_records_by_type().values()
+            self.application.new_store("test_repo").count_records_by_type().values()
         )
         self.assertRegex(row, rf"^records ok {records} {records} \d")
 
     def test_without_a_directory_it_says_there_is_no_index(self):
         self.application.indexes = None
-        _, page = self.tabs("/library/manage?tab=stats")
+        _, page = self.tabs("/test_repo/manage?tab=stats")
         self.assertIn('id="stats-search-none"', page)
 
 
@@ -425,7 +424,7 @@ class ExtensionCase(ManageCase):
         return self.repository.extension("search")
 
     def put_person(self, number: int, name: str) -> None:
-        with self.application.open_repository("archive") as store:
+        with self.application.new_store("archive") as store:
             store.put(person(number, name))
 
 
@@ -568,7 +567,7 @@ class SearchExtensionTest(ExtensionCase):
     def records_of_types(self) -> int:
         """The records of the repository other than the person (its types and the rest):
         they are indexed too, since the index is for every record."""
-        with self.application.open_repository("archive") as store:
+        with self.application.new_store("archive") as store:
             return sum(
                 n
                 for slug, n in store.count_records_by_type().items()
@@ -603,7 +602,7 @@ class SearchPageTest(ManageCase):
         self.config.begin()
         self.addCleanup(self.config.end)
         self.application.create_repository("archive", content_types=[self.person()])
-        with self.application.open_repository("archive") as store:
+        with self.application.new_store("archive") as store:
             store.put(
                 ox.Dataset(
                     q
@@ -656,7 +655,7 @@ class SearchPageTest(ManageCase):
     def test_the_address_is_the_slug_of_the_record_when_it_has_one_and_its_number_when_not(  # noqa: E501
         self,
     ):
-        with self.application.open_repository("archive") as store:
+        with self.application.new_store("archive") as store:
             store.put(person(4, "Grace Hopper", slug="grace-hopper"))
         process_pending(self.application, self.config.registry, "archive")
         page = self.page("hopper", ADMIN).text
@@ -906,7 +905,7 @@ class SearchTabTest(ManageCase):
     def build(self) -> None:
         registry = Registry()
         registry.registerHandler(on_records_changed, (RecordsChanged,))
-        with self.application.open_repository("archive") as store:
+        with self.application.new_store("archive") as store:
             store.put(person(1, "Ada Lovelace"))
         process_pending(self.application, registry, "archive")
 

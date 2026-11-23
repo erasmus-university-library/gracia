@@ -4,9 +4,9 @@ from typing import ClassVar
 
 import pyoxigraph as ox
 from base import DATA, REC, DbTestCase
+from harness import open_store
 
 from gracia.graph import Graph, ParseError, serialize_bytes
-from gracia.store import Store
 
 EX = "http://example.org/"
 XSD_INT = ox.NamedNode("http://www.w3.org/2001/XMLSchema#integer")
@@ -101,13 +101,13 @@ class ExtractTest(unittest.TestCase):
 class GetTest(DbTestCase):
     def test_get_one_resource(self):
         self.load(DATA / "04_complex.ttl")
-        with Store(self.db) as store:
+        with open_store(self.db) as store:
             got = store.get(REC["doc1"])
         self.assertTrue(iso(got, parse(DATA / "04_complex.ttl").extract(REC["doc1"])))
 
     def test_get_several_and_unknown_and_node_arguments(self):
         self.load(DATA / "01_simple.ttl")
-        with Store(self.db) as store:
+        with open_store(self.db) as store:
             both = store.get([REC["book1"], node("alice"), EX + "nobody"])
             self.assertEqual(set(both.subjects()), {node("book1"), node("alice")})
             self.assertEqual(len(store.get(node("alice"))), 1)
@@ -119,7 +119,7 @@ class GetTest(DbTestCase):
 
     def test_get_expands_lists_and_blank_nodes(self):
         self.load(DATA / "03_lists.ttl")
-        with Store(self.db) as store:
+        with open_store(self.db) as store:
             book = store.get(REC["book1"])
         predicates = {q.predicate.value.rsplit("#", 1)[-1] for q in book}
         self.assertIn("first", predicates)
@@ -130,7 +130,7 @@ class GetTest(DbTestCase):
 class PutTest(DbTestCase):
     def test_put_new_resources_from_a_parsed_file(self):
         ds = parse(DATA / "02_bnodes.ttl")
-        with Store(self.db) as store:
+        with open_store(self.db) as store:
             counts = store.put(ds)
             self.assertEqual(counts["delete"], 0)
             self.assertGreater(counts["insert"], 0)
@@ -143,7 +143,7 @@ class PutTest(DbTestCase):
         path."""
         ds = parse(DATA / "05_shared.ttl")
         original = ds.extract(REC["alice"])
-        with Store(self.db) as store:
+        with open_store(self.db) as store:
             store.put(ds)
             stored = store.get(REC["alice"])
 
@@ -154,14 +154,14 @@ class PutTest(DbTestCase):
 
     def test_get_put_roundtrip_changes_nothing(self):
         self.load(DATA / "04_complex.ttl")
-        with Store(self.db) as store:
+        with open_store(self.db) as store:
             before = len(self.rows(store))
             store.put(store.get([REC["doc1"], REC["doc4"]]))
             self.assertEqual(len(self.rows(store)), before)
 
     def test_put_replaces_the_resource_as_a_whole(self):
         self.load(DATA / "01_simple.ttl")
-        with Store(self.db) as store:
+        with open_store(self.db) as store:
             book = store.get(REC["book1"])
             title = next(
                 q
@@ -189,7 +189,7 @@ class PutTest(DbTestCase):
                 ox.Quad(node("alice"), node("name"), ox.Literal("Alice II")),
             ]
         )
-        with Store(self.db) as store:
+        with open_store(self.db) as store:
             store.put(ds)
             self.assertTrue(
                 iso(store.get([node("new1"), node("new2"), node("alice")]), ds)
@@ -202,7 +202,7 @@ class PutTest(DbTestCase):
             ox.Quad(node("a"), node("n"), ox.Literal("5", datatype=XSD_INT)),
             ox.Quad(node("a"), node("plain"), ox.Literal("x")),
         ]
-        with Store(self.db) as store:
+        with open_store(self.db) as store:
             store.put(ox.Dataset(quads))
             self.assertTrue(iso(store.get(node("a")), quads))
 
@@ -213,7 +213,7 @@ class PutTest(DbTestCase):
                 ox.Quad(ox.BlankNode(), node("q"), ox.Literal("y")),
             ]
         )
-        with Store(self.db) as store:
+        with open_store(self.db) as store:
             store.set_type_ids(
                 [("thing", 30)]
             )  # a record of a type that is not there is an error to ask for
@@ -222,7 +222,7 @@ class PutTest(DbTestCase):
             self.assertEqual(len(store.get(node("a"))), 0)
 
     def test_empty_dataset_is_a_no_op(self):
-        with Store(self.db) as store:
+        with open_store(self.db) as store:
             self.assertEqual(dict(store.put(ox.Dataset())), {})
 
     def test_strict_refuses_warnings(self):
@@ -234,7 +234,7 @@ class PutTest(DbTestCase):
                 ox.Quad(b, node("x"), ox.Literal("y")),
             ]
         )
-        with Store(self.db) as store:
+        with open_store(self.db) as store:
             store.set_type_ids(
                 [("thing", 30)]
             )  # a record of a type that is not there is an error to ask for
@@ -243,7 +243,7 @@ class PutTest(DbTestCase):
             self.assertEqual(len(store.get(node("a"))), 0)
 
     def test_put_then_cli_export(self):
-        with Store(self.db) as store:
+        with open_store(self.db) as store:
             store.put(parse(DATA / "01_simple.ttl"))
         code, out, err = self.gracia(
             "export", "-f", "ntriples", "-u", REC["alice"], "-u", REC["book1"]

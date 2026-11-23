@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 
 import pyoxigraph as ox
 from base import DbTestCase
+from harness import open_store
 
 from gracia import store as store_module
 from gracia import uri
@@ -55,7 +56,7 @@ def record(
 class EtagCase(DbTestCase):
     def setUp(self):
         super().setUp()
-        self.store = Store(self.db)
+        self.store = open_store(self.db)
         self.addCleanup(self.store.close)
         self.store.set_type_ids(TYPES)
 
@@ -151,7 +152,7 @@ class EtagTest(EtagCase):
                     "types",
                     "backrefs",
                 ),
-                self.store.con.execute(  # ty: ignore[invalid-argument-type]
+                self.store.con.execute(
                     "SELECT * FROM etags WHERE record_uri = 'rec:work:1'"
                 ).fetchone(),
                 strict=False,
@@ -400,7 +401,7 @@ class WhenTheyAreMadeTest(EtagCase):
     def test_a_record_of_a_type_without_a_number_cannot_be_stored_until_the_type_has_one(  # noqa: E501
         self,
     ):
-        fresh = Store(self.tmp / "other.db")
+        fresh = open_store(self.tmp / "other.db")
         self.addCleanup(fresh.close)
         with self.assertRaisesRegex(Exception, "unknown record uri: rec:nobody:1"):
             fresh.put(record("rec:nobody:1"))
@@ -458,7 +459,7 @@ class WhenTheyAreMadeTest(EtagCase):
 
     def test_a_reopened_store_knows_the_numbers_of_its_types(self):
         self.store.set_type_ids([("magazine", 40)])
-        again = Store(self.db)
+        again = open_store(self.db)
         self.addCleanup(again.close)
         expected = {**uri.BASE_TYPE_NUMBERS, **dict(TYPES), "magazine": 40}
         self.assertEqual(
@@ -856,7 +857,7 @@ class RecordsPageTest(EtagCase):
     def test_a_repository_that_has_no_etags_yet_gives_the_same_pages_from_the_records(
         self,
     ):
-        bare = Store(self.tmp / "bare.db")  # its etags are gone
+        bare = open_store(self.tmp / "bare.db")  # its etags are gone
         self.addCleanup(bare.close)
         bare.set_type_ids(TYPES)
         bare.put(
@@ -984,7 +985,7 @@ class CommandTest(DbTestCase):
         made = int(out.split()[1])
         self.assertRegex(out, r"^made \d+ etags, \d+ of them different")
         self.assertGreater(made, 4)  # the repository record, its types, the groups
-        with Store(self.db) as store:
+        with open_store(self.db) as store:
             self.assertEqual(
                 fetch_one(store.con.execute("SELECT count(*) FROM etags"))[0], made
             )
@@ -1008,7 +1009,7 @@ class IndexTest(DbTestCase):
         return [r[0] for r in rows]
 
     def test_a_new_repository_has_no_index_that_is_not_a_constraint(self):
-        store = Store(self.db)
+        store = open_store(self.db)
         self.addCleanup(store.close)
         store.set_type_ids(TYPES)
         store.put(record("rec:work:1"))

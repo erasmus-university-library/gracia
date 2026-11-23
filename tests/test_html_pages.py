@@ -36,7 +36,7 @@ def person(
 
 class PagesCase(EditCase):
     def add(self, text: str) -> None:
-        with self.application.open_repository("library") as store:
+        with self.application.new_store("test_repo") as store:
             store.put(
                 Graph(
                     ox.Dataset(
@@ -65,7 +65,7 @@ class TypeIndexTest(PagesCase):
         )
 
     def test_it_is_page_one_with_the_newest_records_and_says_which_page_it_is(self):
-        got = self.get("/library/person/", self.admin)
+        got = self.get("/test_repo/person/", self.admin)
         self.assertEqual((got.status_int, got.content_type), (200, "text/html"))
         labels = self.labels(got)
         self.assertEqual(len(labels), 20)  # 47 records: 3 pages of 20, 20 and 7
@@ -81,7 +81,7 @@ class TypeIndexTest(PagesCase):
     def test_the_last_page_has_the_oldest_records_and_links_back_to_the_newer_ones(
         self,
     ):
-        got = self.get("/library/person/?page=3", self.admin)
+        got = self.get("/test_repo/person/?page=3", self.admin)
         labels = self.labels(got)
         self.assertEqual(
             (len(labels), labels[0], labels[-1]), (7, "Person 16", "Person 10")
@@ -90,7 +90,7 @@ class TypeIndexTest(PagesCase):
         self.assertRegex(
             got.text,
             r'<a class="page-link" '
-            r'href="http://localhost/library/person/\?page=2">Newer</a>',
+            r'href="http://localhost/test_repo/person/\?page=2">Newer</a>',
         )
         self.assertRegex(
             got.text, r'<span class="page-link">Older</span>'
@@ -98,7 +98,7 @@ class TypeIndexTest(PagesCase):
 
     def test_the_links_are_the_page_numbers_near_the_page_with_gaps(self):
         self.add("".join(person(n) for n in range(60, 200)))  # 187 records: 10 pages
-        got = self.get("/library/person/?page=5", self.admin)
+        got = self.get("/test_repo/person/?page=5", self.admin)
         numbers = re.findall(r'class="page-link"[^>]*>(\d+|…)</', got.text)
         self.assertEqual(numbers, ["1", "…", "3", "4", "5", "6", "7", "…", "10"])
         self.assertRegex(
@@ -110,15 +110,15 @@ class TypeIndexTest(PagesCase):
         for query in ("?page=0", "?page=4", "?page=-1", "?page=abc", "?page="):
             with self.subTest(query=query):
                 self.assertEqual(
-                    self.get("/library/person/" + query, self.admin).status_int, 404
+                    self.get("/test_repo/person/" + query, self.admin).status_int, 404
                 )
 
     def test_a_record_that_is_not_published_is_for_those_who_may_edit(self):
         self.add(person(100, "Hidden Hannah", published=False))
-        admin = self.get("/library/person/", self.admin)
+        admin = self.get("/test_repo/person/", self.admin)
         self.assertIn("Hidden Hannah", admin.text)
         self.assertIn("1 not published", admin.text)
-        public = self.get("/library/person/")
+        public = self.get("/test_repo/person/")
         self.assertEqual(public.status_int, 200)
         self.assertNotIn("Hidden Hannah", public.text)
         self.assertIn("47 records", public.text)
@@ -126,35 +126,35 @@ class TypeIndexTest(PagesCase):
     def test_the_labels_are_text_and_an_unnamed_record_says_so(self):
         self.add(person(101, "<b>bold</b> & co"))
         self.add(person(102, "").replace('gracia:label "" ;', ""))
-        text = self.get("/library/person/", self.admin).text
+        text = self.get("/test_repo/person/", self.admin).text
         self.assertIn("&lt;b&gt;bold&lt;/b&gt; &amp; co", text)
         self.assertNotIn("<b>bold</b>", text)
         self.assertIn("(Unnamed)", text)
 
     def test_add_is_for_those_who_may_add(self):
         self.assertIn(
-            "/library/person/add", self.get("/library/person/", self.admin).text
+            "/test_repo/person/add", self.get("/test_repo/person/", self.admin).text
         )
-        self.assertNotIn("/library/person/add", self.get("/library/person/").text)
+        self.assertNotIn("/test_repo/person/add", self.get("/test_repo/person/").text)
 
     def test_the_page_comes_from_etags_when_there_are_some_and_from_records_when_not_the_same_either_way(  # noqa: E501
         self,
     ):
         before = self.labels(
-            self.get("/library/person/?page=2", self.admin)
+            self.get("/test_repo/person/?page=2", self.admin)
         )  # no etags in this repository yet
-        with self.application.open_repository("library") as store:
-            repository = self.application["library"]
+        with self.application.new_store("test_repo") as store:
+            repository = self.application["test_repo"]
             self.addCleanup(repository.close)
             store.set_type_ids(repository.type_numbers())
             self.assertGreater(store.count_etags(), 40)
-        after = self.labels(self.get("/library/person/?page=2", self.admin))
+        after = self.labels(self.get("/test_repo/person/?page=2", self.admin))
         self.assertEqual(before, after)
 
     def test_asking_for_json_or_nothing_still_gets_json(self):
         for headers in ({}, {"Accept": "application/json"}):
             got = self.client().get(
-                "/library/person/", headers={**self.admin, **headers}
+                "/test_repo/person/", headers={**self.admin, **headers}
             )
             self.assertEqual(got.content_type, "application/json")
             self.assertEqual(len(got.json["records"]), 47)
@@ -187,14 +187,14 @@ class RecordPageTest(PagesCase):
 
     def page(self, anonymous=False, roles=ROLES):
         with mock.patch.object(Type, "roles", lambda self: roles):
-            return self.get("/library/person/2", None if anonymous else self.admin)
+            return self.get("/test_repo/person/2", None if anonymous else self.admin)
 
     def test_it_shows_the_label_and_the_type(self):
         got = self.page(roles=[("label", FOAF + "name", 0)])
         self.assertEqual((got.status_int, got.content_type), (200, "text/html"))
         self.assertRegex(got.text, r'<h1 class="h3 mb-0">Bob</h1>')
         self.assertRegex(
-            got.text, r'<a href="http://localhost/library/person/">Person</a>'
+            got.text, r'<a href="http://localhost/test_repo/person/">Person</a>'
         )
         self.assertNotIn(
             "<table", got.text
@@ -215,7 +215,7 @@ class RecordPageTest(PagesCase):
         text = self.page().text
         self.assertRegex(
             text,
-            r'<a href="http://localhost/library/person/1">ark:/99999/ir/person/1</a>',
+            r'<a href="http://localhost/test_repo/person/1">ark:/99999/ir/person/1</a>',
         )
         self.assertIn("javascript:alert(1)", text)
         self.assertNotIn('href="javascript:', text)
@@ -234,11 +234,11 @@ class RecordPageTest(PagesCase):
         )
 
     def test_edit_is_a_link_for_those_who_may_edit(self):
-        self.assertIn("/library/person/2/edit", self.page().text)
-        self.assertNotIn("/library/person/2/edit", self.page(anonymous=True).text)
+        self.assertIn("/test_repo/person/2/edit", self.page().text)
+        self.assertNotIn("/test_repo/person/2/edit", self.page(anonymous=True).text)
 
     def test_the_credentials_of_a_user_are_not_a_row(self):
-        got = self.client().get("/library/user/1", headers={**HTML, **self.admin})
+        got = self.client().get("/test_repo/user/1", headers={**HTML, **self.admin})
         self.assertEqual(got.status_int, 200)
         self.assertIsNone(re.search(r"scrypt|\$argon|pbkdf", got.text))
         self.assertIn(
@@ -246,12 +246,12 @@ class RecordPageTest(PagesCase):
         )  # its key information: the user id, under its name in the shape
 
     def test_no_accept_is_still_rdfxml_and_json_is_still_json(self):
-        plain = self.client().get("/library/person/1", headers=self.admin)
+        plain = self.client().get("/test_repo/person/1", headers=self.admin)
         self.assertEqual(plain.content_type, "application/rdf+xml")
         self.assertEqual(
             self.client()
             .get(
-                "/library/person/1",
+                "/test_repo/person/1",
                 headers={**self.admin, "Accept": "application/json"},
             )
             .content_type,

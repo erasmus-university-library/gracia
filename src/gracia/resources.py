@@ -7,13 +7,14 @@ from pathlib import Path
 import colander
 import pyoxigraph as ox
 from pyramid.authorization import ALL_PERMISSIONS, DENY_ALL, Allow, Everyone
-from pyramid.httpexceptions import HTTPGone, HTTPMovedPermanently, HTTPPermanentRedirect
-from pyramid.threadlocal import get_current_registry, get_current_request
+from pyramid.threadlocal import get_current_request
 from zope.interface import implementer
 
-from gracia import forms, hints, predicates, uri
+from gracia import forms, hints, predicates, traversal, uri
 from gracia.graph import Graph
 from gracia.interfaces import IDeformView, IExtension, IGraciaType, IRepository
+from gracia.store import new_store
+from gracia.traversal import traversable
 from gracia.utils import assets, passwords
 from gracia.utils.validate import validate_userid
 
@@ -52,106 +53,144 @@ TYPE_ACLS = {
 PRIVATE_CLASSES = frozenset({uri.USER_CLASS, uri.GROUP_CLASS, uri.REPOSITORY_CLASS})
 
 
+class RecordDeleted(LookupError):
+    """The record of an address was deleted (`Type.__getitem__`). Not a `KeyError`,
+    which
+    traversal reads as "nothing here": the views answer it with 410."""
+
+
 class Node:
-    """A node of the tree below a repository: it knows the repository it is in. It does
-    not need a request for that, only its parents, so code that runs without one (a
-    command, a job, an extension) can ask too. Found once and kept: a node lives for one
-    request."""
+    """A node of the tree below a repository: it has the repository it is in, taken from
+    its parent when it is made (the repository is its own), and through it the store,
+    the registry and the application. It does not need a request for that, so code that
+    runs without one (a command, a job, an extension) can ask too. The application is
+    not a node (it has no repository), nor is the repository."""
 
-    __parent__ = None
+    def __init__(self, parent):
+        self.__parent__ = parent
+        self.repository: Repository = parent.repository
 
-    @cached_property
-    def repository(self) -> "Repository":
-        node = self.__parent__
-        while node is not None and not isinstance(node, Repository):
-            node = getattr(node, "__parent__", None)
-        if node is None:
-            raise AttributeError("this node is not in a repository")
-        return node
+    @property
+    def store(self):
+        return self.repository.store
+
+    @property
+    def registry(self):
+        return self.repository.registry
+
+    @property
+    def application(self):
+        return self.repository.application
 
 
+@traversable(prefix="rec:")
 class Resolved(Node):
     """What `/<repo>/rec:<slug>:<n>` is: the key of a record, which answers by sending
-    the caller to the address of the record (see `gracia.views.repository.resolve`). The
-    record was found by traversal, so it is one the caller may see."""
+    the caller to the address of the record (see `gracia.views.repository.resolve`).
+    `KeyError` when there is no such record."""
 
-    def __init__(self, repository: "Repository", key: str, record: "Record"):
-        self.__name__, self.__parent__, self.record = key, repository, record
-
-
-def resolve_record_key(repository: "Repository", key: str) -> Resolved:
-    """`/<repo>/rec:person:34`: the node that sends the caller to the record (`KeyError`
-    when there is none, or when the caller may not see it)."""
-    parsed = uri.parse_record_uri(key)
-    if parsed is None or parsed[0] not in repository.res_types:
-        raise KeyError(key)
-    return Resolved(
-        repository, key, repository.res_types[parsed[0]].by_number(str(parsed[1]))
-    )
+    def __init__(self, repository: "Repository", key: str):
+        super().__init__(repository)
+        parsed = uri.parse_record_uri(key)
+        if parsed is None or parsed[0] not in repository.res_types:
+            raise KeyError(key)
+        self.__name__ = key
+        self.record = repository.res_types[parsed[0]][str(parsed[1])]
 
 
 @implementer(IRepository)
 class Repository:
     """One repository (a schema of the database)."""
 
-    def __init__(self, repo_id: str, parent):
+    def __init__(self, registry, repo_id: str, parent):
+        """`registry` is the registry of the application (what its types, extensions
+        and jobs are found in), `parent` the application (`application[repo_id]` makes
+        the nodes)."""
+        self.registry = registry
         self.__name__ = repo_id
         self.__parent__ = parent
-        self._store = None
+        self._owns_store = True
+
+    def use_store(self, store) -> None:
+        """Take a store that the caller has opened (and closes) as the store of this
+        node, instead of opening one."""
+        self.close()
+        self.__dict__["store"] = store
+        self._owns_store = False
 
     @property
     def repository(self) -> "Repository":
         return self
 
     @property
+    def application(self):
+        return self.__parent__
+
+    @property
     def uri(self) -> str:
         return uri.repository_uri()
 
+    @cached_property
     def store(self):
-        """The repository's store: opened once, closed when the request ends."""
-        if self._store is None:
-            self._store = self.__parent__.open_repository(self.__name__)
-            self.configure(self._store)
-            request = get_current_request()
-            if request is not None:
-                request.add_finished_callback(lambda request: self.close())
-        return self._store
+        """The repository's store: opened once. On the cursor of the request
+        (`application.db`) it is the cursor, scoped to the schema of this repository,
+        that the request closes; without one the store has a cursor of its own, closed
+        when the request ends."""
+        db = self.application.db
+        store = self.__dict__["store"] = new_store(
+            self.application.database, self.__name__, db
+        )
+        self._owns_store = db is None
+        self.configure()
+        request = get_current_request()
+        if request is not None and db is None:
+            request.add_finished_callback(lambda request: self.close())
+        return store
 
-    def sync_roles(self, store):
+    def sync_roles(self) -> None:
         """The types of the repository changed (one was added, or its schema was
         switched): read them again, and tell the database what their shapes say of their
         properties now. The records are made again from the roles when those changed
         (`Store.set_property_roles`)."""
         for key in ("res_types", "_sql_hooks"):
             self.__dict__.pop(key, None)
-        self.configure(store).sync()
-        return store
+        self.application.cache.invalidate(self.__name__)
+        self.configure()
+        self.store.sync()
 
-    def configure(self, store):
-        """Tell a store of this repository what its predicates and types need done when
-        it stores something (`Store.configure`); the store is returned."""
-        store.configure(
+    def configure(self) -> None:
+        """Tell the store what the predicates and types of this repository need done
+        when it stores something (`Store.configure`)."""
+        self.store.configure(
             lambda: (self.sql_hooks(), self.property_roles(), self.type_numbers())
         )
-        return store
+
+    def __enter__(self) -> "Repository":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
 
     def close(self) -> None:
-        if self._store is not None:
-            self._store.close()
-            self._store = None
+        """Close the store when this node opened it (a store that was given is closed
+        by whoever opened it)."""
+        store = self.__dict__.pop("store", None)
+        if store is not None and self._owns_store:
+            store.close()
+        self._owns_store = True
 
-    def resource(self, store=None) -> tuple[str, Graph]:
+    def resource(self) -> tuple[str, Graph]:
         """The repository's own record (the one record of the type `repository`) and its
         data."""
-        graph = (store or self.store()).get(self.uri)
+        graph = self.store.get(self.uri)
         if not len(graph):
             raise LookupError(f"repository {self.__name__} has no repository record")
         return self.uri, graph
 
-    def content(self, store=None) -> tuple[ox.BlankNode, Graph]:
+    def content(self) -> tuple[ox.BlankNode, Graph]:
         """The content of the repository record (its title, types, extensions, schema),
         as the node that holds it and the graph of the record."""
-        record_uri, graph = self.resource(store)
+        record_uri, graph = self.resource()
         node = graph.value(record_uri, uri.RESOURCE)
         if node is None:
             raise LookupError(
@@ -159,11 +198,11 @@ class Repository:
             )
         return node, graph
 
-    def timezone(self, store=None) -> datetime.tzinfo:
+    def timezone(self) -> datetime.tzinfo:
         """The time zone times are shown in (`gracia:timezone` of the repository): UTC
         when none is chosen. The database holds UTC only."""
         try:
-            node, graph = self.content(store)
+            node, graph = self.content()
         except LookupError:
             return datetime.UTC
         found = graph.value(node, _N(uri.TIMEZONE))
@@ -185,14 +224,16 @@ class Repository:
         caller is changing the repository), so that the predicates of a record do their
         work for it too."""
         res_type = self.res_types["repository"]
-        return record_class(res_type.class_uri)(res_type, "1", self.uri, graph)
+        return record_class(self.registry, res_type.class_uri)(
+            res_type, "1", self.uri, graph
+        )
 
-    def with_hooks(self, graph: "Graph | ox.Dataset", store=None) -> Graph:
+    def with_hooks(self, graph: "Graph | ox.Dataset") -> Graph:
         """A copy of a graph with what saving it would add to it: every record has been
         through the SQL of the predicates of its type (`Store.apply_hooks`), the way a
         save does it. What is not a record of a type of this repository is left as it
         is."""
-        return (store or self.store()).apply_hooks(graph)
+        return self.store.apply_hooks(graph)
 
     def sql_hooks(self) -> list[str]:
         """The SQL of all the predicates of all the types, in the order it runs (see
@@ -222,11 +263,11 @@ class Repository:
             (t.slug, int(t.record.rsplit(":", 1)[1])) for t in self.res_types.values()
         ]
 
-    def shape(self, store=None):
+    def shape(self):
         """The shape of the repository's content, from the files named by its
         `gracia:assets`: (the shape's graph, its node). Raises LookupError when there is
         none."""
-        node, graph = self.content(store)
+        node, graph = self.content()
         prefix = graph.value(node, _N(uri.ASSETS))
         schema = graph.value(node, _N(uri.SCHEMA_TEMPLATE))
         found = assets.shape(
@@ -245,23 +286,29 @@ class Repository:
     def res_types(self) -> dict[str, "Type"]:
         """The types the repository lists in `gracia:types`, by slug; none for a
         repository that has no repository resource."""
-        try:
-            node, graph = self.content()
-        except LookupError:
-            return {}
-        head = graph.value(node, _N(uri.TYPES))
-        classes = [p.value for p in graph.walk_list(head)] if head is not None else []
-        by_class = self.store().records_with_resource_uris(
-            classes
-        )  # the list has the classes: the resource uris
-        records = [by_class[c] for c in classes if c in by_class]
-        found = self.store().get(records) if records else Graph()
+        records, found = self.application.cache.types(self.__name__, self._type_records)
         res_types = {}
         for record in records:
             res_type = Type.read(self, record, found)
             if res_type is not None:
                 res_types[res_type.slug] = res_type
         return res_types
+
+    def _type_records(self) -> tuple[list[str], Graph]:
+        """The records of the types the repository lists, and their data (what
+        `res_types` is made of, kept by the cache of the application for as long as the
+        repository is not written)."""
+        try:
+            node, graph = self.content()
+        except LookupError:
+            return [], Graph()
+        head = graph.value(node, _N(uri.TYPES))
+        classes = [p.value for p in graph.walk_list(head)] if head is not None else []
+        by_class = self.store.records_with_resource_uris(
+            classes
+        )  # the list has the classes: the resource uris
+        records = [by_class[c] for c in classes if c in by_class]
+        return records, self.store.get(records) if records else Graph()
 
     def resolve_type(self, href: str) -> Path:
         """The file `type:<slug>/<file>` names: `<file>` in the assets of the type of
@@ -289,7 +336,7 @@ class Repository:
         request)."""
         cache = self.__dict__.setdefault("_extension_objects", {})
         if name not in cache:
-            found = get_current_registry().queryAdapter(self, IExtension, name)
+            found = self.registry.queryAdapter(self, IExtension, name)
             if found is None:
                 raise KeyError(name)
             cache[name] = found
@@ -297,7 +344,7 @@ class Repository:
 
     def extensions(self) -> list:
         """All the extensions there are, as they are in this repository, by title."""
-        found = get_current_registry().getAdapters((self,), IExtension)
+        found = self.registry.getAdapters((self,), IExtension)
         return sorted(
             (e for _name, e in found), key=lambda e: (e.title or e.name, e.name)
         )
@@ -307,11 +354,9 @@ class Repository:
         `deform`, `rec:...`, and whatever an extension registers, see
         `gracia.extensions`), else a type, by its slug. The repository does not know
         which of them there are."""
-        from gracia.extensions import repository_child
-
-        child = repository_child(get_current_registry(), name)
-        if child is not None:
-            return child.factory(self, name)
+        found = traversal.child(self, name)
+        if found is not None:
+            return found
         try:
             return self.res_types[name]
         except KeyError:
@@ -324,7 +369,7 @@ class Repository:
             validate_userid(userid)
         except ValueError:
             return passwords.verify_nothing(password) or None  # ty: ignore[invalid-explicit-return]
-        store = self.store()
+        store = self.store
         records = store.records_with(
             "identifiers", userid, rec_type="user"
         )  # its key info
@@ -351,6 +396,7 @@ class Repository:
         return names
 
 
+@traversable("jobs")
 class Jobs(Node):
     """`/<repo>/jobs`: the jobs of the repository, and the jobs that can be started in
     it.
@@ -363,14 +409,14 @@ class Jobs(Node):
     __name__ = "jobs"
 
     def __init__(self, parent: Repository):
-        self.__parent__ = parent
+        super().__init__(parent)
 
     @property
     def __acl__(self):
         from gracia.jobs.job import all_jobs
 
         grants: dict[str, list[str]] = {}
-        for job in all_jobs(get_current_registry()):
+        for job in all_jobs(self.registry):
             for group in job.groups:
                 grants.setdefault(f"group:{group}", ["list_jobs"]).append(
                     job.start_permission
@@ -386,13 +432,14 @@ class Jobs(Node):
             raise KeyError(job_id)
         from gracia.jobs.db import JobsDb
 
-        with JobsDb(self.repository.__parent__) as db:
+        with JobsDb(self.application) as db:
             row = db.get(job_id)
         if row is None or row["repo"] != self.repository.__name__:
             raise KeyError(job_id)
         return JobRun(self, row)
 
 
+@traversable("deform")
 class DeformViews(Node):
     """`/<repo>/deform`: the deform views (see `gracia.views.deform`) by name. The node
     of a view has no ACL of its own: the view asks for the permission it was declared
@@ -402,10 +449,10 @@ class DeformViews(Node):
     __name__ = "deform"
 
     def __init__(self, parent: Repository):
-        self.__parent__ = parent
+        super().__init__(parent)
 
     def __getitem__(self, name: str) -> "DeformView":
-        function = get_current_registry().queryUtility(IDeformView, name)
+        function = self.registry.queryUtility(IDeformView, name)
         if function is None:
             raise KeyError(name)
         return DeformView(self, name, function)
@@ -416,7 +463,7 @@ class DeformView(Node):
 
     def __init__(self, parent: DeformViews, name: str, function):
         self.__name__ = name
-        self.__parent__ = parent
+        super().__init__(parent)
         self.function = function
 
     @property
@@ -434,7 +481,7 @@ class JobRun(Node):
 
     def __init__(self, parent: Jobs, row: dict):
         self.__name__ = row["id"]
-        self.__parent__ = parent
+        super().__init__(parent)
         self.row = row
 
     @property
@@ -456,7 +503,7 @@ class Type(Node):
         self, parent: Repository, record: str, name: str, slug: str, class_uri: str
     ):
         self.__name__ = slug
-        self.__parent__ = parent
+        super().__init__(parent)
         self.record, self.name, self.slug, self.class_uri = (
             record,
             name,
@@ -560,7 +607,7 @@ class Type(Node):
 
     def records(self) -> list[str]:
         """The record URIs of this type."""
-        return self.repository.store().records_of_type(self.slug)
+        return self.store.records_of_type(self.slug)
 
     @property
     def placeholder(self) -> str:
@@ -590,84 +637,55 @@ class Type(Node):
         """A record of this type that is not stored yet: no number, no data. It has the
         hooks of the class registered for the type, so the form to add one is the form
         to edit one."""
-        return record_class(self.class_uri)(self, None, None, Graph())  # ty: ignore[invalid-argument-type]
+        cls = record_class(self.registry, self.class_uri)
+        return cls(self, None, None, Graph())  # ty: ignore[invalid-argument-type]
 
-    def __getitem__(self, key: str) -> "Record":  # ty: ignore[invalid-implicit-return]
-        """A record by its number, or by a slug it has or had. A number is a record, or
-        (the record was deleted: its number is a slug of its own then) HTTP 410, and the
-        number of a record that has a slug goes on to the slug (301, as below). A slug
-        that is the current one is the record; an old one goes on to the current slug,
-        or to the number when there is none (301, the rest of the address and the query
-        as they were); one of a deleted record is 410."""
+    def __getitem__(self, key: str) -> "Record":
+        """A record by its number, or by a slug it has or had: the record, whatever
+        address was used (the record says which one is its own, `__name__`; sending the
+        caller there is for the views, see `gracia.views.addresses`). A number is looked
+        up as it is, a slug in the table of slugs. `RecordDeleted` for a record that is
+        gone (its number is a slug of its own then), `KeyError` when there is none. Who
+        may see the record is for the views too (its `__acl__`)."""
         if _NUMBER.match(key):
-            record = self.by_number(key)
-            if record.__name__ != key:  # it has a slug: that is its address
-                self._go_to(key, record.__name__)
-            return record
-        if not uri.SLUG_NAME.match(key):
+            number = key
+        elif uri.SLUG_NAME.match(key):
+            found = self._slug(key)
+            if found is None:
+                raise KeyError(key)
+            if found[1]:
+                raise RecordDeleted(key)
+            number = found[0].rsplit(":", 1)[1]
+        else:
             raise KeyError(key)
-        found = self.repository.store().slug_lookup(self.slug, key)
-        if found is None:
-            raise KeyError(key)
-        record_uri, deleted = found
-        number = record_uri.rsplit(":", 1)[1]
-        record = None if deleted else self._record(number)
+        record = self._record(number)
         if record is None:
-            raise HTTPGone()
-        current = self.repository.store().current_slug(record_uri)
-        if current == key:
-            return record
-        self._go_to(key, current or number)
+            if number == key:  # a number that was deleted is a slug of its own
+                found = self._slug(key)
+                if found is not None and found[1]:
+                    raise RecordDeleted(key)
+            raise KeyError(key)
+        return record
 
-    def by_number(self, number: str) -> "Record":
-        """The record with this number as it is (no redirect to its slug), 410 for one
-        that was deleted, `KeyError` when there is none."""
-        return self._record(number) or self._gone_or_missing(number)
+    def _slug(self, key: str) -> tuple[str, bool] | None:
+        """`Store.slug_lookup` for this type, kept until the repository is written."""
+        return self.application.cache.slug(
+            self.repository.__name__,
+            self.slug,
+            key,
+            lambda: self.store.slug_lookup(self.slug, key),
+        )
 
     def _record(self, number: str) -> "Record | None":
-        """The record `rec:<type>:<number>` (the caller may see), None when there is
-        none."""
+        """The record `rec:<type>:<number>`, None when there is none."""
         record_uri = uri.record_uri(self.slug, int(number))
-        graph = self.repository.store().get(record_uri)
+        graph = self.store.get(record_uri)
         if not len(graph):
             # no such record (the uri has the type: a record of another type has another
             # uri)
             return None
-        record = record_class(self.class_uri)(self, number, record_uri, graph)
-        request = get_current_request()
-        if request is not None and not request.has_permission("view", record):
-            return None  # a record the caller may not see is not there for them
-        return record
-
-    def _gone_or_missing(self, number: str):
-        """No record has this number: HTTP 410 when one had, else not found."""
-        found = self.repository.store().slug_lookup(self.slug, number)
-        if found is not None and found[1]:
-            raise HTTPGone()
-        raise KeyError(number)
-
-    def _go_to(self, old: str, new: str):
-        """Answer with a redirect from the address with the slug `old` to the one with
-        `new`: the rest of the path and the query stay. Get and head are 301, what
-        changes something 308 (the method is kept)."""
-        request = get_current_request()
-        if request is None:
-            raise KeyError(old)
-        parts = request.path_info.split("/")
-        rest = ""
-        for index in range(1, len(parts)):
-            if parts[index] == old and parts[index - 1] == self.slug:
-                rest = "/".join(parts[index + 1 :])
-                break
-        target = request.resource_url(self) + new + (f"/{rest}" if rest else "")
-        if request.query_string:
-            target += f"?{request.query_string}"
-        redirect = (
-            HTTPMovedPermanently
-            if request.method in ("GET", "HEAD")
-            else HTTPPermanentRedirect
-        )
-        raise redirect(location=target)
+        cls = record_class(self.registry, self.class_uri)
+        return cls(self, number, record_uri, graph)
 
 
 def _slug_of(graph: Graph, record_uri: str) -> str | None:
@@ -676,10 +694,10 @@ def _slug_of(graph: Graph, record_uri: str) -> str | None:
     return found.value if found is not None else None
 
 
-def record_class(class_uri: str) -> type["Record"]:
+def record_class(registry, class_uri: str) -> type["Record"]:
     """The class registered for the type of `class_uri` (see gracia.types), else
     `Record`."""
-    info = get_current_registry().queryUtility(IGraciaType, class_uri)
+    info = registry.queryUtility(IGraciaType, class_uri)
     return (info.record_class if info is not None else None) or Record
 
 
@@ -703,7 +721,7 @@ class Record(Node):
     source_editable = True  # whether its data can be edited as text (`views/record.py`)
 
     def __init__(self, parent: Type, number: str, uri: str, graph: Graph):
-        self.__parent__ = parent
+        super().__init__(parent)
         self.uri, self.graph = uri, graph
         # the address of a record is its slug when it has one, else its number
         self.__name__ = (_slug_of(graph, uri) if uri else None) or number
@@ -723,9 +741,9 @@ class Record(Node):
         itself (a public flag, ...) cannot open it, because the lookup ends here, at the
         closing entry of the type's ACL."""
         res_type = self.__parent__
-        if res_type.class_uri in PRIVATE_CLASSES:  # ty: ignore[missing-union-attribute]
-            return TYPE_ACLS[res_type.class_uri]  # ty: ignore[missing-union-attribute]
-        if res_type.class_uri == uri.TYPE_CLASS and self.resource is not None:  # ty: ignore[missing-union-attribute]
+        if res_type.class_uri in PRIVATE_CLASSES:
+            return TYPE_ACLS[res_type.class_uri]
+        if res_type.class_uri == uri.TYPE_CLASS and self.resource is not None:
             described = self.graph.value(self.resource, _N(uri.CLASS))
             if described is not None and described.value in PRIVATE_CLASSES:
                 return TYPE_ACLS[described.value]
@@ -733,7 +751,7 @@ class Record(Node):
 
     @property
     def type(self) -> "Type":
-        return self.__parent__  # ty: ignore[invalid-explicit-return]
+        return self.__parent__
 
     @property
     def label(self) -> str:
@@ -837,7 +855,7 @@ class Record(Node):
         with the shape of the content embedded on `gracia:resource` (see `_nodes`)."""
         request = request or get_current_request()
         schema = colander.Schema()
-        for node in self._nodes(*self.__parent__.record_shape(), request):  # ty: ignore[missing-union-attribute]
+        for node in self._nodes(*self.__parent__.record_shape(), request):
             schema.add(node)
         schema.validator = self._sibling_validator(schema.children)
         return schema
@@ -878,12 +896,12 @@ class Record(Node):
         """Why a record of this type cannot be made with the form: what the shape
         requires but neither a field nor the class supplies. Empty when it can."""
         res_type = self.__parent__
-        found = res_type.shape()  # ty: ignore[missing-union-attribute]
+        found = res_type.shape()
         if found is None:
-            return [f"The type {res_type.name} has no shape"]  # ty: ignore[missing-union-attribute]
+            return [f"The type {res_type.name} has no shape"]
         have = {n.predicate for n in self.fields} | set(self.supplies)
         return [
-            f"The form cannot fill in {path}, which {res_type.name} requires"  # ty: ignore[missing-union-attribute]
+            f"The form cannot fill in {path}, which {res_type.name} requires"
             for path in sorted(forms.required_paths(*found) - have)
         ]
 
@@ -892,12 +910,12 @@ class Record(Node):
         node that will hold the content, typed with the class of the type (the type of
         the record is in its uri)."""
         res_type = self.__parent__
-        self.__name__, self.uri = str(number), uri.record_uri(res_type.slug, number)  # ty: ignore[missing-union-attribute]
+        self.__name__, self.uri = str(number), uri.record_uri(res_type.slug, number)
         record, content, rdf_type = _N(self.uri), ox.BlankNode(), _N(uri.RDF_TYPE)
         for triple in (
             (record, rdf_type, _N(uri.RECORD_CLASS)),
             (record, _N(uri.RESOURCE), content),
-            (content, rdf_type, _N(res_type.class_uri)),  # ty: ignore[missing-union-attribute]
+            (content, rdf_type, _N(res_type.class_uri)),
         ):
             self.graph.add(ox.Quad(*triple, ox.DefaultGraph()))
 
@@ -979,7 +997,7 @@ class Record(Node):
                 found.append(text)
         return found
 
-    def check(self, data: dict, store) -> list[str]:
+    def check(self, data: dict) -> list[str]:
         """Problems with valid form data that only the database can see (a name that is
         taken). An empty list lets the save go on."""
         return []
@@ -1017,14 +1035,15 @@ class Record(Node):
         (the caller saves it with `save`, which is what runs the hooks)."""
         self._write(self.edit_schema().children, data, _N(self.uri))
 
-    def save(self, store) -> None:
+    def save(self) -> None:
         """Store the record: the one way a record gets in the database, so that whoever
         saves it (a form, an import) gets what the predicates make of it: the store runs
         their SQL."""
-        self.repository.configure(store)
+        store = self.store
+        self.repository.configure()
         store.put(self.graph)
         self.__name__ = store.current_slug(self.uri) or self.uri.rsplit(":", 1)[1]
         if (
-            self.__parent__.slug == "type"  # ty: ignore[missing-union-attribute]
+            self.__parent__.slug == "type"
         ):  # a type was made or changed: its roles are new
-            self.repository.sync_roles(store)
+            self.repository.sync_roles()

@@ -17,19 +17,19 @@ from gracia.views import deform as deform_views
 class FieldsCase(WebCase):
     def setUp(self):
         super().setUp()
-        self.application.create_repository("library")
+        self.application.create_repository("test_repo")
         self.settings["gracia.security_policy"] = HeaderPolicy()  # ty: ignore[invalid-assignment]
         self.config = make_config(self.settings)
         self.config.scan("deform_views_support")
         self.config.commit()
         self.web = self.client(self.config)
-        self.node = self.config.registry["application"]["library"]  # ty: ignore[not-subscriptable]
+        self.node = self.config.registry["application"]["test_repo"]  # ty: ignore[not-subscriptable]
         self.addCleanup(self.node.close)
 
     def form(self) -> deform.Form:
         request = mock.Mock(registry=self.config.registry)
         request.resource_url = lambda context, *name, query=None: (
-            "http://localhost/library/"
+            "http://localhost/test_repo/"
             + "/".join(name)
             + (f"?{urlencode(query)}" if query else "")
         )
@@ -45,7 +45,7 @@ def fields_rows(form, query):
 
 class DeclaredTest(FieldsCase):
     def test_the_function_is_a_view_of_its_node_and_a_source_by_name(self):
-        got = self.web.get("/library/deform/shades?family=red")
+        got = self.web.get("/test_repo/deform/shades?family=red")
         self.assertIn("text/html", got.content_type)
         self.assertEqual(
             re.findall(r'<option value="([^"]*)">([^<]*)</option>', got.text),
@@ -57,7 +57,7 @@ class DeclaredTest(FieldsCase):
         self.assertIs(self.config.registry.queryUtility(IDeformView, "shades"), shades)  # ty: ignore[missing-union-attribute]
 
     def test_a_view_that_answers_a_string_is_html_as_it_is(self):
-        got = self.web.get("/library/deform/palette?family=blue")
+        got = self.web.get("/test_repo/deform/palette?family=blue")
         self.assertIn("text/html", got.content_type)
         self.assertEqual(got.text, "<p id='palette'>blue</p>")
 
@@ -71,7 +71,7 @@ class DeclaredTest(FieldsCase):
         )  # a widget calls the view while the form is rendered: with that very form
         self.assertIs(support.SEEN[-1][0], form)
         self.web.get(
-            "/library/deform/shades?family=red"
+            "/test_repo/deform/shades?family=red"
         )  # over HTTP: a fresh form of that request
         self.assertIsInstance(support.SEEN[-1][0], deform.Form)
         self.assertIsNot(support.SEEN[-1][0], form)
@@ -84,13 +84,13 @@ class DeclaredTest(FieldsCase):
         form.render({})  # the widget passes its own field
         self.assertIs(support.SEEN[-1][1], form["shade"])
         self.web.get(
-            "/library/deform/shades?field=shade&family=red"
+            "/test_repo/deform/shades?field=shade&family=red"
         )  # over HTTP: ?field=
         self.assertEqual(support.SEEN[-1][1].name, "shade")
-        self.web.get("/library/deform/shades?family=red")
+        self.web.get("/test_repo/deform/shades?family=red")
         self.assertIsNone(support.SEEN[-1][1])
         got = self.web.get(
-            "/library/deform/shades?field=nope&family=red", expect_errors=True
+            "/test_repo/deform/shades?field=nope&family=red", expect_errors=True
         )
         self.assertEqual(got.status_int, 404)
 
@@ -99,12 +99,12 @@ class DeclaredTest(FieldsCase):
     ):
         html = self.form().render({})
         self.assertIn(
-            'hx-get="http://localhost/library/deform/shades?field=shade"', html
+            'hx-get="http://localhost/test_repo/deform/shades?field=shade"', html
         )
 
     def test_one_row_of_the_form_can_be_rendered_without_form_tags(self):
         got = self.web.get(
-            "/library/deform/row?field=family&family=blue&shade=navy"
+            "/test_repo/deform/row?field=family&family=blue&shade=navy"
         ).text
         self.assertRegex(
             got.lstrip(), r'^<div\s+class="mb-3\s+item-family"'
@@ -128,11 +128,11 @@ class DeclaredTest(FieldsCase):
 
         self.assertIn("deform", uri.RESERVED_SLUGS)
         self.assertEqual(
-            self.web.get("/library/shades?family=red", expect_errors=True).status_int,
+            self.web.get("/test_repo/shades?family=red", expect_errors=True).status_int,
             404,
         )
         self.assertEqual(
-            self.web.get("/library/deform/nope", expect_errors=True).status_int, 404
+            self.web.get("/test_repo/deform/nope", expect_errors=True).status_int, 404
         )
         self.assertEqual(
             self.web.get("/nolibrary/deform/shades", expect_errors=True).status_int, 404
@@ -151,7 +151,7 @@ class DeclaredTest(FieldsCase):
         )
 
     def test_a_view_can_answer_a_response_of_its_own(self):
-        got = self.web.get("/library/deform/teapot", expect_errors=True)
+        got = self.web.get("/test_repo/deform/teapot", expect_errors=True)
         self.assertEqual((got.status_int, got.text), (418, "short and stout"))
 
     def test_a_view_that_returns_the_form_gets_a_fresh_one_and_answers_it_filled_in(
@@ -159,7 +159,7 @@ class DeclaredTest(FieldsCase):
     ):
         user = {"X-User": "admin"}
         blue = self.web.get(
-            "/library/deform/hue?family=blue&shade=navy", headers=user
+            "/test_repo/deform/hue?family=blue&shade=navy", headers=user
         ).text
         self.assertIn(
             '<input type="text" name="shade"', blue
@@ -167,7 +167,7 @@ class DeclaredTest(FieldsCase):
         self.assertIn('value="navy"', blue)  # what was posted is in it
         self.assertIn('<option selected="selected" value="blue">', blue)
         self.assertNotIn("error", blue.lower())  # nothing is validated
-        red = self.web.get("/library/deform/hue?family=red", headers=user).text
+        red = self.web.get("/test_repo/deform/hue?family=red", headers=user).text
         self.assertIn(
             '<select name="shade"', red
         )  # a fresh form: the blue change is not kept
@@ -176,14 +176,14 @@ class DeclaredTest(FieldsCase):
     def test_a_view_declared_with_a_form_has_the_permission_it_was_declared_with(self):
         self.assertEqual(
             self.web.get(
-                "/library/deform/hue?family=red", expect_errors=True
+                "/test_repo/deform/hue?family=red", expect_errors=True
             ).status_int,
             403,
         )
 
     def test_the_view_has_the_permission_it_was_declared_with(self):
         self.assertEqual(
-            self.web.get("/library/deform/shades?family=red").status_int, 200
+            self.web.get("/test_repo/deform/shades?family=red").status_int, 200
         )
 
     def test_two_sources_with_one_name_are_a_conflict(self):
@@ -204,7 +204,7 @@ class WidgetTest(FieldsCase):
         self.assertNotIn("hx-", family)
         family_id = must_search(r'id="([^"]+)"', family)[1]
         self.assertIn(
-            'hx-get="http://localhost/library/deform/shades?field=shade"', shade
+            'hx-get="http://localhost/test_repo/deform/shades?field=shade"', shade
         )
         self.assertIn(f'hx-trigger="change from:#{family_id}"', shade)
         self.assertIn(f'hx-include="#{family_id}"', shade)

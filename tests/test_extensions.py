@@ -76,7 +76,7 @@ class ExtensionsCase(WebCase):
     def setUp(self):
         super().setUp()
         self.settings["gracia.security_policy"] = HeaderPolicy()  # ty: ignore[invalid-assignment]
-        self.application.create_repository("library")
+        self.application.create_repository("test_repo")
         self.config = make_config(self.settings)
         self.config.add_gracia_extension("demo", Demo)
         self.config.add_gracia_extension("depends", OnlyWithPerson)
@@ -86,9 +86,9 @@ class ExtensionsCase(WebCase):
             name="demo",
             enabled_extension="demo",
         )
-        self.config.add_gracia_repository_child("hello:", Child, prefix=True)
-        self.config.add_gracia_repository_child("hello:long", Child, prefix=True)
-        self.config.add_gracia_repository_child("nope:", self.nothing, prefix=True)
+        self.config.add_gracia_traversable(Child, prefix="hello:")
+        self.config.add_gracia_traversable(Child, prefix="hello:long")
+        self.config.add_gracia_traversable(self.nothing, prefix="nope:")
         self.config.commit()
         self.web = self.client(self.config)
 
@@ -100,7 +100,7 @@ class ExtensionsCase(WebCase):
         """The repository node as the next request has it: nothing cached."""
         self.config.begin()
         self.addCleanup(self.config.end)
-        node = self.application["library"]
+        node = self.application["test_repo"]
         self.addCleanup(node.close)
         return node
 
@@ -108,7 +108,7 @@ class ExtensionsCase(WebCase):
         return self.repo().extension(name)
 
     def stored(self):
-        with self.application.open_repository("library") as store:
+        with self.application.new_store("test_repo") as store:
             return extensions.read_extension_states(
                 store.get(uri.repository_uri()), uri.repository_uri()
             )
@@ -193,7 +193,7 @@ class ExtensionTest(ExtensionsCase):
         self.ext("demo").save_settings(
             {"greeting": "hi", "count": 5, "since": datetime.date(2021, 2, 3)}
         )
-        with self.application.open_repository("library") as store:
+        with self.application.new_store("test_repo") as store:
             data = store.get(uri.repository_uri())
         literals = [
             q.object for q in data if q.predicate.value == uri.EXTENSION_SETTINGS
@@ -278,14 +278,14 @@ class RegistryTest(ExtensionsCase):
         ):  # the core registers its own children the same way
             self.assertEqual(
                 self.web.get(
-                    f"/library/{name}", headers=ADMIN, expect_errors=True
+                    f"/test_repo/{name}", headers=ADMIN, expect_errors=True
                 ).status_int
                 in (200, 404),
                 True,
             )
         self.config.begin()
         self.addCleanup(self.config.end)
-        node = self.application["library"]
+        node = self.application["test_repo"]
         self.addCleanup(node.close)
         self.assertEqual(node["hello:there"].__name__, "hello:there")
         self.assertEqual(
@@ -302,32 +302,36 @@ class RegistryTest(ExtensionsCase):
     def test_a_key_that_a_type_could_have_is_refused(self):
         config = make_config(self.settings)
         with self.assertRaises(ConfigurationError):
-            config.add_gracia_repository_child("person", lambda r, n: None)
+            config.add_gracia_traversable(lambda r: None, name="person")
         config = make_config(self.settings)
-        config.add_gracia_repository_child(
-            "ark:", lambda r, n: None
+        config.add_gracia_traversable(
+            lambda r: None, name="ark:"
         )  # a colon: no type has it
-        config.add_gracia_repository_child(
-            "jobs", lambda r, n: None
+        config.add_gracia_traversable(
+            lambda r: None, name="jobs"
         )  # reserved on purpose
 
     def test_a_view_of_an_extension_is_there_only_where_it_is_on(self):
         self.assertEqual(
-            self.web.get("/library/demo", headers=ADMIN, expect_errors=True).status_int,
+            self.web.get(
+                "/test_repo/demo", headers=ADMIN, expect_errors=True
+            ).status_int,
             404,
         )
         self.ext("demo").enable()
-        response = self.web.get("/library/demo", headers=ADMIN)
+        response = self.web.get("/test_repo/demo", headers=ADMIN)
         self.assertEqual(response.text, "the demo")
         self.ext("demo").disable()
         self.assertEqual(
-            self.web.get("/library/demo", headers=ADMIN, expect_errors=True).status_int,
+            self.web.get(
+                "/test_repo/demo", headers=ADMIN, expect_errors=True
+            ).status_int,
             404,
         )
 
 
 class TabTest(ExtensionsCase):
-    URL = "/library/manage?tab=extensions"
+    URL = "/test_repo/manage?tab=extensions"
 
     def page(self, url=None, **kw):
         return self.web.get(url or self.URL, headers=ADMIN, **kw).text
@@ -427,7 +431,7 @@ class TabTest(ExtensionsCase):
         response = self.post("demo", "enable")
         self.assertEqual(response.status_int, 302)
         self.assertEqual(
-            response.location, "http://localhost/library/manage?tab=extensions"
+            response.location, "http://localhost/test_repo/manage?tab=extensions"
         )
         page = response.follow(headers=ADMIN).text
         self.assertIn("Demo is enabled", page)
@@ -487,7 +491,7 @@ class TabTest(ExtensionsCase):
         # the form that comes back is the form: it has its button and posts to the same
         # address
         self.assertRegex(card, r'name="update"[^>]*>\s*Update settings')
-        self.assertIn('action="http://localhost/library/manage?tab=extensions"', card)
+        self.assertIn('action="http://localhost/test_repo/manage?tab=extensions"', card)
         self.assertEqual(self.ext("demo").settings["count"], 3)  # nothing stored
 
     def test_the_settings_as_json_can_be_pasted(self):
@@ -528,23 +532,23 @@ class IncludemeTest(WebCase):
     def test_the_includeme_of_an_extension_module_is_called(self):
         # the module is named in the setting: it is scanned (the class) and included
         # (its includeme)
-        self.application.create_repository("library")
+        self.application.create_repository("test_repo")
         config = make_config({**self.settings, "gracia.extensions": "ext_with_include"})
         config.commit()
         config.begin()
         self.addCleanup(config.end)
-        node = self.application["library"]
+        node = self.application["test_repo"]
         self.addCleanup(node.close)
         self.assertIn("incl", [e.name for e in node.extensions()])
         self.assertEqual(node["incl:anything"].__name__, "incl:anything")
 
     def test_without_the_setting_it_is_not_there(self):
-        self.application.create_repository("library")
+        self.application.create_repository("test_repo")
         config = make_config(self.settings)
         config.commit()
         config.begin()
         self.addCleanup(config.end)
-        node = self.application["library"]
+        node = self.application["test_repo"]
         self.addCleanup(node.close)
         self.assertNotIn("incl", [e.name for e in node.extensions()])
         with self.assertRaises(KeyError):
@@ -568,10 +572,10 @@ class JsonNumbersTest(ExtensionsCase):
 class CommandTest(DbTestCase):
     def setUp(self):
         super().setUp()
-        self.assertEqual(self.create_repositories("library")[0], 0)
+        self.assertEqual(self.create_repositories("test_repo")[0], 0)
 
     def run_cli(self, *args):
-        return self.gracia("-r", "library", "extensions", *args)
+        return self.gracia("-r", "test_repo", "extensions", *args)
 
     def test_list_says_what_is_on(self):
         code, out, err = self.run_cli("list")
@@ -659,7 +663,7 @@ class NsPrefixTest(ExtensionsCase):
                 ext.import_json(text)
 
     def test_the_settings_form_has_the_prefixes_as_a_list(self):
-        page = self.web.get("/library/manage?tab=extensions", headers=ADMIN).text
+        page = self.web.get("/test_repo/manage?tab=extensions", headers=ADMIN).text
         self.assertIn("Namespace prefixes", page)
         self.assertIn("http://xmlns.com/foaf/0.1/", page)
         self.assertIn("jquery-sortable.js", page)  # the sequence widget's script

@@ -153,7 +153,7 @@ class RepositoryManage(Manage):
     def _settings_form(self) -> tuple[Form, colander.Schema]:
         """The form of the repository resource, from the shape named by the resource."""
         schema = colander.Schema()
-        for node in forms.schema_from_shape(*self.context.shape(self.store)).children:
+        for node in forms.schema_from_shape(*self.context.shape()).children:
             code = predicates.find(
                 node.predicate
             )  # another widget, a rule: what a predicate adds
@@ -176,9 +176,7 @@ class RepositoryManage(Manage):
         static.need_form(form)
         if "html" in state:  # the form as it was posted, with what was wrong
             return state["html"]
-        subject, resource = self.context.content(
-            self.store
-        )  # the content of the repository
+        subject, resource = self.context.content()  # the content of the repository
         current = {
             n.name: next((o.value for o in resource.objects(subject, n.predicate)), "")
             for n in schema.children
@@ -186,14 +184,14 @@ class RepositoryManage(Manage):
         return form.render(current)
 
     def post_repository_settings(self, _rest):
-        repository, store = self.context, self.store
+        repository = self.context
         form, schema = self._settings_form()
         static.need_form(form)
         try:
             data = form.validate(list(self.request.POST.items()))
         except deform.ValidationFailure as failure:
             return {"html": failure.render()}
-        subject, resource = repository.content(store)
+        subject, resource = repository.content()
         for node in schema.children:
             predicate = ox.NamedNode(node.predicate)
             for quad in [
@@ -212,7 +210,7 @@ class RepositoryManage(Manage):
                     )
                 )
         record = repository.record(resource)
-        record.save(store)  # the label of the repository follows its title
+        record.save()  # the label of the repository follows its title
         flash(self.request, "Saved.")
         return HTTPFound(self.action("settings"))
 
@@ -725,9 +723,7 @@ class TypeManage(Manage):
     def _record(self) -> Record:
         """The record of the type in the type `type`."""
         res_type = self.context
-        return res_type.repository["type"].by_number(
-            res_type.record.rsplit(":", 1)[1]
-        )  # not `[number]`: that redirects to the slug
+        return res_type.repository["type"][res_type.record.rsplit(":", 1)[1]]
 
     def _form(self, record: Record) -> Form:
         return Form(
@@ -870,10 +866,10 @@ class TypeManage(Manage):
             data = form.validate(list(self.request.POST.items()))
         except deform.ValidationFailure as failure:
             return {"html": failure.render()}
-        problems = record.check(data, self.store)
+        problems = record.check(data)
         if problems:
             return {"html": form.render(data), "errors": problems}
         record.apply(data)
-        record.save(self.store)
+        record.save()
         flash(self.request, "Saved.")
         return HTTPFound(self.action("settings"))

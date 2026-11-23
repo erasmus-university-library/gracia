@@ -6,7 +6,7 @@ from pyramid.view import view_config
 
 from gracia import uri
 from gracia.extensions import Extension, extension
-from gracia.resources import Repository
+from gracia.resources import RecordDeleted, Repository
 
 
 class ArkSettings(colander.MappingSchema):
@@ -86,7 +86,9 @@ def resolve_ark(request):
     if parsed is None or parsed[0] not in repository.res_types:
         raise HTTPNotFound()
     try:
-        target = repository.res_types[parsed[0]].by_number(str(parsed[1]))
-    except KeyError:
+        target = repository.res_types[parsed[0]][str(parsed[1])]
+    except (KeyError, RecordDeleted):
         raise HTTPNotFound() from None
+    if not request.has_permission("view", target):
+        raise HTTPNotFound()  # not forbidden: whether it is there is not said
     return HTTPFound(request.resource_url(target))

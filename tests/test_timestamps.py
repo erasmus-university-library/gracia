@@ -30,25 +30,25 @@ class TimesCase(WebCase):
         self.config.begin()
         self.addCleanup(self.config.end)
         self.application.create_repository(
-            "library",
+            "test_repo",
             admin=("admin", "correct horse battery"),
             content_types=[types.available()["person"]],
         )
         self.web = self.client(self.config)
 
     def add_person(self, name="Ada"):
-        form = self.web.get("/library/person/add", headers=ADMIN).forms[0]
+        form = self.web.get("/test_repo/person/add", headers=ADMIN).forms[0]
         form["name"] = name
         self.assertEqual(form.submit("save", headers=POSTING).status_int, 302)
 
     def edit_person(self, number, **fields):
-        form = self.web.get(f"/library/person/{number}/edit", headers=ADMIN).forms[0]
+        form = self.web.get(f"/test_repo/person/{number}/edit", headers=ADMIN).forms[0]
         for name, value in fields.items():
             form[name] = value
         self.assertEqual(form.submit("save", headers=POSTING).status_int, 302)
 
     def triples(self, record, predicate):
-        with self.application.open_repository("library") as store:
+        with self.application.new_store("test_repo") as store:
             data = store.get(record)
         return [
             (o.value, o.datatype.value)
@@ -56,15 +56,15 @@ class TimesCase(WebCase):
         ]
 
     def row(self, record):
-        with self.application.open_repository("library") as store:
+        with self.application.new_store("test_repo") as store:
             cursor = store.con.execute(
                 "SELECT * FROM records WHERE record_id = record_id(?)", [record]
             )
             row = cursor.fetchone()
-            return dict(zip([d[0] for d in cursor.description], row, strict=False))  # ty: ignore[invalid-argument-type]
+            return dict(zip([d[0] for d in cursor.description], row, strict=False))
 
     def set_timezone(self, name):
-        form = self.web.get("/library/manage?tab=settings", headers=ADMIN).forms[
+        form = self.web.get("/test_repo/manage?tab=settings", headers=ADMIN).forms[
             "form-repository-settings"
         ]
         form["timezone"] = name
@@ -122,12 +122,10 @@ class ModifiedAtIsNeverGivenTest(TimesCase):
             f'gracia:resource [ a foaf:Person ; foaf:name "{name}" ] .'
         )
         node = self.application[
-            "library"
+            "test_repo"
         ]  # its store is the configured one: the hooks of the predicates run
         self.addCleanup(node.close)
-        node.store().put(
-            ox.Dataset(ox.parse(text.encode(), format=ox.RdfFormat.TURTLE))
-        )
+        node.store.put(ox.Dataset(ox.parse(text.encode(), format=ox.RdfFormat.TURTLE)))
 
     def modified(self, number: int = 7):
         return self.row(f"rec:person:{number}")["modified_at"]
@@ -170,7 +168,7 @@ class ModifiedAtIsNeverGivenTest(TimesCase):
     def test_a_record_deleted_and_made_again_is_not_modified_earlier_than_it_was(self):
         self.import_person("Ada", "2001-01-01T00:00:00.000000Z")
         first = self.modified()
-        self.application["library"].store().delete(["rec:person:7"])
+        self.application["test_repo"].store.delete(["rec:person:7"])
         time.sleep(0.01)
         self.import_person("Ada", "2001-01-01T00:00:00.000000Z")
         self.assertGreater(self.modified(), first)
@@ -193,7 +191,7 @@ class IsPublishedTest(TimesCase):
 
     def test_a_record_that_says_nothing_of_it_is_published(self):
         self.add_person()
-        with self.application.open_repository("library") as store:
+        with self.application.new_store("test_repo") as store:
             store.con.execute(
                 "DELETE FROM triples WHERE s = 'rec:person:1' AND p = ?",
                 [uri.IS_PUBLISHED],
@@ -203,7 +201,7 @@ class IsPublishedTest(TimesCase):
         )  # the column's default too
 
     def test_the_form_has_a_checkbox(self):
-        page = self.web.get("/library/person/add", headers=ADMIN).text
+        page = self.web.get("/test_repo/person/add", headers=ADMIN).text
         self.assertRegex(
             page, r'type="checkbox"\s+name="is_published"[^>]*checked'
         )  # new: checked
@@ -211,7 +209,7 @@ class IsPublishedTest(TimesCase):
 
 class TimezoneTest(TimesCase):
     def test_the_settings_tab_has_a_drop_down_of_zones_that_can_be_empty(self):
-        page = self.web.get("/library/manage?tab=settings", headers=ADMIN).text
+        page = self.web.get("/test_repo/manage?tab=settings", headers=ADMIN).text
         select = must_search(r'<select name="timezone".*?</select>', page, re.S)[0]
         self.assertIn(
             '<option selected="selected" value="">(none: UTC)</option>', select
@@ -227,7 +225,7 @@ class TimezoneTest(TimesCase):
         self.assertEqual(self.triples_of_repository(), [])
 
     def triples_of_repository(self):
-        with self.application.open_repository("library") as store:
+        with self.application.new_store("test_repo") as store:
             data = store.get("rec:repository:1")
         content = data.value(
             ox.NamedNode("rec:repository:1"), ox.NamedNode(uri.RESOURCE)
@@ -235,7 +233,7 @@ class TimezoneTest(TimesCase):
         return [o.value for o in data.objects(content, ox.NamedNode(uri.TIMEZONE))]
 
     def test_a_name_that_is_not_a_zone_is_refused(self):
-        form = self.web.get("/library/manage?tab=settings", headers=ADMIN).forms[
+        form = self.web.get("/test_repo/manage?tab=settings", headers=ADMIN).forms[
             "form-repository-settings"
         ]
         form["timezone"].force_value("Mars/Olympus")
@@ -246,7 +244,7 @@ class TimezoneTest(TimesCase):
 
 class RepositoryZoneTest(TimesCase):
     def zone(self):
-        node = self.application["library"]
+        node = self.application["test_repo"]
         self.addCleanup(node.close)
         return node.timezone()
 
@@ -258,22 +256,20 @@ class RepositoryZoneTest(TimesCase):
         self.assertEqual(str(self.zone()), "Europe/Amsterdam")
         self.set_timezone("")
         self.assertIs(self.zone(), UTC)
-        with self.application.open_repository(
-            "library"
-        ) as store:  # a name that was stored, and is not a zone here
-            node = self.application["library"]
-            self.addCleanup(node.close)
-            subject, resource = node.content(store)
-            resource.add(
-                ox.Quad(
-                    subject,
-                    ox.NamedNode(uri.TIMEZONE),
-                    ox.Literal("Nowhere/Land"),
-                    ox.DefaultGraph(),
-                )
+        # a name that was stored, and is not a zone here
+        node = self.application["test_repo"]
+        self.addCleanup(node.close)
+        subject, resource = node.content()
+        resource.add(
+            ox.Quad(
+                subject,
+                ox.NamedNode(uri.TIMEZONE),
+                ox.Literal("Nowhere/Land"),
+                ox.DefaultGraph(),
             )
-            node.record(resource).save(store)
-        fresh = self.application["library"]
+        )
+        node.record(resource).save()
+        fresh = self.application["test_repo"]
         self.addCleanup(fresh.close)
         subject, resource = fresh.content()
         self.assertEqual(

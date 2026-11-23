@@ -76,7 +76,7 @@ class JobsViewCase(JobsCase):
         data = {"res_type": "person", "schema": "", **fields}
         with mock.patch.object(procs, "spawn", return_value=os.getpid()) as spawn:
             response = self.web.post(
-                f"/library/jobs/start?job={job}",
+                f"/test_repo/jobs/start?job={job}",
                 data,
                 headers={**as_user(user), **ORIGIN},
                 expect_errors=True,
@@ -90,23 +90,25 @@ class AccessTest(JobsViewCase):
         for user, status in (("admin", 200), ("ed", 200), ("guest", 403), (None, 403)):
             with self.subTest(user=user):
                 headers = as_user(user) if user else {}
-                got = self.web.get("/library/jobs", headers=headers, expect_errors=True)
+                got = self.web.get(
+                    "/test_repo/jobs", headers=headers, expect_errors=True
+                )
                 self.assertEqual(got.status_int, status)
         for user, status in (("ed", 200), ("guest", 403)):
             got = self.web.get(
-                "/library/jobs/list", headers=as_user(user), expect_errors=True
+                "/test_repo/jobs/list", headers=as_user(user), expect_errors=True
             )
             self.assertEqual(got.status_int, status)
 
     def test_the_page_is_made_with_the_layout_and_the_scripts_come_from_the_libraries(
         self,
     ):
-        page = self.web.get("/library/jobs", headers=as_user("ed"))
+        page = self.web.get("/test_repo/jobs", headers=as_user("ed"))
         for part in (
             "<header",
             "<main",
             "<footer",
-            "Jobs of library",
+            "Jobs of test_repo",
             "Validate",
             "Start…",
         ):
@@ -123,7 +125,7 @@ class AccessTest(JobsViewCase):
         script = (
             files("gracia") / "assets" / "static" / "scripts" / "jobs.js"
         ).read_text()
-        page = self.web.get("/library/jobs", headers=as_user("ed")).text
+        page = self.web.get("/test_repo/jobs", headers=as_user("ed")).text
         wanted = set(re.findall(r"\[data-([a-z-]+)\]", script))
         self.assertIn("jobs-body", wanted)
         for name in wanted - {
@@ -133,15 +135,15 @@ class AccessTest(JobsViewCase):
             self.assertRegex(page, rf"data-{name}\b", name)
 
     def test_the_page_includes_the_job_panel_that_other_pages_can_include_too(self):
-        page = self.web.get("/library/jobs", headers=as_user("ed")).text
+        page = self.web.get("/test_repo/jobs", headers=as_user("ed")).text
         self.assertRegex(
             page,
-            r'data-job-panel=""\s+data-list-url="http://localhost/library/jobs/list"',
+            r'data-job-panel=""\s+data-list-url="http://localhost/test_repo/jobs/list"',
         )
-        self.assertIn('data-start-url="http://localhost/library/jobs/start"', page)
+        self.assertIn('data-start-url="http://localhost/test_repo/jobs/start"', page)
 
     def test_the_form_of_the_job_offers_the_types_and_the_schemas_of_the_first(self):
-        page = self.web.get("/library/jobs", headers=as_user("ed")).text
+        page = self.web.get("/test_repo/jobs", headers=as_user("ed")).text
         self.assertIn('id="form-job-validate"', page)
         self.assertIn('value="person"', page)
         self.assertIn(
@@ -152,13 +154,14 @@ class AccessTest(JobsViewCase):
         )  # the schemas of the other types wait for htmx
 
     def test_the_schema_select_declares_that_it_follows_the_type_select(self):
-        page = self.web.get("/library/jobs", headers=as_user("ed")).text
+        page = self.web.get("/test_repo/jobs", headers=as_user("ed")).text
         res_type = must_search(r'<select name="res_type"[^>]*>', page)[0]
         schema = must_search(r'<select name="schema"[^>]*>', page)[0]
         self.assertNotIn("hx-", res_type)  # the first select is a plain select
         type_id = must_search(r'id="([^"]+)"', res_type)[1]
         self.assertIn(
-            'hx-get="http://localhost/library/deform/schema-files?field=schema"', schema
+            'hx-get="http://localhost/test_repo/deform/schema-files?field=schema"',
+            schema,
         )
         self.assertIn(f'hx-trigger="change from:#{type_id}"', schema)
         self.assertIn(f'hx-include="#{type_id}"', schema)
@@ -166,7 +169,7 @@ class AccessTest(JobsViewCase):
 
     def test_the_options_are_just_option_elements(self):
         got = self.web.get(
-            "/library/deform/schema-files?res_type=person", headers=as_user("ed")
+            "/test_repo/deform/schema-files?res_type=person", headers=as_user("ed")
         )
         self.assertIn("text/html", got.content_type)
         self.assertNotIn("<select", got.text)
@@ -181,17 +184,17 @@ class AccessTest(JobsViewCase):
             ],
         )
         other = self.web.get(
-            "/library/deform/schema-files?res_type=user", headers=as_user("ed")
+            "/test_repo/deform/schema-files?res_type=user", headers=as_user("ed")
         )
         self.assertIn("User-full-01.ttl", other.text)
         self.assertNotIn("Person-", other.text)
         nothing = self.web.get(
-            "/library/deform/schema-files?res_type=nobody", headers=as_user("ed")
+            "/test_repo/deform/schema-files?res_type=nobody", headers=as_user("ed")
         )
         self.assertEqual(re.findall(r'value="([^"]*)"', nothing.text), [""])
 
     def test_the_deform_view_has_the_permission_it_was_declared_with(self):
-        url = "/library/deform/schema-files?res_type=person"
+        url = "/test_repo/deform/schema-files?res_type=person"
         for user, status in (("admin", 200), ("ed", 200), ("guest", 403), (None, 403)):
             headers = as_user(user) if user else {}
             self.assertEqual(
@@ -213,10 +216,10 @@ class AccessTest(JobsViewCase):
 
     def test_a_job_is_offered_only_to_those_who_may_start_it(self):
         self.assertNotIn(
-            "Closed", self.web.get("/library/jobs", headers=as_user("ed")).text
+            "Closed", self.web.get("/test_repo/jobs", headers=as_user("ed")).text
         )
         self.assertIn(
-            "Closed", self.web.get("/library/jobs", headers=as_user("admin")).text
+            "Closed", self.web.get("/test_repo/jobs", headers=as_user("admin")).text
         )
         refused = self.start("ed", job="closed")
         self.assertEqual(refused.status_int, 403)
@@ -239,7 +242,7 @@ class AccessTest(JobsViewCase):
         web = TestApp(
             make_config({**self.settings(), "gracia.jobs_dir": ""}).make_wsgi_app()
         )
-        got = web.get("/library/jobs/list", headers=as_user("ed"), expect_errors=True)
+        got = web.get("/test_repo/jobs/list", headers=as_user("ed"), expect_errors=True)
         self.assertEqual(got.status_int, 503)
         self.assertIn("gracia.jobs_dir", got.text)
 
@@ -247,7 +250,7 @@ class AccessTest(JobsViewCase):
 class ApiDocumentTest(JobsViewCase):
     def paths(self, user) -> dict:
         got = self.web.get(
-            "/library/api", headers={**as_user(user), "Accept": "application/json"}
+            "/test_repo/api", headers={**as_user(user), "Accept": "application/json"}
         )
         return got.json["paths"]
 
@@ -264,13 +267,13 @@ class ApiDocumentTest(JobsViewCase):
         self.assertIn("post", self.paths("ed")["/jobs/start"])
         for user in ("guest", None):
             found = self.web.get(
-                "/library/api", headers={**(as_user(user) if user else {})}
+                "/test_repo/api", headers={**(as_user(user) if user else {})}
             )
             self.assertFalse([p for p in found.json["paths"] if p.startswith("/jobs")])
 
     def test_the_page_for_a_browser_lists_them_too(self):
         page = self.web.get(
-            "/library/api", headers={**as_user("ed"), "Accept": "text/html"}
+            "/test_repo/api", headers={**as_user("ed"), "Accept": "text/html"}
         )
         self.assertIn("/jobs/{id}/stop", page.text)
 
@@ -284,7 +287,7 @@ class StartTest(JobsViewCase):
         job = self.job(job_id)
         self.assertEqual(
             (job["created_by"], job["repo"], job["state"]),
-            ("user:ed", "library", "running"),
+            ("user:ed", "test_repo", "running"),
         )
         self.assertEqual((job["job"], job["subject"]), ("validate", "person"))
         stages = job["stages"]
@@ -317,7 +320,7 @@ class StartTest(JobsViewCase):
         for headers in ({}, {"Origin": "http://evil.example"}):
             with self.subTest(headers=headers):
                 got = self.web.post(
-                    "/library/jobs/start?job=validate",
+                    "/test_repo/jobs/start?job=validate",
                     {"res_type": "person", "schema": ""},
                     headers={**as_user("ed"), **headers},
                     expect_errors=True,
@@ -329,7 +332,7 @@ class StartTest(JobsViewCase):
 
 class ListAndStopTest(JobsViewCase):
     def listed(self, user, query="") -> list[dict]:
-        return self.web.get(f"/library/jobs/list{query}", headers=as_user(user)).json[
+        return self.web.get(f"/test_repo/jobs/list{query}", headers=as_user(user)).json[
             "jobs"
         ]
 
@@ -411,7 +414,7 @@ class ListAndStopTest(JobsViewCase):
         with JobsDb(self.application) as db:
             other = db.create(
                 {
-                    "repo": "library",
+                    "repo": "test_repo",
                     "job": "validate",
                     "subject": "user",
                     "stages": [echo()],
@@ -419,7 +422,7 @@ class ListAndStopTest(JobsViewCase):
             )
             elsewhere = db.create(
                 {
-                    "repo": "library",
+                    "repo": "test_repo",
                     "job": "closed",
                     "subject": "person",
                     "stages": [echo()],
@@ -441,25 +444,25 @@ class ListAndStopTest(JobsViewCase):
     def test_one_job_by_its_address_for_those_who_may_see_it(self):
         job_id = self.start("ed").json["id"]
         self.assertEqual(
-            self.web.get(f"/library/jobs/{job_id}", headers=as_user("ed")).json["id"],
+            self.web.get(f"/test_repo/jobs/{job_id}", headers=as_user("ed")).json["id"],
             job_id,
         )
         self.assertEqual(
             self.web.get(
-                f"/library/jobs/{job_id}", headers=as_user("ed2"), expect_errors=True
+                f"/test_repo/jobs/{job_id}", headers=as_user("ed2"), expect_errors=True
             ).status_int,
             403,
         )
         self.assertEqual(
             self.web.get(
-                "/library/jobs/not-a-job", headers=as_user("ed"), expect_errors=True
+                "/test_repo/jobs/not-a-job", headers=as_user("ed"), expect_errors=True
             ).status_int,
             403,  # not there, and not said
         )
 
     def test_the_creator_and_administrators_may_stop_a_job_others_may_not(self):
         job_id = self.start("ed").json["id"]
-        url = f"/library/jobs/{job_id}/stop"
+        url = f"/test_repo/jobs/{job_id}/stop"
         with mock.patch.object(procs, "spawn_stop", return_value=1) as stopper:
             refused = self.web.post(
                 url, headers={**as_user("ed2"), **ORIGIN}, expect_errors=True
@@ -481,7 +484,7 @@ class ListAndStopTest(JobsViewCase):
             db.update_job(job_id, {"state": "done"})
         with mock.patch.object(procs, "spawn_stop") as stopper:
             got = self.web.post(
-                f"/library/jobs/{job_id}/stop", headers={**as_user("ed"), **ORIGIN}
+                f"/test_repo/jobs/{job_id}/stop", headers={**as_user("ed"), **ORIGIN}
             )
             self.assertEqual(got.json, {"state": "done"})
             stopper.assert_not_called()
@@ -490,7 +493,7 @@ class ListAndStopTest(JobsViewCase):
         self,
     ):
         with JobsDb(self.application) as db:
-            db.create({"repo": "library", "stages": [echo()]})
+            db.create({"repo": "test_repo", "stages": [echo()]})
         self.assertEqual(len(self.listed("admin")), 1)
         self.assertEqual(self.listed("ed"), [])
 
@@ -516,7 +519,7 @@ class DownloadAndLogTest(JobsViewCase):
 
     def test_what_the_job_rejected_is_a_download_for_those_who_may_see_the_job(self):
         job_id = self.finished()
-        got = self.web.get(f"/library/jobs/{job_id}/download", headers=as_user("ed"))
+        got = self.web.get(f"/test_repo/jobs/{job_id}/download", headers=as_user("ed"))
         self.assertEqual(got.text, '{"id": "a"}\n{"id": "b"}\n')
         self.assertIn("application/x-ndjson", got.content_type)
         self.assertIn(
@@ -524,12 +527,12 @@ class DownloadAndLogTest(JobsViewCase):
         )
         self.assertEqual(
             self.listed_job("ed")["download_url"],
-            f"http://localhost/library/jobs/{job_id}/download",
+            f"http://localhost/test_repo/jobs/{job_id}/download",
         )
         for user in ("ed2", "guest"):
             self.assertEqual(
                 self.web.get(
-                    f"/library/jobs/{job_id}/download",
+                    f"/test_repo/jobs/{job_id}/download",
                     headers=as_user(user),
                     expect_errors=True,
                 ).status_int,
@@ -537,7 +540,9 @@ class DownloadAndLogTest(JobsViewCase):
             )
 
     def listed_job(self, user):
-        return self.web.get("/library/jobs/list", headers=as_user(user)).json["jobs"][0]
+        return self.web.get("/test_repo/jobs/list", headers=as_user(user)).json["jobs"][
+            0
+        ]
 
     def test_a_job_with_nothing_to_download_says_so(self):
         job_id = self.start("ed").json["id"]
@@ -547,7 +552,7 @@ class DownloadAndLogTest(JobsViewCase):
         # there" is answered like "not yours" (the creator may see and stop the job, not
         # `view` it)
         got = self.web.get(
-            f"/library/jobs/{job_id}/download",
+            f"/test_repo/jobs/{job_id}/download",
             headers=as_user("admin"),
             expect_errors=True,
         )
@@ -560,7 +565,7 @@ class DownloadAndLogTest(JobsViewCase):
         with JobsDb(self.application) as db:
             db.update_job(job_id, {"download_file": "../secret.txt"})
         got = self.web.get(
-            f"/library/jobs/{job_id}/download",
+            f"/test_repo/jobs/{job_id}/download",
             headers=as_user("admin"),
             expect_errors=True,
         )
@@ -568,7 +573,7 @@ class DownloadAndLogTest(JobsViewCase):
 
     def test_the_log_is_read_from_an_offset_in_pieces(self):
         job_id = self.finished()
-        url = f"/library/jobs/{job_id}/log"
+        url = f"/test_repo/jobs/{job_id}/log"
         whole = self.web.get(url, headers=as_user("ed"))
         self.assertEqual(whole.text, "".join(f"line {n}\n" for n in range(5)))
         self.assertEqual(whole.headers["X-Log-Offset"], str(len(whole.text)))
@@ -584,13 +589,13 @@ class DownloadAndLogTest(JobsViewCase):
 
     def test_the_log_page_follows_the_log_by_asking_for_what_is_new(self):
         job_id = self.finished()
-        page = self.web.get(f"/library/jobs/{job_id}/logs", headers=as_user("ed"))
+        page = self.web.get(f"/test_repo/jobs/{job_id}/logs", headers=as_user("ed"))
         self.assertIn("text/html", page.content_type)
         self.assertIn(
-            f'data-log-url="http://localhost/library/jobs/{job_id}/log"', page.text
+            f'data-log-url="http://localhost/test_repo/jobs/{job_id}/log"', page.text
         )
         self.assertIn(
-            f'data-status-url="http://localhost/library/jobs/{job_id}/"', page.text
+            f'data-status-url="http://localhost/test_repo/jobs/{job_id}/"', page.text
         )
         self.assertIn("data-log-follow", page.text)
         self.assertIn(
@@ -598,11 +603,11 @@ class DownloadAndLogTest(JobsViewCase):
         )  # the script is in the head
         self.assertRegex(page.text, r'<option value="luigi" selected')
         raw = self.web.get(
-            f"/library/jobs/{job_id}/logs?name=job", headers=as_user("ed")
+            f"/test_repo/jobs/{job_id}/logs?name=job", headers=as_user("ed")
         )
         self.assertRegex(raw.text, r'<option value="job" selected')
         odd = self.web.get(
-            f"/library/jobs/{job_id}/logs?name=../exit", headers=as_user("ed")
+            f"/test_repo/jobs/{job_id}/logs?name=../exit", headers=as_user("ed")
         )
         self.assertRegex(
             odd.text, r'<option value="luigi" selected'
@@ -610,7 +615,7 @@ class DownloadAndLogTest(JobsViewCase):
         for user in ("ed2", "guest"):
             self.assertEqual(
                 self.web.get(
-                    f"/library/jobs/{job_id}/logs",
+                    f"/test_repo/jobs/{job_id}/logs",
                     headers=as_user(user),
                     expect_errors=True,
                 ).status_int,
@@ -624,7 +629,7 @@ class DownloadAndLogTest(JobsViewCase):
         directory = self.jobs_dir / job_id
         directory.mkdir(parents=True, exist_ok=True)
         (directory / "luigi.log").write_text("first\nsecond\nthi")
-        url = f"/library/jobs/{job_id}/log"
+        url = f"/test_repo/jobs/{job_id}/log"
         got = self.web.get(url, headers=as_user("ed"))
         self.assertEqual(
             (got.text, got.headers["X-Log-Offset"]), ("first\nsecond\n", "13")
@@ -641,13 +646,13 @@ class DownloadAndLogTest(JobsViewCase):
         (self.jobs_dir / job_id / "luigi.log").write_text(
             "first\nlast without a newline"
         )
-        got = self.web.get(f"/library/jobs/{job_id}/log", headers=as_user("ed"))
+        got = self.web.get(f"/test_repo/jobs/{job_id}/log", headers=as_user("ed"))
         self.assertEqual(got.text, "first\nlast without a newline")
 
     def test_the_panel_has_a_triangle_that_folds_open_the_last_lines_of_the_log_in_a_frame(  # noqa: E501
         self,
     ):
-        page = self.web.get("/library/jobs", headers=as_user("ed")).text
+        page = self.web.get("/test_repo/jobs", headers=as_user("ed")).text
         self.assertRegex(page, r"<details[^>]*data-log-fold")  # a native triangle
         self.assertRegex(page, r"<iframe[^>]*data-log-frame")
         frame = must_search(r"<iframe[^>]*>", page)[0]
@@ -661,18 +666,18 @@ class DownloadAndLogTest(JobsViewCase):
     def test_the_log_page_can_be_the_bare_log_for_the_frame(self):
         job_id = self.finished()
         page = self.web.get(
-            f"/library/jobs/{job_id}/logs?embed=1&name=luigi", headers=as_user("ed")
+            f"/test_repo/jobs/{job_id}/logs?embed=1&name=luigi", headers=as_user("ed")
         )
         self.assertIn("data-job-log", page.text)
         self.assertIn(
-            f'data-log-url="http://localhost/library/jobs/{job_id}/log"', page.text
+            f'data-log-url="http://localhost/test_repo/jobs/{job_id}/log"', page.text
         )
         self.assertNotIn("<header", page.text)  # no layout around it
         self.assertIn("overflow: auto", page.text)  # it scrolls in the frame
         self.assertIn("joblog.js", page.text.split("</head>")[0])
         self.assertEqual(
             self.web.get(
-                f"/library/jobs/{job_id}/logs?embed=1",
+                f"/test_repo/jobs/{job_id}/logs?embed=1",
                 headers=as_user("ed2"),
                 expect_errors=True,
             ).status_int,
@@ -683,9 +688,11 @@ class DownloadAndLogTest(JobsViewCase):
         job_id = self.finished()
         job = self.listed_job("ed")
         self.assertEqual(
-            job["logs_url"], f"http://localhost/library/jobs/{job_id}/logs"
+            job["logs_url"], f"http://localhost/test_repo/jobs/{job_id}/logs"
         )
-        self.assertEqual(job["log_url"], f"http://localhost/library/jobs/{job_id}/log")
+        self.assertEqual(
+            job["log_url"], f"http://localhost/test_repo/jobs/{job_id}/log"
+        )
 
     def test_the_script_of_the_log_page_finds_what_it_needs_in_the_page(self):
         from importlib.resources import files
@@ -694,7 +701,7 @@ class DownloadAndLogTest(JobsViewCase):
             files("gracia") / "assets" / "static" / "scripts" / "joblog.js"
         ).read_text()
         page = self.web.get(
-            f"/library/jobs/{self.finished()}/logs", headers=as_user("ed")
+            f"/test_repo/jobs/{self.finished()}/logs", headers=as_user("ed")
         ).text
         for name in set(re.findall(r"\[data-([a-z-]+)\]", script)):
             self.assertRegex(page, rf"data-{name}\b", name)
@@ -706,7 +713,7 @@ class DownloadAndLogTest(JobsViewCase):
 
     def test_the_log_is_one_of_two_and_for_those_who_may_see_the_job(self):
         job_id = self.finished()
-        url = f"/library/jobs/{job_id}/log"
+        url = f"/test_repo/jobs/{job_id}/log"
         self.assertEqual(
             self.web.get(
                 f"{url}?name=../exit", headers=as_user("admin"), expect_errors=True
@@ -718,7 +725,7 @@ class DownloadAndLogTest(JobsViewCase):
             403,
         )
         empty = self.start("ed").json["id"]  # a job with no log yet
-        got = self.web.get(f"/library/jobs/{empty}/log", headers=as_user("ed"))
+        got = self.web.get(f"/test_repo/jobs/{empty}/log", headers=as_user("ed"))
         self.assertEqual((got.text, got.headers["X-Log-Offset"]), ("", "0"))
 
 
@@ -728,7 +735,7 @@ class FormTest(JobsViewCase):
         self.config.begin()
         self.addCleanup(self.config.end)
         job = self.config.registry.queryUtility(IJob, "validate")  # ty: ignore[missing-union-attribute]
-        repository = self.config.registry["application"]["library"]  # ty: ignore[not-subscriptable]
+        repository = self.config.registry["application"]["test_repo"]  # ty: ignore[not-subscriptable]
         schema = job.params_schema().bind(
             repository=repository,
             request=mock.Mock(registry=self.config.registry),
@@ -746,7 +753,7 @@ class FormTest(JobsViewCase):
         from gracia.jobs.validate import ValidateJob
 
         spec = ValidateJob().spec(
-            "library", {"res_type": "person", "schema": "Person-full-01.ttl"}
+            "test_repo", {"res_type": "person", "schema": "Person-full-01.ttl"}
         )
         self.assertEqual((spec["job"], spec["subject"]), ("validate", "person"))
         self.assertEqual(
@@ -779,7 +786,7 @@ class EndToEndTest(ProcessCase):
         headers = {**as_user("ed"), **ORIGIN}
         ids = {
             name: web.post(
-                f"/library/jobs/start?job={name}",
+                f"/test_repo/jobs/start?job={name}",
                 {"res_type": "person"},
                 headers=headers,
             ).json["id"]
@@ -790,7 +797,7 @@ class EndToEndTest(ProcessCase):
         jobs = {
             j["id"]: j
             for j in web.get(
-                "/library/jobs/list?subject=person", headers=as_user("ed")
+                "/test_repo/jobs/list?subject=person", headers=as_user("ed")
             ).json["jobs"]
         }
         self.assertEqual({jobs[i]["state"] for i in ids.values()}, {"done"})
@@ -816,13 +823,13 @@ class EndToEndTest(ProcessCase):
         )
         web = TestApp(config.make_wsgi_app())
         started = web.post(
-            "/library/jobs/start?job=validate",
+            "/test_repo/jobs/start?job=validate",
             {"res_type": "person", "schema": ""},
             headers={**as_user("ed"), **ORIGIN},
         )
         job_id = started.json["id"]
         self.wait_for(job_id, ("done", "failed"))
-        job = web.get("/library/jobs/list", headers=as_user("ed")).json["jobs"][0]
+        job = web.get("/test_repo/jobs/list", headers=as_user("ed")).json["jobs"][0]
         self.assertEqual((job["state"], job["percent"]), ("done", 100.0))
         export, validate = job["stages"]
         self.assertEqual(

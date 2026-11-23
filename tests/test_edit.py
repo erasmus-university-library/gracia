@@ -37,7 +37,7 @@ PEOPLE = """
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 @prefix foaf: <http://xmlns.com/foaf/0.1/> .
 <rec:repository:1> a gracia:Record ;
-    gracia:resource [ a gracia:Repository ; gracia:title "library" ;
+    gracia:resource [ a gracia:Repository ; gracia:title "test_repo" ;
         gracia:types ( gracia:Repository gracia:Type gracia:User gracia:UserGroup
           foaf:Person ) ] .
 <rec:type:5> a gracia:Record ; gracia:resource_uri foaf:Person ;
@@ -105,10 +105,10 @@ class EditCase(WebCase):
         self.admin, self.editor = basic(*ADMIN), basic(*EDITOR)
 
     def build_fixture(self, application):
-        """The repository `library` with the person type and the people of `PEOPLE`, and
-        an editor."""
-        application.create_repository("library", admin=ADMIN)
-        with application.open_repository("library") as store:
+        """The repository `test_repo` with the person type and the people of `PEOPLE`,
+        and an editor."""
+        application.create_repository("test_repo", admin=ADMIN)
+        with application.new_store("test_repo") as store:
             people = PEOPLE.replace("@ASSETS@", self.person_assets)
             store.put(ox.Dataset(ox.parse(people.encode(), format=ox.RdfFormat.TURTLE)))
             store.put(
@@ -123,11 +123,11 @@ class EditCase(WebCase):
 
     def number_of(self, slug: str, res_type: str = "person") -> str:
         """The number of the record of a type that has (or had) this slug."""
-        with self.application.open_repository("library") as store:
+        with self.application.new_store("test_repo") as store:
             return store.slug_lookup(res_type, slug)[0].rsplit(":", 1)[1]  # ty: ignore[not-subscriptable]
 
     def values(self, uri):
-        with self.application.open_repository("library") as store:
+        with self.application.new_store("test_repo") as store:
             data = store.get(uri)
         stamps = {
             gracia_uri.CREATED_AT,
@@ -162,9 +162,11 @@ class RegistryTest(EditCase):
         return seen[0]
 
     def test_a_type_gets_the_class_registered_for_it_else_record(self):
-        self.assertIs(self.context_class("/library/user/1"), self.record_class("user"))
-        self.assertIs(self.context_class("/library/person/1"), Record)
-        self.assertIs(self.context_class("/library/type/2"), Record)
+        self.assertIs(
+            self.context_class("/test_repo/user/1"), self.record_class("user")
+        )
+        self.assertIs(self.context_class("/test_repo/person/1"), Record)
+        self.assertIs(self.context_class("/test_repo/type/2"), Record)
 
     def test_a_type_package_is_included_by_its_dotted_name(self):
         """`gracia.types` lists the type packages; each registers itself in its
@@ -193,7 +195,7 @@ class RegistryTest(EditCase):
                 name="class",
                 renderer="json",
             )
-            self.client(config).get("/library/person/1/class", headers=self.admin)
+            self.client(config).get("/test_repo/person/1/class", headers=self.admin)
         self.assertEqual(seen, ["PersonRecord"])
 
     def test_a_class_can_be_registered_by_an_extension(self):
@@ -210,10 +212,12 @@ class RegistryTest(EditCase):
             renderer="json",
         )
         web = self.client(config)
-        web.get("/library/group/1/hello", headers=self.admin)
+        web.get("/test_repo/group/1/hello", headers=self.admin)
         self.assertEqual(seen, [UserGroupRecord])
         # a view for that class is not reached for records of other types
-        self.assertEqual(self.status("/library/user/1/hello", self.admin, config), 404)
+        self.assertEqual(
+            self.status("/test_repo/user/1/hello", self.admin, config), 404
+        )
 
     def test_a_view_for_the_class_overrides_the_generic_one(self):
         config = make_config(self.settings)
@@ -225,12 +229,12 @@ class RegistryTest(EditCase):
             permission="edit",
         )
         self.assertEqual(
-            self.client(config).get("/library/user/1/edit", headers=self.admin).json,
+            self.client(config).get("/test_repo/user/1/edit", headers=self.admin).json,
             {"mine": True},
         )
         self.assertIn(
             "<form",
-            self.client().get("/library/person/1/edit", headers=self.admin).text,
+            self.client().get("/test_repo/person/1/edit", headers=self.admin).text,
         )
 
 
@@ -254,7 +258,7 @@ class SubclassedViewTest(EditCase):
             Shouting, attr="edit", context=UserRecord, name="edit", permission="edit"
         )
         web = self.client(config)
-        page = web.get("/library/user/1/edit", headers=self.admin)
+        page = web.get("/test_repo/user/1/edit", headers=self.admin)
         self.assertIn(">ADMIN<", page.text)  # its own heading
         self.assertIn('name="userid"', page.text)  # the form is the base's
         form = page.forms[0]
@@ -262,7 +266,7 @@ class SubclassedViewTest(EditCase):
         self.assertEqual(
             form.submit("save", headers=self.admin).status_int, 302
         )  # and so is saving
-        generic = self.client().get("/library/user/1/edit", headers=self.admin).text
+        generic = self.client().get("/test_repo/user/1/edit", headers=self.admin).text
         self.assertNotIn(">ADMIN<", generic)  # the other pages are as they were
 
 
@@ -275,7 +279,7 @@ class EditViewTest(EditCase):
         return form.submit("save", headers=headers)
 
     def test_the_form_comes_from_the_shape_of_the_type(self):
-        response = self.client().get("/library/person/1/edit", headers=self.admin)
+        response = self.client().get("/test_repo/person/1/edit", headers=self.admin)
         self.assertIn('name="name"', response.text)
         self.assertIn('value="Ada"', response.text)
         self.assertIn('name="mbox"', response.text)
@@ -283,7 +287,7 @@ class EditViewTest(EditCase):
 
     def test_saving_changes_the_content_and_keeps_what_the_form_cannot_show(self):
         response = self.edit(
-            "/library/person/1/edit",
+            "/test_repo/person/1/edit",
             self.admin,
             name="Ada Lovelace",
             mbox="ada@example.org",
@@ -319,10 +323,10 @@ class EditViewTest(EditCase):
         )
 
     def test_an_empty_value_removes_the_property_and_a_required_one_is_refused(self):
-        self.edit("/library/person/1/edit", self.admin, mbox="x@example.org")
-        self.edit("/library/person/1/edit", self.admin, mbox="")
+        self.edit("/test_repo/person/1/edit", self.admin, mbox="x@example.org")
+        self.edit("/test_repo/person/1/edit", self.admin, mbox="")
         self.assertNotIn(f"{FOAF}mbox", [p for p, _ in self.values("rec:person:1")])
-        response = self.edit("/library/person/1/edit", self.admin, name="")
+        response = self.edit("/test_repo/person/1/edit", self.admin, name="")
         self.assertEqual(response.status_int, 200)  # the form again, with the error
         self.assertIn(
             ("http://xmlns.com/foaf/0.1/name", "Ada"), self.values("rec:person:1")
@@ -334,17 +338,19 @@ class EditViewTest(EditCase):
         # the record was stored before the resource uri was required: nothing is shown
         # for it
         # until it is saved, and what saves it (the SQL of the predicate) makes the ARK
-        form = self.client().get("/library/person/1/edit", headers=self.admin).forms[0]
+        form = (
+            self.client().get("/test_repo/person/1/edit", headers=self.admin).forms[0]
+        )
         self.assertEqual(form["resource_uri"].value, "")
         self.assertEqual(form.submit("save", headers=self.admin).status_int, 302)
         ark = (uri.RESOURCE_URI, "ark:/99999/ir/person/1")
         self.assertIn(ark, self.values("rec:person:1"))
         orcid = "https://orcid.org/0000-0002-1825-0097"
-        self.edit("/library/person/1/edit", self.admin, resource_uri=orcid)
+        self.edit("/test_repo/person/1/edit", self.admin, resource_uri=orcid)
         self.assertEqual(
             self.client()
             .get(
-                "/library/person/1",
+                "/test_repo/person/1",
                 headers={**self.admin, "Accept": "application/json"},
             )
             .json["resource_uri"],
@@ -352,65 +358,65 @@ class EditViewTest(EditCase):
         )
         self.assertIn(
             f'value="{orcid}"',
-            self.client().get("/library/person/1/edit", headers=self.admin).text,
+            self.client().get("/test_repo/person/1/edit", headers=self.admin).text,
         )
         self.assertEqual(
             self.edit(
-                "/library/person/1/edit", self.admin, resource_uri="not an uri"
+                "/test_repo/person/1/edit", self.admin, resource_uri="not an uri"
             ).status_int,
             200,
         )
-        self.edit("/library/person/1/edit", self.admin, resource_uri="")
+        self.edit("/test_repo/person/1/edit", self.admin, resource_uri="")
         self.assertIn(ark, self.values("rec:person:1"))  # the default again
 
     def test_who_may_edit(self):
         self.assertEqual(
-            self.status("/library/person/1/edit"), 401
+            self.status("/test_repo/person/1/edit"), 401
         )  # anonymous: asked to log in
         self.assertEqual(
-            self.status("/library/person/1/edit", self.editor), 200
+            self.status("/test_repo/person/1/edit", self.editor), 200
         )  # editor group
-        self.assertEqual(self.status("/library/person/1/edit", self.admin), 200)
+        self.assertEqual(self.status("/test_repo/person/1/edit", self.admin), 200)
         self.assertEqual(
-            self.status("/library/user/1/edit", self.editor), 403
+            self.status("/test_repo/user/1/edit", self.editor), 403
         )  # users: admin only
         self.assertEqual(
-            self.status("/library/type/5/edit", self.editor), 403
+            self.status("/test_repo/type/5/edit", self.editor), 403
         )  # structure too
         self.assertEqual(
-            self.status("/library/type/5", self.editor), 200
+            self.status("/test_repo/type/5", self.editor), 200
         )  # but it can be read
-        self.assertEqual(self.status("/library/type/5"), 200)
-        self.assertEqual(self.status("/library/manage", self.editor), 403)
+        self.assertEqual(self.status("/test_repo/type/5"), 200)
+        self.assertEqual(self.status("/test_repo/manage", self.editor), 403)
 
     def test_the_form_has_a_tab_for_the_person_and_one_for_the_record(self):
-        response = self.client().get("/library/person/1/edit", headers=self.admin)
+        response = self.client().get("/test_repo/person/1/edit", headers=self.admin)
         tabs = re.findall(r'data-bs-toggle="tab"[^>]*>([^<]+)', response.text)
         self.assertEqual(tabs, ["Person", "Record"])
 
     def test_a_record_key_goes_to_the_address_of_the_record(self):
         web = self.client()
-        response = web.get("/library/rec:person:1", headers=self.admin)
+        response = web.get("/test_repo/rec:person:1", headers=self.admin)
         self.assertEqual(response.status_int, 302)
-        self.assertEqual(response.location, "http://localhost/library/person/1/")
+        self.assertEqual(response.location, "http://localhost/test_repo/person/1/")
         for key in ("rec:person:99", "rec:nothing:1", "rec:person:x", "rec:person"):
-            self.assertEqual(self.status(f"/library/{key}", self.admin), 404, key)
+            self.assertEqual(self.status(f"/test_repo/{key}", self.admin), 404, key)
 
     def test_an_editor_edits_a_person(self):
-        response = self.edit("/library/person/1/edit", self.editor, name="Ada King")
+        response = self.edit("/test_repo/person/1/edit", self.editor, name="Ada King")
         self.assertEqual(response.status_int, 302)
         self.assertIn((f"{FOAF}name", "Ada King"), self.values("rec:person:1"))
 
 
 class UserEditTest(EditCase):
     def edit(self, **fields):
-        form = self.client().get("/library/user/2/edit", headers=self.admin).forms[0]
+        form = self.client().get("/test_repo/user/2/edit", headers=self.admin).forms[0]
         for name, text in fields.items():
             form[name] = text
         return form.submit("save", headers=self.admin)
 
     def test_the_credentials_are_not_in_the_form(self):
-        response = self.client().get("/library/user/1/edit", headers=self.admin)
+        response = self.client().get("/test_repo/user/1/edit", headers=self.admin)
         self.assertIn('name="userid"', response.text)
         self.assertIn('name="password"', response.text)
         self.assertNotIn("scrypt", response.text)
@@ -419,31 +425,33 @@ class UserEditTest(EditCase):
     def test_saving_without_a_password_keeps_the_old_one(self):
         self.assertEqual(self.edit(userid="ed2").status_int, 302)
         self.assertEqual(
-            self.status("/library/user", basic("ed2", EDITOR[1])), 403
+            self.status("/test_repo/user", basic("ed2", EDITOR[1])), 403
         )  # logs in
         self.assertEqual(
-            self.status("/library/user", basic("ed", EDITOR[1])), 401
+            self.status("/test_repo/user", basic("ed", EDITOR[1])), 401
         )  # the old id is gone
 
     def test_a_new_password_replaces_the_hash(self):
         self.assertEqual(self.edit(password="a brand new password").status_int, 302)
         self.assertEqual(
-            self.status("/library/user", basic("ed", "a brand new password")), 403
+            self.status("/test_repo/user", basic("ed", "a brand new password")), 403
         )
-        self.assertEqual(self.status("/library/user", basic(*EDITOR)), 401)
-        with self.application.open_repository("library") as store:
+        self.assertEqual(self.status("/test_repo/user", basic(*EDITOR)), 401)
+        with self.application.new_store("test_repo") as store:
             self.assertNotIn("a brand new password", str(store.get("rec:user:2")))
 
     def test_a_short_password_is_refused(self):
         self.assertEqual(self.edit(password="short").status_int, 200)
-        self.assertEqual(self.status("/library/user", basic(*EDITOR)), 403)  # unchanged
+        self.assertEqual(
+            self.status("/test_repo/user", basic(*EDITOR)), 403
+        )  # unchanged
 
     def test_a_user_id_that_is_taken_is_refused(self):
         response = self.edit(userid="admin")
         self.assertEqual(response.status_int, 200)
         self.assertIn("is taken", response.text)
         self.assertEqual(
-            self.status("/library/user", basic(*EDITOR)), 403
+            self.status("/test_repo/user", basic(*EDITOR)), 403
         )  # still "ed"
 
     def test_group_membership_survives_an_edit(self):
@@ -455,7 +463,7 @@ class UserEditTest(EditCase):
 
 class AddViewTest(EditCase):
     def add(self, res_type, headers, **fields):
-        form = self.client().get(f"/library/{res_type}/add", headers=headers).forms[0]
+        form = self.client().get(f"/test_repo/{res_type}/add", headers=headers).forms[0]
         for name, text in fields.items():
             form[name] = text
         return form.submit("save", headers=headers)
@@ -463,12 +471,12 @@ class AddViewTest(EditCase):
     def numbers(self, res_type):
         return (
             self.client()
-            .get(f"/library/{res_type}", headers=self.admin)
+            .get(f"/test_repo/{res_type}", headers=self.admin)
             .json["records"]
         )
 
     def test_the_form_is_the_edit_form_without_values(self):
-        response = self.client().get("/library/person/add", headers=self.admin)
+        response = self.client().get("/test_repo/person/add", headers=self.admin)
         for name in ("name", "mbox", "resource_uri"):
             self.assertIn(f'name="{name}"', response.text)
         self.assertNotIn('value="Ada"', response.text)
@@ -480,7 +488,7 @@ class AddViewTest(EditCase):
         self.assertEqual(response.status_int, 302)
         self.assertEqual(
             response.location,
-            "http://localhost/library/person/grace-hopper/edit?saved=1",
+            "http://localhost/test_repo/person/grace-hopper/edit?saved=1",
         )
         self.assertEqual(self.numbers("person"), [1, 2])
         self.assertEqual(
@@ -505,7 +513,7 @@ class AddViewTest(EditCase):
             ),
         )
         self.assertEqual(
-            self.client().get("/library/person/2", headers=self.admin).status_int, 200
+            self.client().get("/test_repo/person/2", headers=self.admin).status_int, 200
         )
 
     def test_a_refused_form_does_not_use_up_a_number(self):
@@ -521,7 +529,7 @@ class AddViewTest(EditCase):
         body = (
             self.client()
             .get(
-                "/library/person/2",
+                "/test_repo/person/2",
                 headers={**self.admin, "Accept": "application/json"},
             )
             .json
@@ -529,11 +537,11 @@ class AddViewTest(EditCase):
         self.assertEqual(body["resource_uri"], [orcid])
 
     def test_who_may_add(self):
-        self.assertEqual(self.status("/library/person/add"), 401)
-        self.assertEqual(self.status("/library/person/add", self.editor), 200)
-        self.assertEqual(self.status("/library/user/add", self.editor), 403)
-        self.assertEqual(self.status("/library/group/add", self.editor), 403)
-        self.assertEqual(self.status("/library/user/add", self.admin), 200)
+        self.assertEqual(self.status("/test_repo/person/add"), 401)
+        self.assertEqual(self.status("/test_repo/person/add", self.editor), 200)
+        self.assertEqual(self.status("/test_repo/user/add", self.editor), 403)
+        self.assertEqual(self.status("/test_repo/group/add", self.editor), 403)
+        self.assertEqual(self.status("/test_repo/user/add", self.admin), 200)
         response = self.add("person", self.editor, name="By an editor")
         self.assertEqual(response.status_int, 302)
 
@@ -548,9 +556,11 @@ class AddViewTest(EditCase):
         self.assertEqual(response.status_int, 302)
         self.assertEqual(self.numbers("user"), [1, 2, 3])
         self.assertEqual(
-            self.status("/library/manage", basic("newbie", "long enough pw")), 403
+            self.status("/test_repo/manage", basic("newbie", "long enough pw")), 403
         )
-        self.assertEqual(self.status("/library/manage", basic("newbie", "wrong")), 401)
+        self.assertEqual(
+            self.status("/test_repo/manage", basic("newbie", "wrong")), 401
+        )
         self.assertNotIn("long enough pw", str(self.values("rec:user:3")))
 
     def test_a_user_id_that_is_taken_cannot_be_added(self):
@@ -563,24 +573,24 @@ class AddViewTest(EditCase):
 
     def test_a_type_the_form_cannot_fill_in_is_refused_not_half_made(self):
         response = self.client().get(
-            "/library/type/add", headers=self.admin, expect_errors=True
+            "/test_repo/type/add", headers=self.admin, expect_errors=True
         )
         self.assertEqual(response.status_int, 501)
         self.assertIn("cannot fill in", response.text)
         self.assertEqual(
-            self.client().get("/library/type", headers=self.admin).json["records"],
+            self.client().get("/test_repo/type", headers=self.admin).json["records"],
             [1, 2, 3, 4, 5],
         )
 
     def test_adding_to_a_type_that_does_not_exist_is_404(self):
-        self.assertEqual(self.status("/library/nope/add", self.admin), 404)
+        self.assertEqual(self.status("/test_repo/nope/add", self.admin), 404)
 
 
 class SwitchingSchemaTest(EditCase):
     """The type record names the schema file its records follow: switching is a change
     of data."""
 
-    def fields(self, path="/library/person/1/edit"):
+    def fields(self, path="/test_repo/person/1/edit"):
         response = self.client().get(path, headers=self.admin)
         return {n for n in ("name", "mbox") if f'name="{n}"' in response.text}
 
@@ -590,7 +600,7 @@ class SwitchingSchemaTest(EditCase):
         would."""
         form = (
             self.client()
-            .get("/library/person/manage", headers=self.admin)
+            .get("/test_repo/person/manage", headers=self.admin)
             .forms["form-type-settings"]
         )
         if by_hand:
@@ -607,17 +617,21 @@ class SwitchingSchemaTest(EditCase):
     def test_switching_to_the_minimal_profile_changes_the_forms(self):
         self.assertEqual(self.switch("Person-minimal-01.ttl").status_int, 302)
         self.assertEqual(self.fields(), {"name"})
-        self.assertEqual(self.fields("/library/person/add"), {"name"})
+        self.assertEqual(self.fields("/test_repo/person/add"), {"name"})
         self.switch("Person-full-01.ttl")  # and back
         self.assertEqual(self.fields(), {"name", "mbox"})
 
     def test_what_the_minimal_form_cannot_show_is_kept(self):
-        self.client().get("/library/person/1/edit", headers=self.admin)
-        form = self.client().get("/library/person/1/edit", headers=self.admin).forms[0]
+        self.client().get("/test_repo/person/1/edit", headers=self.admin)
+        form = (
+            self.client().get("/test_repo/person/1/edit", headers=self.admin).forms[0]
+        )
         form["mbox"] = "ada@example.org"
         form.submit("save", headers=self.admin)
         self.switch("Person-minimal-01.ttl")
-        form = self.client().get("/library/person/1/edit", headers=self.admin).forms[0]
+        form = (
+            self.client().get("/test_repo/person/1/edit", headers=self.admin).forms[0]
+        )
         form["name"] = "Ada King"
         form.submit("save", headers=self.admin)
         stored = self.values("rec:person:1")
@@ -627,18 +641,18 @@ class SwitchingSchemaTest(EditCase):
         self.assertIn((f"{FOAF}name", "Ada King"), stored)
 
     def test_the_version_of_the_type_follows_the_schema_it_is_on(self):
-        node = self.application["library"]
+        node = self.application["test_repo"]
         self.addCleanup(node.close)
         full = node["person"].assets_version
         self.switch("Person-minimal-01.ttl")
-        other = self.application["library"]
+        other = self.application["test_repo"]
         self.addCleanup(other.close)
         self.assertNotEqual(other["person"].assets_version, full)
 
     def test_the_form_offers_the_schema_files_of_the_type_and_no_others(self):
         # the field of `gracia:schemaTemplate` is a select of the files of the directory
         # `gracia:assets` names
-        page = self.client().get("/library/person/manage", headers=self.admin).text
+        page = self.client().get("/test_repo/person/manage", headers=self.admin).text
         select = must_search(r'<select name="schemaTemplate".*?</select>', page, re.S)[
             0
         ]

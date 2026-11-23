@@ -7,3 +7,8 @@ jobs
 __pycache__
 #*
 *.lock
+bin
+.coverage
+lib
+lib64
+pyvenv.cfg

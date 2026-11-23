@@ -1,6 +1,7 @@
 from pyramid.view import forbidden_view_config, notfound_view_config, view_config
 
 from gracia.application import Application
+from gracia.resources import Record
 
 
 @view_config(context=Application, renderer="json", request_method="GET")
@@ -22,6 +23,15 @@ def not_found(request):
 
 @forbidden_view_config(renderer="json")
 def forbidden(request):
+    context = getattr(request, "context", None)
+    if (
+        isinstance(context, Record)
+        and not request.has_permission("view", context)
+        and request.has_permission("view", context.__parent__)
+    ):
+        # a record the caller may not see, in a type they may: it is not there for them
+        request.response.status = 404
+        return {"error": "not_found", "path": request.path}
     if request.authenticated_userid is None and getattr(
         request.registry, "challenge", False
     ):

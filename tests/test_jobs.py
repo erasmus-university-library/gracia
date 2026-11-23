@@ -23,7 +23,7 @@ ECHO = {"stage": "Echo", "params": {"n_items": 6, "size": 2}}
 
 class SpecTest(JobsCase):
     def valid(self, **extra):
-        return {"repo": "library", "stages": [ECHO], **extra}
+        return {"repo": "test_repo", "stages": [ECHO], **extra}
 
     def errors(self, data) -> dict:
         with self.assertRaises(JobSpecError) as caught:
@@ -33,13 +33,13 @@ class SpecTest(JobsCase):
     def test_a_valid_job_is_normalised(self):
         spec = validate_spec(
             {
-                "repo": "library",
+                "repo": "test_repo",
                 "job": "validate",
                 "subject": "person",
                 "stages": [EXPORT, VALIDATE],
             }
         )
-        self.assertEqual(spec["repo"], "library")
+        self.assertEqual(spec["repo"], "test_repo")
         self.assertEqual((spec["job"], spec["subject"]), ("validate", "person"))
         self.assertEqual([s["stage"] for s in spec["stages"]], ["Export", "Validate"])
         self.assertEqual(
@@ -98,8 +98,8 @@ class SpecTest(JobsCase):
         for data in (
             {},
             {"repo": "Bad Repo", "stages": [ECHO]},
-            {"repo": "library", "stages": []},
-            {"repo": "library"},
+            {"repo": "test_repo", "stages": []},
+            {"repo": "test_repo"},
         ):
             with self.subTest(data=data):
                 self.assertTrue(self.errors(data))
@@ -168,7 +168,7 @@ class DbTest(JobsCase):
                 [j["id"] for j in db.list_jobs(job="a", subject="y")], [third]
             )
             self.assertEqual(db.list_jobs(state="done"), [])
-            self.assertEqual(len(db.list_jobs(repo="library")), 3)
+            self.assertEqual(len(db.list_jobs(repo="test_repo")), 3)
 
     def test_a_job_is_deleted_only_in_a_state_that_allows_it(self):
         job_id = self.make(ECHO)
@@ -179,7 +179,7 @@ class DbTest(JobsCase):
             self.assertIsNone(db.get(job_id))
 
     def test_a_table_of_the_earlier_design_is_replaced(self):
-        conn = self.application.raw()
+        conn = self.application.database.cursor()
         conn.execute("CREATE SCHEMA IF NOT EXISTS _gracia")
         conn.execute("CREATE TABLE _gracia.jobs (id VARCHAR, task_count INTEGER)")
         conn.execute("CREATE TABLE _gracia.job_tasks (job_id VARCHAR)")
@@ -463,7 +463,7 @@ class FailureTest(JobsCase):
         job_id = self.make({"stage": "Export", "params": {"res_type": "nobody"}})
         self.assertEqual(self.run_job(job_id), runner.EXIT_FAILED)
         self.assertIn(
-            "no type 'nobody' in repository library", self.job(job_id)["error_msg"]
+            "no type 'nobody' in repository test_repo", self.job(job_id)["error_msg"]
         )
 
 
@@ -694,7 +694,9 @@ class ExportValidateTest(JobsCase):
         # no name: 4 and 8; no mail: 3, 6 and 9; a mail that is none: 11
         self.assertEqual(bad, {"3", "4", "6", "8", "9", "11"})
         self.assertEqual(self.stage(job_id, "Validate")["rejected"]["violation"], 6)
-        node = self.application["library"]  # the type itself is still on its own schema
+        node = self.application[
+            "test_repo"
+        ]  # the type itself is still on its own schema
         self.addCleanup(node.close)
         self.assertEqual(node["person"].schema, "Person-full-01.ttl")
 
@@ -722,14 +724,14 @@ class ExportValidateTest(JobsCase):
         self.assertEqual(info["schema"], "Person-full-01.ttl")
 
     def test_a_number_without_a_record_is_just_not_there(self):
-        with self.application.open_repository("library") as store:
+        with self.application.new_store("test_repo") as store:
             store.delete([f"rec:person:{n}" for n in range(5, 9)])
         job_id, code = self.validate()
         self.assertEqual(code, runner.EXIT_DONE)
         self.assertEqual(self.stage(job_id, "Export")["processed"], 8)
 
     def test_a_type_without_records_is_an_empty_job_not_an_error(self):
-        with self.application.open_repository("library") as store:
+        with self.application.new_store("test_repo") as store:
             store.delete([f"rec:person:{n}" for n in range(1, 13)])
         job_id, code = self.validate()
         self.assertEqual(code, runner.EXIT_DONE)
@@ -810,7 +812,7 @@ class RewriteExportTest(JobsCase):
     def test_the_purge_slugs_job_forgets_old_slugs_of_live_records_and_keeps_the_rest(
         self,
     ):
-        with self.application.open_repository("library") as store:
+        with self.application.new_store("test_repo") as store:
             store.con.execute(
                 "INSERT INTO slugs VALUES ('person', 'old-name', 'rec:person:1', false)"
             )
@@ -830,7 +832,7 @@ class RewriteExportTest(JobsCase):
             self.run_job(job_id), runner.EXIT_DONE, self.job(job_id)["error_msg"]
         )
         self.assertEqual(self.stage(job_id, "PurgeSlugs")["passed"], 1)
-        with self.application.open_repository("library") as store:
+        with self.application.new_store("test_repo") as store:
             slugs = {
                 r[0] for r in store.con.execute("SELECT slug FROM slugs").fetchall()
             }
@@ -858,7 +860,7 @@ class RewriteExportTest(JobsCase):
         self.assertEqual(
             self.stage(again, "RebuildEtags")["passed"], 0
         )  # kept up to date: all right
-        with self.application.open_repository("library") as store:
+        with self.application.new_store("test_repo") as store:
             self.assertGreater(
                 store.count_etags(), 12
             )  # the people, and the records of the types
@@ -873,7 +875,7 @@ class RewriteExportTest(JobsCase):
             [i["id"] for i in self.lines(fixed, "00-RebuildEtags/batch-00000.jsonl")],
             ["rec:person:1", "rec:person:2"],
         )
-        with self.application.open_repository("library") as store:
+        with self.application.new_store("test_repo") as store:
             self.assertRegex(store.etag_info("rec:person:1")[0], r"^[0-9a-f]{16}$")  # ty: ignore[not-subscriptable]
 
     def test_the_export_job_offers_the_records_as_one_file_to_download(self):

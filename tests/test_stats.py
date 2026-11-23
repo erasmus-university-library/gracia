@@ -120,7 +120,7 @@ class GraphCacheStatsTest(BatchCase):
         self.app.cache.etags("main", [record_id])
         self.assertEqual(self.app.cache.etags_held("main"), 1)
         self.assertEqual(self.app.cache.etags_held("other"), 0)
-        self.app.cache.graph("main", record_id)  # ty: ignore[invalid-argument-type]
+        self.app.cache.graph("main", record_id)
         found = self.app.cache.graph_stats("main")
         self.assertEqual((found["repo_entries"], found["entries"]), (1, 1))  # ty: ignore[not-subscriptable]
         self.assertTrue(found["directory"].endswith("cache"))  # ty: ignore[not-subscriptable]

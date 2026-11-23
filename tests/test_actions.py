@@ -2,6 +2,7 @@ import threading
 import time
 
 import pyoxigraph as ox
+from harness import open_application, open_store
 from pyramid.registry import Registry
 from test_etags import TYPES, EtagCase, record
 
@@ -15,8 +16,7 @@ from gracia.actions import (
     process_pending,
     repository_lock,
 )
-from gracia.application import Application
-from gracia.store import Store, fetch_one
+from gracia.store import fetch_one
 
 STAMP2 = "2026-06-01T00:00:00.000000Z"
 
@@ -279,8 +279,7 @@ class SizeTest(QueueCase):
 class BatchCase(QueueCase):
     def setUp(self):
         super().setUp()
-        self.app = Application(self.db, cache_dir=self.tmp / "cache")
-        self.addCleanup(self.app.close)
+        self.app = open_application(self, self.db, cache_dir=self.tmp / "cache")
         self.registry = Registry()
         self.events: list[RecordsChanged] = []
         self.registry.registerHandler(self.events.append, (RecordsChanged,))
@@ -293,8 +292,8 @@ class BatchCase(QueueCase):
 
     def kept(self, rec_uri: str):
         record_id = self.store.record_id_of(rec_uri)
-        etag = self.app.cache.etags("main", [record_id])[record_id][0]  # ty: ignore[invalid-argument-type, not-subscriptable]
-        return self.app.cache._graph_store().get("main", record_id, etag)  # ty: ignore[invalid-argument-type, missing-union-attribute]
+        etag = self.app.cache.etags("main", [record_id])[record_id][0]  # ty: ignore[not-subscriptable]
+        return self.app.cache._graph_store().get("main", record_id, etag)  # ty: ignore[missing-union-attribute]
 
 
 class BatchTest(BatchCase):
@@ -329,7 +328,7 @@ class BatchTest(BatchCase):
         first = self.kept("rec:work:1")
         self.assertIsNotNone(first)
         self.assertEqual(
-            self.app.cache.graph("main", self.store.record_id_of("rec:work:1")),  # ty: ignore[invalid-argument-type]
+            self.app.cache.graph("main", self.store.record_id_of("rec:work:1")),
             first,
         )  # a hit
         self.put(
@@ -343,11 +342,11 @@ class BatchTest(BatchCase):
         self.drain()
         self.assertEqual([c.action for c in self.events[-1].changes], ["delete"])
         self.assertIsNone(
-            self.app.cache._graph_store().get("main", record_id, "0" * 16)  # ty: ignore[invalid-argument-type, missing-union-attribute]
+            self.app.cache._graph_store().get("main", record_id, "0" * 16)  # ty: ignore[missing-union-attribute]
         )
         with self.app.cache._graph_store()._env.begin() as txn:  # ty: ignore[missing-union-attribute]
             self.assertIsNone(
-                txn.get(self.app.cache._graph_store()._key("main", record_id))  # ty: ignore[invalid-argument-type, missing-union-attribute]
+                txn.get(self.app.cache._graph_store()._key("main", record_id))  # ty: ignore[missing-union-attribute]
             )
 
     def test_a_record_that_is_gone_when_the_batch_gets_to_it_is_a_delete(self):
@@ -407,8 +406,7 @@ class BatchTest(BatchCase):
         )
 
     def test_without_a_graph_directory_the_events_still_come(self):
-        app = Application(self.db)
-        self.addCleanup(app.close)
+        app = open_application(self, self.db)
         self.put(record("rec:org:1"))
         self.assertEqual(len(process_batch(app, self.registry, "main")), 1)
         self.assertEqual(len(self.events), 1)
@@ -445,7 +443,7 @@ class ManualTest(BatchCase):
         )  # and nothing the second time
 
     def test_a_repository_can_be_named_and_the_others_are_left(self):
-        other = Store(self.db, repo="other", create=True)
+        other = open_store(self.db, repo="other", create=True)
         self.addCleanup(other.close)
         other.set_type_ids(TYPES)
         other.put(record("rec:org:1", res="ark:/1/other/1"))
@@ -562,15 +560,14 @@ class WorkerTest(BatchCase):
         worker = self.worker()
         worker.poll = 60
         worker.start()
-        self.assertTrue(self.wait_for(lambda: worker._seen is not None))
+        self.assertTrue(self.wait_for(lambda: not worker._first))
         self.put(record("rec:org:1"))
         worker.wake()
         self.assertTrue(self.wait_for(lambda: self.events))
 
     def test_without_a_file_to_watch_it_looks_every_time(self):
-        app = Application(":memory:")
-        self.addCleanup(app.close)
-        self.assertIsNone(app.cache.signature())
+        app = open_application(self, ":memory:")
+        self.assertIsNone(app.cache.file_signature())
         self.assertEqual(
             Worker(app, self.registry).turn(), False
         )  # nothing to handle, nothing wrong
@@ -647,7 +644,7 @@ class LineTest(BatchCase):
 
     def setUp(self):
         super().setUp()
-        self.other = Store(self.db, repo="other", create=True)
+        self.other = open_store(self.db, repo="other", create=True)
         self.addCleanup(self.other.close)
         self.other.set_type_ids(TYPES)
 

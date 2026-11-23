@@ -2,9 +2,10 @@ import threading
 
 import pyoxigraph as ox
 from base import DbTestCase
+from harness import open_store
 
 from gracia.graph import Graph
-from gracia.store import DuplicateValue, Store
+from gracia.store import DuplicateValue
 
 G = "https://gracia.pub/ns/"
 
@@ -20,7 +21,7 @@ def thing(number: int, value: str = "x") -> Graph:
 class HistoryTest(DbTestCase):
     def setUp(self):
         super().setUp()
-        self.store = Store(self.db)
+        self.store = open_store(self.db)
         self.addCleanup(self.store.close)
 
     def rows(self):  # ty: ignore[incompatible-method-override]

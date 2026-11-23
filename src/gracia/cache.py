@@ -10,6 +10,7 @@ import lmdb
 import pyoxigraph as ox
 
 from gracia.graph import serialize_bytes
+from gracia.store import new_store
 from gracia.uri import XSL_NS
 from gracia.utils import assets, xslt
 
@@ -122,8 +123,8 @@ class DocStore(GraphStore):
 
     BUNDLED_BASE = "gracia.types:type/doc/doc-base-01.xsl"
 
-    def __init__(self, application, path: str | Path | None = None):
-        self._application = application
+    def __init__(self, cache: "Cache", path: str | Path | None = None):
+        self._cache = cache
         self._compiled: dict[str, xslt.Compiled] = {}  # repo: its doc stylesheet
         self._lock = (
             threading.RLock()
@@ -154,7 +155,7 @@ class DocStore(GraphStore):
         """The doc stylesheet of a repository, compiled once for as long as it stays as
         it is."""
         # a repository that was written drops its stylesheet
-        self._application.cache.check()
+        self._cache.check()
         with self._lock:
             found = self._compiled.get(repository.__name__)
             if found is None:
@@ -297,18 +298,23 @@ def rdfxml(ntriples: str) -> bytes:
 
 
 class Cache:
-    """The etag and graph caches of one `Application`."""
+    """The etag and graph caches of one `Application`, and what it keeps of its
+    repositories between their writes: `registry[name][repo][key]` for the names in
+    `KEPT` (`registry["etags"]`, `registry["slugs"]` and `registry["types"]` of the
+    application), all of a repository forgotten (`invalidate`) when it is written."""
 
-    def __init__(self, application, *, watch=None, graph_dir=None):
-        """`watch` is the database file to stat (None: read the table at every check),
-        `graph_dir` the LMDB directory of the graphs (None: graphs are made again every
-        time)."""
-        self._application = application
-        self._watch = [Path(watch), Path(f"{watch}.wal")] if watch else []
+    KEPT = ("etags", "slugs", "types")
+
+    def __init__(self, database, registry, *, db_file=None, graph_dir=None):
+        """`db_file` is the database file to watch for writes (None: the table of the
+        times of the writes is read at every check), `graph_dir` the LMDB directory of
+        the graphs (None: graphs are made again every time). It lives in the registry
+        (`registry["cache"]`), and what it keeps in the registry's dicts."""
+        self._database = database
+        self.registry = registry
+        self._files = [Path(db_file), Path(f"{db_file}.wal")] if db_file else []
         self._seen = None  # the signature of the files when the table was last read
-        self._generations: dict[
-            str, tuple[object, dict]
-        ] = {}  # repo: (its time in the table, etags)
+        self._written: dict[str, object] = {}  # when each repository was written, then
         self._graph_dir = graph_dir
         self._graphs: GraphStore | None = None  # opened by the first use
         self._docs: DocStore | None = None  # likewise
@@ -320,17 +326,41 @@ class Cache:
         """Whether there is a graph cache to keep (a graph directory is set)."""
         return bool(self._graph_dir)
 
-    def signature(self) -> tuple | None:
-        """What the files of the database look like now (see `check`), or None when
-        there are none to watch: whoever compares signatures has to look every time
-        then."""
-        return self._signature() if self._watch else None
+    @property
+    def docs(self) -> DocStore:
+        """The docs: their cache (if there is a directory) and the doc stylesheets,
+        opened by the first use."""
+        if self._docs is None:
+            self._docs = DocStore(
+                self,
+                Path(self._graph_dir) / "docs" if self._graph_dir else None,
+            )
+        return self._docs
 
-    def moments(self) -> dict[str, object]:
+    def _graph_store(self) -> GraphStore | None:
+        if self._graphs is None and self._graph_dir:
+            self._graphs = GraphStore(self._graph_dir)
+        return self._graphs
+
+    def file_signature(self) -> tuple | None:
+        """What the files of the database look like now, or None when there are none to
+        watch: whoever compares signatures has to look every time then."""
+        if not self._files:
+            return None
+        signature = []
+        for path in self._files:
+            try:
+                found = os.stat(path)
+                signature.append((found.st_mtime_ns, found.st_size))
+            except FileNotFoundError:  # no WAL: nothing since the last checkpoint
+                signature.append(None)
+        return tuple(signature)
+
+    def last_written(self) -> dict[str, object]:
         """When each repository was last written, by its id
         (`main.repositories_last_modified_at`: the triggers keep it, so a write outside
         the store counts too). One query."""
-        connection = self._application.raw()
+        connection = self._database.cursor()
         try:
             return dict(
                 connection.execute(
@@ -343,49 +373,73 @@ class Cache:
         finally:
             connection.close()
 
-    @property
-    def docs(self) -> DocStore:
-        """The docs: their cache (if there is a directory) and the doc stylesheets,
-        opened by the first use."""
-        if self._docs is None:
-            self._docs = DocStore(
-                self._application,
-                Path(self._graph_dir) / "docs" if self._graph_dir else None,
-            )
-        return self._docs
-
-    def _graph_store(self) -> GraphStore | None:
-        if self._graphs is None and self._graph_dir:
-            self._graphs = GraphStore(self._graph_dir)
-        return self._graphs
-
-    def _signature(self) -> tuple:
-        signature = []
-        for path in self._watch:
-            try:
-                found = os.stat(path)
-                signature.append((found.st_mtime_ns, found.st_size))
-            except FileNotFoundError:  # no WAL: nothing since the last checkpoint
-                signature.append(None)
-        return tuple(signature)
-
     def check(self) -> None:
-        """Start a new generation of the etags of every repository that was written
-        since the last check. Cheap when the files did not change (two `stat`s). It also
-        sees to it that the worker that follows the writes is still running, and starts
-        it again if it is not."""
+        """Forget what the caches held of every repository that was written since the
+        last check. Cheap when the files did not change (two `stat`s). It also sees to
+        it that the worker that follows the writes is still running, and starts it
+        again if it is not."""
         if self.worker is not None:
             self.worker.ensure_running()
-        signature = self._signature() if self._watch else None
-        if self._watch and signature == self._seen:
+        self._refresh()
+
+    def _refresh(self) -> None:
+        """The part of `check` that looks for writes (it leaves the worker alone)."""
+        signature = self.file_signature()
+        if signature is not None and signature == self._seen:
             return
-        rows = self.moments()
-        for repo, moment in rows.items():
-            generation = self._generations.get(repo)
-            if generation is None or generation[0] != moment:
-                self._generations[repo] = (moment, {})
-                self.docs.drop(repo)
-        self._seen = signature
+        # read after the signature: a write in between shows the next time
+        written = self.last_written()
+        for repo, moment in written.items():
+            if self._written.get(repo) != moment:
+                self.invalidate(repo)
+        self._written, self._seen = written, signature
+
+    def written(self) -> dict[str, object]:
+        """When each repository was written, as of now: for whoever follows the writes
+        and keeps what it saw last (the worker)."""
+        self._refresh()
+        return dict(self._written)
+
+    def invalidate(self, repo: str) -> None:
+        """Forget everything that is kept of a repository, and drop its doc
+        stylesheet."""
+        for name in self.KEPT:
+            self._shared(name).pop(repo, None)
+        self.docs.drop(repo)
+
+    def _table(self, repo: str, name: str) -> dict:
+        """What is kept under `name` for a repository. Taken before loading what goes
+        in: a write that comes while it loads forgets the table, and what was loaded
+        goes to the old one, which nobody reads."""
+        return self._shared(name).setdefault(repo, {})
+
+    def _shared(self, name: str) -> dict:
+        """What is kept under `name` for all repositories, by repository."""
+        return self.registry.setdefault(name, {})
+
+    def _kept(self, repo: str, name: str, key, load):
+        """`load()`, kept until the repository is written; what is not there (None) is
+        not kept."""
+        self._refresh()
+        table = self._table(repo, name)
+        if key in table:
+            return table[key]
+        value = load()
+        if value is not None:
+            table[key] = value
+        return value
+
+    def types(self, repo: str, load):
+        """What `load()` says of the types of a repository, kept until the repository
+        is written (not read again by every request)."""
+        return self._kept(repo, "types", None, load)
+
+    def slug(self, repo: str, rec_type: str, slug: str, load):
+        """`load()` (`Store.slug_lookup`: the record of a slug of a type and whether it
+        is deleted), kept until the repository is written. What is not there (None) is
+        not kept, so a slug that is made is found at once, and what is kept can not
+        outgrow the table of slugs."""
+        return self._kept(repo, "slugs", (rec_type, slug), load)
 
     def etags(
         self, repo: str, record_ids
@@ -394,13 +448,11 @@ class Cache:
         made of)`, or None when the record has no etag. One query for all that are not
         cached yet."""
         self.check()
-        _, generation = self._generations.setdefault(
-            repo, (None, {})
-        )  # this one, whatever happens next
+        generation = self._table(repo, "etags")  # this one, whatever happens next
         missing = [i for i in dict.fromkeys(record_ids) if i not in generation]
         if missing:
             listed = ", ".join(str(int(i)) for i in missing)
-            with self._application.open_repository(repo) as store:
+            with new_store(self._database, repo) as store:
                 rows = store.con.execute(
                     "SELECT record_id, etag, deep_types FROM etags WHERE record_id IN "
                     f"({listed})"
@@ -415,34 +467,29 @@ class Cache:
         """Whether there is a doc cache to keep (a graph directory is set)."""
         return bool(self._graph_dir)
 
-    def doc(self, repo: str, record_id: int, record_uri: str) -> dict | None:
+    def doc(self, repository, record_id: int, record_uri: str) -> dict | None:
         """The doc of a record, or None when the record has no etag. Kept, or made from
         the graph and kept (when there is a directory for it). A doc that cannot be made
         is `{"record", "error"}`, and is not kept."""
-        from gracia.resources import Repository
-
+        repo = repository.__name__
         current = self.etags(repo, [record_id])[record_id]
         if current is None:
             return None
-        repository = Repository(repo, self._application)
-        try:
-            if self.keeps_docs:
-                fingerprint = self.docs.compiled(repository).fingerprint
-                if (
-                    kept := self.docs.get(repo, record_id, current[0], fingerprint)
-                ) is not None:
-                    return json.loads(kept)
-            xml = self.graph(repo, record_id)
-            if xml is None:
-                return None
-            return self.docs.bulk_update(
-                repository,
-                {record_uri: record_id},
-                xml.decode(),
-                {record_id: current[0]},
-            )[record_uri]
-        finally:
-            repository.close()
+        if self.keeps_docs:
+            fingerprint = self.docs.compiled(repository).fingerprint
+            if (
+                kept := self.docs.get(repo, record_id, current[0], fingerprint)
+            ) is not None:
+                return json.loads(kept)
+        xml = self.graph(repo, record_id)
+        if xml is None:
+            return None
+        return self.docs.bulk_update(
+            repository,
+            {record_uri: record_id},
+            xml.decode(),
+            {record_id: current[0]},
+        )[record_uri]
 
     def graph(self, repo: str, record_id: int) -> bytes | None:
         """The RDF/XML of a record and everything its page is made of, or None when the
@@ -453,7 +500,7 @@ class Cache:
         graphs = self._graph_store()
         if graphs is not None and (kept := graphs.get(repo, record_id, current[0])):
             return kept
-        with self._application.open_repository(repo) as store:
+        with new_store(self._database, repo) as store:
             made = store.closure_source(record_id)
         if made is None:
             return None
@@ -478,8 +525,7 @@ class Cache:
     def etags_held(self, repo: str) -> int:
         """How many etags of a repository the cache holds in memory now (its current
         generation)."""
-        found = self._generations.get(repo)
-        return len(found[1]) if found else 0
+        return len(self._shared("etags").get(repo, {}))
 
     def graph_stats(self, repo: str) -> dict | None:
         """What the graph cache holds, or None when there is none (no graph directory):

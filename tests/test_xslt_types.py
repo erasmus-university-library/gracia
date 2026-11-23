@@ -40,8 +40,8 @@ class TypeImportsCase(WebCase):
             self.dirs[slug].mkdir()
         (self.dirs["person"] / "view.xsl").write_text(PERSON)
         (self.dirs["work"] / "view.xsl").write_text(WORK)
-        self.application.create_repository("library")
-        self.add_types("library", self.dirs)
+        self.application.create_repository("test_repo")
+        self.add_types("test_repo", self.dirs)
 
     def add_types(self, repo, dirs):
         records = "".join(
@@ -63,10 +63,10 @@ class TypeImportsCase(WebCase):
             f' gracia:resource [ a gracia:Repository ; gracia:title "{repo}" ;'
             f" gracia:types ( {listing} ) ] .\n" + records
         )
-        with self.application.open_repository(repo) as store:
+        with self.application.new_store(repo) as store:
             store.put(ox.Dataset(ox.parse(text.encode(), format=ox.RdfFormat.TURTLE)))
 
-    def repository(self, repo="library"):
+    def repository(self, repo="test_repo"):
         node = self.application[repo]
         self.addCleanup(node.close)
         return node
@@ -146,7 +146,7 @@ class ImportTest(TypeImportsCase):
         self.assertEqual(
             self.run_work(self.repository("archive")), "work by archive person"
         )
-        self.assertEqual(self.run_work(self.repository("library")), "work by person")
+        self.assertEqual(self.run_work(self.repository("test_repo")), "work by person")
 
     def test_an_unknown_type_or_file_is_a_clear_error(self):
         for href, message in (
@@ -161,8 +161,8 @@ class ImportTest(TypeImportsCase):
             self.assertIn(message, str(caught.exception), href)
 
     def test_a_type_without_assets_cannot_be_imported(self):
-        self.add_types("library", {"person": self.dirs["person"]})
-        with self.application.open_repository("library") as store:
+        self.add_types("test_repo", {"person": self.dirs["person"]})
+        with self.application.new_store("test_repo") as store:
             data = store.get("rec:type:10")
             for quad in [q for q in data if q.predicate.value.endswith("/assets")]:
                 data.discard(quad)
@@ -184,8 +184,8 @@ class OverrideImportTest(TypeImportsCase):
         sys.path.insert(0, str(self.root))
         self.addCleanup(sys.path.remove, str(self.root))
         self.addCleanup(sys.modules.pop, "typefiles", None)
-        self.add_types("library", {"person": "", "work": self.dirs["work"]})
-        with self.application.open_repository("library") as store:
+        self.add_types("test_repo", {"person": "", "work": self.dirs["work"]})
+        with self.application.new_store("test_repo") as store:
             data = store.get("rec:type:10")
             for quad in [q for q in data if q.predicate.value.endswith("/assets")]:
                 data.discard(quad)

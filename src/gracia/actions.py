@@ -36,7 +36,10 @@ class RecordsChanged:
     """The event of a batch (subscribe with `config.add_subscriber(handler,
     RecordsChanged)`).
 
-    `application` and `repo` say where; `changes` is the list of `Change`; `graphs` has,
+    `repository` says where: the node of the worker for this batch, with its store and
+    what it has read. It is the handler's while the handler runs, and the worker closes
+    it after (`application` and `repo` are its parent and its name). `changes` is the
+    list of `Change`; `graphs` has,
     for every record of the changes that is there, an `ox.Dataset` of it and of
     everything it is made of, by record uri (a delete has none). The datasets are the
     handler's to use, they are not kept. `docs` has the doc of each of those records
@@ -45,17 +48,23 @@ class RecordsChanged:
 
     def __init__(
         self,
-        application,
-        repo: str,
+        repository,
         changes: list[Change],
         graphs: dict[str, ox.Dataset],
         docs: dict[str, dict] | None = None,
     ):
-        self.application = application
-        self.repo = repo
+        self.repository = repository
         self.changes = changes
         self.graphs = graphs
         self.docs = docs or {}
+
+    @property
+    def application(self):
+        return self.repository.__parent__
+
+    @property
+    def repo(self) -> str:
+        return self.repository.__name__
 
 
 def _notify(registry, event: RecordsChanged) -> None:
@@ -150,40 +159,35 @@ def deliver(application, registry, repo: str, entries) -> list[Change]:
         cache.keep(repo, made)  # one write for the batch
     if gone and cache.keeps_graphs:
         cache.forget(repo, gone)
-    docs = (
-        _make_docs(
-            application,
-            registry,
-            repo,
-            changes,
-            graphs,
-            {i: etag for i, _, _, etag, _ in entries},
+    manager.push(
+        {"registry": registry, "request": None}
+    )  # the files of the types are assets of the registry
+    repository = application[repo]
+    try:
+        docs = (
+            _make_docs(
+                repository, changes, graphs, {i: etag for i, _, _, etag, _ in entries}
+            )
+            if graphs
+            else {}
         )
-        if graphs
-        else {}
-    )
-    _notify(registry, RecordsChanged(application, repo, changes, graphs, docs))
+        _notify(registry, RecordsChanged(repository, changes, graphs, docs))
+    finally:
+        repository.close()
+        manager.pop()
     return changes
 
 
-def _make_docs(
-    application, registry, repo: str, changes, graphs, etags
-) -> dict[str, dict]:
+def _make_docs(repository, changes, graphs, etags) -> dict[str, dict]:
     """The docs of the records of a batch (one run of the doc stylesheet over their
     graphs) and the ones that could be made, in the doc cache. A cache is what a
     stylesheet that does not work must not stop: it is logged, and the batch goes on
     without docs (`Cache.doc` makes one when it is asked for)."""
-    from gracia.resources import Repository
-
-    cache = application.cache
+    cache = repository.__parent__.cache
     if not cache.keeps_docs:
         return {}
     ids = {c.record: c.record_id for c in changes if c.record in graphs}
     merged = ox.Dataset(quad for record in ids for quad in graphs[record])
-    manager.push(
-        {"registry": registry, "request": None}
-    )  # the files of the types are assets of the registry
-    repository = Repository(repo, application)
     try:
         made = cache.docs.bulk_update(
             repository,
@@ -192,11 +196,12 @@ def _make_docs(
             etags,
         )
     except Exception:
-        log.exception("%s: the docs of %d records could not be made", repo, len(ids))
+        log.exception(
+            "%s: the docs of %d records could not be made",
+            repository.__name__,
+            len(ids),
+        )
         return {}
-    finally:
-        repository.close()
-        manager.pop()
     return {record: doc for record, doc in made.items() if "error" not in doc}
 
 
@@ -211,7 +216,7 @@ def process_batch(
     `limit` rows, and records until the sources of what they are made of are `max_bytes`
     (None: no limit). Returns the changes that were handled: none when the queue is
     empty."""
-    with application.open_repository(repo) as store:
+    with application.new_store(repo) as store:
         # a write outside the store has not made its etags: they are what is read
         store.catch_up_etags()
         taken, bound = store.take_actions(limit, max_bytes)
@@ -268,10 +273,7 @@ class Worker:
         self._start_lock = threading.Lock()
         self._stopped = False
         self._wake = threading.Event()
-        self._seen = (
-            None  # the signature of the files when the repositories were last looked at
-        )
-        self._moments: dict[str, object] = {}  # when each was written, then
+        self._written: dict[str, object] = {}  # when each was written, then
         self._first = True
         self._line: deque[str] = (
             deque()
@@ -357,22 +359,12 @@ class Worker:
     def _notice(self) -> None:
         """Let the repositories that were written join the line (all of them the first
         time)."""
-        signature = self.application.cache.signature()
-        if not self._first and signature is not None and signature == self._seen:
-            return
-        moments = (
-            self.application.cache.moments()
-        )  # read after the signature: a write in between shows next time
+        written = self.application.cache.written()
+        changed = [r for r, t in written.items() if self._written.get(r) != t]
+        self._written = written
         if self._first:
             changed = self.application.list_repositories()
             self._first = False
-        else:
-            changed = [
-                repo
-                for repo, moment in moments.items()
-                if self._moments.get(repo) != moment
-            ]
-        self._moments, self._seen = moments, signature
         for repo in changed:
             if repo not in self._line:
                 self._line.append(repo)

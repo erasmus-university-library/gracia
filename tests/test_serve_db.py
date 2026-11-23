@@ -8,7 +8,7 @@ import unittest
 import duckdb
 from base import DbTestCase
 
-from gracia import store
+from gracia import database
 
 
 def quack_available() -> bool:
@@ -22,36 +22,36 @@ def quack_available() -> bool:
 class TokenFileTest(DbTestCase):
     def test_a_new_token_file_is_created_with_mode_0600(self):
         path = self.tmp / "t.token"
-        token = store.read_or_create_token(path)
+        token = database.read_or_create_token(path)
         self.assertGreaterEqual(len(token), 16)
         self.assertEqual(path.stat().st_mode & 0o777, 0o600)
 
     def test_an_existing_token_is_reused(self):
         path = self.tmp / "t.token"
-        first = store.read_or_create_token(path)
-        self.assertEqual(store.read_or_create_token(path), first)
+        first = database.read_or_create_token(path)
+        self.assertEqual(database.read_or_create_token(path), first)
 
     def test_a_token_file_others_can_read_is_refused(self):
         path = self.tmp / "t.token"
         path.write_text("x" * 32 + "\n")
         path.chmod(0o644)
         with self.assertRaisesRegex(ValueError, "readable by group or others"):
-            store.read_or_create_token(path)
+            database.read_or_create_token(path)
 
     def test_a_short_token_is_refused(self):
         path = self.tmp / "t.token"
         path.write_text("short\n")
         path.chmod(0o600)
         with self.assertRaisesRegex(ValueError, "too short"):
-            store.read_or_create_token(path)
+            database.read_or_create_token(path)
 
 
 class ServeRefusalsTest(DbTestCase):
     def test_only_local_addresses_and_real_files_are_served(self):
         with self.assertRaisesRegex(ValueError, "in-memory"):
-            store.serve_db(":memory:", token_file=self.tmp / "t")
+            database.serve_db(":memory:", token_file=self.tmp / "t")
         with self.assertRaisesRegex(ValueError, "only"):
-            store.serve_db(self.db, host="0.0.0.0", token_file=self.tmp / "t")
+            database.serve_db(self.db, host="0.0.0.0", token_file=self.tmp / "t")
         self.assertFalse(self.db.exists())  # nothing was opened or created
 
 

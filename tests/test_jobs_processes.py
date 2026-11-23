@@ -503,7 +503,7 @@ class CleanTest(ProcessCase):
 class CommandsTest(ProcessCase):
     def test_validate_makes_a_job_and_runs_it(self):
         code, out, err = self.cli(
-            "jobs", "validate", "--repo", "library", "--type", "person",
+            "jobs", "validate", "--repo", "test_repo", "--type", "person",
             "--schema", "Person-strict-01.ttl", "--batch-size", "5",
         )  # fmt: skip
         self.assertEqual(code, 0, err)
@@ -524,7 +524,7 @@ class CommandsTest(ProcessCase):
 
     def test_no_start_only_makes_the_job_and_start_runs_it(self):
         code, out, _ = self.cli(
-            "jobs", "validate", "--repo", "library", "--type", "person", "--no-start"
+            "jobs", "validate", "--repo", "test_repo", "--type", "person", "--no-start"
         )
         job_id = out.strip().splitlines()[0]
         self.assertEqual(self.job(job_id)["state"], "queued")
@@ -539,7 +539,7 @@ class CommandsTest(ProcessCase):
     def test_a_job_that_is_not_valid_is_refused_with_every_reason(self):
         spec = self.tmp / "bad.json"
         spec.write_text(
-            '{"repo": "library", "stages": [{"stage": "Nope"},'
+            '{"repo": "test_repo", "stages": [{"stage": "Nope"},'
             ' {"stage": "Keep", "params": {"x": 1}}]}'
         )
         code, out, err = self.cli("jobs", "create", str(spec))
@@ -561,7 +561,7 @@ class CommandsTest(ProcessCase):
     def test_create_takes_a_job_from_stdin(self):
         with mock.patch(
             "sys.stdin",
-            io.StringIO('{"repo": "library", "stages": [{"stage": "Echo"}]}'),
+            io.StringIO('{"repo": "test_repo", "stages": [{"stage": "Echo"}]}'),
         ):
             code, out, err = self.cli("jobs", "create", "-", "--no-start")
         self.assertEqual(code, 0, err)
@@ -584,7 +584,7 @@ class CommandsTest(ProcessCase):
         self.assertIn(other, out)
         import json
 
-        rows = json.loads(self.cli("jobs", "list", "--json", "--repo", "library")[1])
+        rows = json.loads(self.cli("jobs", "list", "--json", "--repo", "test_repo")[1])
         done = next(r for r in rows if r["id"] == job_id)
         self.assertEqual(done["progress"]["stages"][0]["processed"], 4)
         self.assertIsNotNone(done["expires_at"])  # finished plus the retention

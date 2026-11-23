@@ -40,15 +40,15 @@ class LastModifiedTest(unittest.TestCase):
 
 class HistoryCase(SourceCase):
     def versions(self, uri="rec:person:1"):
-        with self.application.open_repository("library") as store:
+        with self.application.new_store("test_repo") as store:
             return store.revisions(uri)
 
     def rename(self, name: str) -> None:
-        form = self.get("/library/person/1/edit").forms[0]
+        form = self.get("/test_repo/person/1/edit").forms[0]
         form["name"] = name
         self.assertEqual(form.submit("save", headers=self.admin).status_int, 302)
 
-    def version(self, txn: int, uri="/library/person/1/history") -> dict:
+    def version(self, txn: int, uri="/test_repo/person/1/history") -> dict:
         got = self.get(
             f"{uri}?txn={txn}", headers={**self.admin, "Accept": "application/json"}
         )
@@ -57,7 +57,7 @@ class HistoryCase(SourceCase):
 
 class EditPageTest(HistoryCase):
     def test_it_says_when_the_record_was_last_changed_above_the_buttons(self):
-        page = self.get("/library/person/1/edit").text
+        page = self.get("/test_repo/person/1/edit").text
         self.assertRegex(
             page,
             r'<div class="text-end text-muted small mb-1">Last modified (just now|\d+ '
@@ -68,23 +68,23 @@ class EditPageTest(HistoryCase):
         self.assertRegex(
             page,
             r'<a class="btn btn-outline-secondary btn-sm" '
-            r'href="http://localhost/library/person/1/history">History</a>',
+            r'href="http://localhost/test_repo/person/1/history">History</a>',
         )
 
     def test_the_source_page_has_them_too_and_a_new_record_and_a_user_have_no_history(
         self,
     ):
-        source = self.get("/library/person/1/edit?source=turtle").text
+        source = self.get("/test_repo/person/1/edit?source=turtle").text
         self.assertIn(">History</a>", source)
         self.assertIn(">Form Edit</a>", source)
-        add = self.get("/library/person/add").text
+        add = self.get("/test_repo/person/add").text
         self.assertNotIn(">History</a>", add)
         self.assertNotIn("Last modified", add)
-        user = self.get("/library/user/1/edit").text
+        user = self.get("/test_repo/user/1/edit").text
         self.assertNotIn(
             ">History</a>", user
         )  # its history has the hash of the password
-        self.assertEqual(self.status("/library/user/1/history", self.admin), 404)
+        self.assertEqual(self.status("/test_repo/user/1/history", self.admin), 404)
 
 
 class HistoryPageTest(HistoryCase):
@@ -94,7 +94,7 @@ class HistoryPageTest(HistoryCase):
         self.rename("Ada King")
         self.rename("Ada Countess")
         self.assertEqual(len(self.versions()), 3)
-        page = self.get("/library/person/1/history").text
+        page = self.get("/test_repo/person/1/history").text
         numbers = [int(n) for n in re.findall(r'id="revision-(\d+)"', page)]
         self.assertEqual(numbers, sorted(numbers, reverse=True))
         self.assertEqual(len(numbers), 3)
@@ -109,7 +109,7 @@ class HistoryPageTest(HistoryCase):
         self.assertNotIn("current", older)
         self.assertIn(">Restore</button>", older)
         self.assertIn(
-            f'data-history-view="http://localhost/library/person/ada-king/history?txn={numbers[1]}"',
+            f'data-history-view="http://localhost/test_repo/person/ada-king/history?txn={numbers[1]}"',
             older,
         )
         self.assertRegex(older, r'data-confirm="Restore version \d+\?')  # it asks first
@@ -134,23 +134,23 @@ class HistoryPageTest(HistoryCase):
             any(line.startswith("+") and '"Ada King"' in line for line in lines), lines
         )
         self.assertEqual(
-            self.status("/library/person/1/history?txn=99999", self.admin), 404
+            self.status("/test_repo/person/1/history?txn=99999", self.admin), 404
         )
         self.assertEqual(
-            self.status("/library/person/1/history?txn=x", self.admin), 400
+            self.status("/test_repo/person/1/history?txn=x", self.admin), 400
         )
 
     def test_who_may_see_it(self):
         self.assertEqual(
-            self.status("/library/person/1/history"), 401
+            self.status("/test_repo/person/1/history"), 401
         )  # anonymous: log in
-        self.assertEqual(self.status("/library/person/1/history", self.editor), 200)
+        self.assertEqual(self.status("/test_repo/person/1/history", self.editor), 200)
 
 
 class RestoreTest(HistoryCase):
     def restore(self, txn, headers=None, **kw):
         return self.client().post(
-            "/library/person/1/restore",
+            "/test_repo/person/1/restore",
             {"txn": str(txn)},
             headers=headers or {**self.admin, **ORIGIN},
             **kw,
@@ -165,7 +165,7 @@ class RestoreTest(HistoryCase):
         self.assertIn((FOAF + "name", "Ada King"), self.values("rec:person:1"))
         web = self.client()  # one client, so that the cookie of the flash comes back
         got = web.post(
-            "/library/person/1/restore",
+            "/test_repo/person/1/restore",
             {"txn": str(first)},
             headers={**self.admin, **ORIGIN},
         )
@@ -204,7 +204,7 @@ class RestoreTest(HistoryCase):
         self,
     ):
         self.assertEqual(self.restore(99999, expect_errors=True).status_int, 404)
-        with self.application.open_repository("library") as store:
+        with self.application.new_store("test_repo") as store:
             store.delete(["rec:person:1"])
         tombstone = self.versions()[0]
         self.assertTrue(tombstone[2])

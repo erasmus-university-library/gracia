@@ -1,21 +1,12 @@
-import threading
-from pathlib import Path
 from typing import ClassVar
 
-import duckdb
 from pyramid.authorization import ALL_PERMISSIONS, Allow, Everyone
 
-from gracia import config, init, uri
+from gracia import init, uri
 from gracia.cache import Cache
+from gracia.database import Database
 from gracia.resources import Repository
-from gracia.store import (
-    DEFAULT_REPOSITORY,
-    NoSuchRepository,
-    RemoteConnection,
-    Store,
-    literal,
-    validate_repository_id,
-)
+from gracia.store import DEFAULT_REPOSITORY, Store, new_store, validate_repository_id
 from gracia.utils.validate import validate_ark, validate_password, validate_userid
 
 # what editors may do with records; managers may do that too
@@ -39,111 +30,49 @@ class Application:
         (Allow, Everyone, "view"),
     ]
 
-    def __init__(
-        self,
-        path: str | Path = ":memory:",
-        *,
-        token: str | None = None,
-        token_file: str | Path | None = None,
-        watch: str | Path | None = None,
-        cache_dir: str | Path | None = None,
-    ):
-        """`path` is a database file, or `quack:host:port` to use the database that a
-        running `gracia serve-db` owns (then `token` or `token_file` is required).
+    def __init__(self, db, registry):
+        """The root of the tree for one request: `db` is the cursor of the request (the
+        stores of its repository are scoped to a schema on it; None: a store opens a
+        cursor of its own, which is what a command, a job or a test has), `registry` the
+        registry of the application, where what lives across requests is (`database`,
+        `cache`, `indexes`: `gracia.main.init` puts them there)."""
+        self.db = db
+        self.registry = registry
 
-        `cache` (see `gracia.cache`) watches the database file for writes: `path`
-        itself, or, over Quack, `watch`, the file the owner opened (when it is on this
-        machine; else the table is read at every check). `cache_dir` is where it keeps
-        the graphs of the records (none: they are made again every time)."""
-        self.remote = config.is_remote(path)
-        self._catalog = None  # the attached catalog, when remote
-        if self.remote:
-            self._attach(str(path), token, token_file)
-            self._con = None
-        else:
-            self._con = duckdb.connect(str(path))
-        self._lock = threading.Lock()  # cursor creation on the shared connection
-        if watch is None and not self.remote and str(path) != ":memory:":
-            watch = path
-        self.cache = Cache(self, watch=watch, graph_dir=cache_dir)
-        # the search indexes (`gracia.search.Indexes`): set when `gracia.index_dir` is
-        self.indexes = None
+    @property
+    def database(self) -> Database:
+        return self.registry["database"]
 
-    def _attach(self, target: str, token: str | None, token_file) -> None:
-        """Remember how to reach the owner and check that it can be reached. Each
-        `Store` gets its own attachment (see `store.RemoteConnection`), made by
-        `_connect`."""
-        config.parse_target(target)  # a clear error for a malformed target
-        if token is None:
-            token = config.read_token({"gracia.db.token_file": str(token_file or "")})
-        self._target, self._token, self._catalog = target, token, "gracia_db"
-        self._connect().close()
+    @property
+    def cache(self) -> Cache:
+        return self.registry["cache"]
 
-    def _connect(self) -> duckdb.DuckDBPyConnection:
-        """A new local connection attached to the owner (its own session there)."""
-        con = duckdb.connect()
-        try:
-            con.execute("INSTALL quack; LOAD quack")
-            attach = (
-                f"ATTACH {literal(self._target)} AS {self._catalog} "
-                f"(TOKEN {literal(self._token)})"
-            )
-            con.execute(attach)
-            con.execute(f"USE {self._catalog}")
-        except duckdb.Error as err:
-            con.close()
-            raise ValueError(
-                f"cannot reach the database owner at {self._target}: {err}"
-            ) from err
-        return con
+    @property
+    def indexes(self):
+        return self.registry["indexes"]
 
-    def close(self) -> None:
-        self.cache.close()
-        if self._con is not None:
-            self._con.close()
+    @indexes.setter
+    def indexes(self, indexes) -> None:
+        self.registry["indexes"] = indexes
+
+    @property
+    def remote(self) -> bool:
+        return self.database.remote
 
     def __getitem__(self, repo_id: str) -> Repository:
-        if self.has_repository(repo_id):
-            return Repository(repo_id, self)
-        raise KeyError(repo_id)
-
-    def __enter__(self) -> "Application":
-        return self
-
-    def __exit__(self, *exc) -> None:
-        self.close()
-
-    def _cursor(self):
-        if self.remote:  # a connection of its own: one session on the owner per store
-            return self._connect()
-        with self._lock:
-            return self._con.cursor()  # ty: ignore[missing-union-attribute]
-
-    def raw(self):
-        """A connection for plain SQL outside any repository (the jobs tables): a cursor
-        on the file, or, over Quack, a connection whose statements run on the owner.
-        `execute(sql, params)` takes `?` placeholders in both cases. The caller closes
-        it."""
-        cursor = self._cursor()
-        if self.remote:
-            return RemoteConnection(cursor, self._catalog, self._connect)  # ty: ignore[invalid-argument-type]
-        return cursor
+        """The node of a repository: a new one for whoever asks, as it holds the store
+        and what was read for one request. The database is asked only for an id not seen
+        before."""
+        if not self.database.knows(repo_id):
+            raise KeyError(repo_id)
+        return Repository(self.registry, repo_id, self)
 
     def list_repositories(self) -> list[str]:
         """The ids of all repositories: the schemas that hold the gracia tables."""
-        cursor = self._cursor()
-        try:
-            rows = cursor.execute(
-                "SELECT DISTINCT schema_name FROM duckdb_tables() "
-                "WHERE database_name = current_database() AND table_name = 'triples' "
-                "ORDER BY schema_name"
-            ).fetchall()
-        finally:
-            cursor.close()
-        return [r[0] for r in rows]
+        return self.database.list_repositories()
 
     def has_repository(self, repo_id: str) -> bool:
-        return repo_id in self.list_repositories()
+        return self.database.has_repository(repo_id)
 
     def create_repository(
         self,
@@ -172,11 +101,7 @@ class Application:
         )  # check first
         existed = self.has_repository(repo_id)
         with Store(
-            connection=self._cursor(),
-            repo=repo_id,
-            create=True,
-            close_connection=True,
-            remote=self._connect if self.remote else None,
+            self.database.cursor(), repo=repo_id, create=True, close_connection=True
         ) as store:
             if not existed:
                 store.put(
@@ -184,32 +109,17 @@ class Application:
                         repo_id, store.mint_id, admin, content_types, ark
                     )
                 )
-                node = Repository(
-                    repo_id, self
-                )  # what the shapes of its types say (the key info
-                try:  # of the users, say) is in the database from the start
-                    node.sync_roles(store)
-                finally:
-                    node.close()
+                # what the shapes of its types say (the key info of the users, say) is
+                # in the database from the start
+                # (the store has the schema, in a transaction that is not seen yet)
+                self.database.known.add(repo_id)
+                node = self[repo_id]
+                node.use_store(store)
+                node.sync_roles()
+        self.database.known.add(repo_id)
         return not existed
 
-    def open_repository(self, repo_id: str) -> Store:
+    def new_store(self, repo_id: str) -> Store:
         """A Store for an existing repository, on its own cursor. Raises
         NoSuchRepository. The caller closes it."""
-        try:
-            if repo_id != DEFAULT_REPOSITORY:
-                validate_repository_id(repo_id)
-        except ValueError as err:
-            raise NoSuchRepository(repo_id) from err
-        cursor = self._cursor()
-        try:
-            return Store(
-                connection=cursor,
-                repo=repo_id,
-                init=False,
-                close_connection=True,
-                remote=self._connect if self.remote else None,
-            )
-        except BaseException:
-            cursor.close()
-            raise
+        return new_store(self.database, repo_id)

@@ -123,7 +123,7 @@ class RecordView(View):
             except deform.ValidationFailure as failure:
                 rendered = failure.render()
             else:
-                errors = record.check(data, self.store)
+                errors = record.check(data)
                 if not errors:
                     try:
                         self.commit_form(data)
@@ -156,7 +156,7 @@ class RecordView(View):
         if self.new:
             self.record.begin(self.store.mint_id(self.res_type.slug))
         self.record.apply(data)
-        self.record.save(self.store)
+        self.record.save()
 
     # ---- the source
     # ----------------------------------------------------------------------
@@ -239,4 +239,4 @@ class RecordView(View):
             record.graph = graph.remap(self.subject(), record.uri)
         else:
             record.graph = self.record.with_hidden_kept(graph).copy()
-        record.save(self.store)
+        record.save()

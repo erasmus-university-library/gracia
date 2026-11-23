@@ -124,7 +124,7 @@ class HistoryView(View):
             ox.Dataset(ox.parse(source.encode("utf-8"), format=ox.RdfFormat.N_TRIPLES))
         )
         try:
-            record.save(store)  # a new version, made by the same path as every save
+            record.save()  # a new version, made by the same path as every save
         except DuplicateValue as err:  # a value that was free then and is taken now
             flash(self.request, f"It cannot be restored: {err}", "danger")
             return HTTPFound(self.request.resource_url(record, "history"))

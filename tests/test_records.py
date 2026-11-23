@@ -1,9 +1,10 @@
 import pyoxigraph as ox
 from base import DbTestCase
+from harness import open_store
 
 from gracia import uri
 from gracia.graph import Graph
-from gracia.store import DuplicateValue, Store, fetch_one
+from gracia.store import DuplicateValue, fetch_one
 
 G = "https://gracia.pub/ns/"
 PERSON = f"""@prefix g: <{G}> . @prefix d: <http://purl.org/dc/terms/> .
@@ -23,7 +24,7 @@ def graph(text: str) -> Graph:
 class RecordsTest(DbTestCase):
     def setUp(self):
         super().setUp()
-        self.store = Store(self.db)
+        self.store = open_store(self.db)
         self.addCleanup(self.store.close)
         self.store.set_property_roles(
             [
@@ -39,7 +40,7 @@ class RecordsTest(DbTestCase):
         found = con.execute(
             "SELECT * FROM records WHERE record_id = record_id(?)", [uri]
         ).fetchone()
-        names = [d[0] for d in con.description]  # ty: ignore[missing-union-attribute]
+        names = [d[0] for d in con.description]
         return dict(zip(names, found, strict=False)) if found else {}
 
     def test_a_subject_that_is_not_a_record_is_refused(self):
@@ -454,7 +455,7 @@ class RecordsTest(DbTestCase):
 
 class EncodeNtriplesUriTest(DbTestCase):
     def test_the_macro_encodes_what_an_iri_may_not_hold_and_leaves_percent_alone(self):
-        s = Store(self.db)
+        s = open_store(self.db)
         self.addCleanup(s.close)
         got = fetch_one(
             s.con.execute(
@@ -465,7 +466,7 @@ class EncodeNtriplesUriTest(DbTestCase):
         self.assertEqual(got, "<http://e/a%20b%3Cc%3E%22d%7Be%7D%7Cf%5Cg%5Eh%20i>")
 
     def test_the_source_and_the_history_hold_the_same_text(self):
-        s = Store(self.db)
+        s = open_store(self.db)
         self.addCleanup(s.close)
         s.put(graph("<rec:person:1> <http://ex/p> <http://ex/a%20b?x=1&y=2> ."))
         (source,) = fetch_one(s.con.execute("SELECT source FROM records"))

@@ -2,10 +2,7 @@ import contextlib
 import os
 import random
 import re
-import secrets
 import shutil
-import stat
-import threading
 import time
 import uuid
 from collections import Counter
@@ -18,6 +15,7 @@ import duckdb
 import pyoxigraph as ox
 
 from gracia import uri
+from gracia.database import RemoteConnection, literal
 from gracia.graph import Graph
 
 _SQL = files("gracia") / "assets" / "sql"
@@ -49,11 +47,6 @@ _RECORD_EVENTS = {
     "delete": ("OLD TABLE AS changed", "SELECT s FROM changed"),
 }
 _RECORD_STEPS = 23  # triggers per event, they fire in the order of their names
-
-
-def literal(value: str) -> str:
-    """SQL string literal."""
-    return "'" + value.replace("'", "''") + "'"
 
 
 _TYPE_NUMBER = re.compile(r"\(n_ = (\d+)\)\) THEN \('((?:[^']|'')*)'\)")
@@ -119,80 +112,6 @@ def sql_ids(uris: list[str]) -> str:
         f"(SELECT unnest({sql_list(sorted(set(uris)))}) AS u) "
         "WHERE starts_with(u, 'rec:'))"
     )
-
-
-def sql_value(value) -> str:
-    """A Python value as a SQL literal: None, booleans, numbers, text, and anything else
-    as the text of the value (dates and times, uuids), which DuckDB casts where a column
-    wants them."""
-    if value is None:
-        return "NULL"
-    if isinstance(value, bool):
-        return "TRUE" if value else "FALSE"
-    if isinstance(value, int | float):
-        return repr(value)
-    if hasattr(value, "isoformat"):
-        return literal(value.isoformat())
-    return literal(str(value))
-
-
-def bind(sql: str, params) -> str:
-    """Replace the `?` placeholders in `sql` by SQL literals (a remote call takes no
-    parameters). There must be no other `?` in the statement."""
-    parts = sql.split("?")
-    if len(parts) != len(params) + 1:
-        raise ValueError("the number of parameters does not match the placeholders")
-    out = [parts[0]]
-    for value, part in zip(params, parts[1:], strict=True):
-        out.append(sql_value(value) + part)
-    return "".join(out)
-
-
-class RemoteConnection:
-    """A connection to a database that another process owns (Quack), for `Store` and
-    `JobsDb`.
-
-    Attached to a local DuckDB, the remote catalog does not behave like a local one: the
-    current schema is not applied to unqualified names, statements that read and write
-    it together are planned locally with the wrong defaults, and several streaming scans
-    in one query are refused. So every statement is sent to the owner and runs in its
-    session with `quack_query_by_name` (where `USE`, transactions and macros behave as
-    in a plain DuckDB). That call takes no parameters, so the `?` of a statement are
-    replaced by literals (`bind`). The local connection is kept (`.local`) for what only
-    works there: appenders and the temp tables that feed them.
-
-    `connect()` makes a new local connection with its own attachment. Every `Store`
-    needs one: all cursors of one attachment share a single session on the owner, so two
-    stores would overwrite each other's current schema and interrupt each other's
-    queries."""
-
-    def __init__(self, local, catalog: str, connect):
-        self.local = local  # the attached catalog's alias is `catalog`
-        self.catalog = catalog
-        self.connect = connect
-
-    def execute(self, sql: str, params=None):
-        if params:
-            sql = bind(sql, params)
-        return self.local.execute(
-            f"SELECT * FROM quack_query_by_name({literal(self.catalog)}, "
-            f"{literal(sql)})"
-        )
-
-    def begin(self) -> None:
-        self.execute("BEGIN TRANSACTION")
-
-    def commit(self) -> None:
-        self.execute("COMMIT")
-
-    def rollback(self) -> None:
-        self.execute("ROLLBACK")
-
-    def cursor(self) -> "RemoteConnection":
-        return RemoteConnection(self.connect(), self.catalog, self.connect)
-
-    def close(self) -> None:
-        self.local.close()
 
 
 def uri_list(
@@ -351,23 +270,23 @@ class Store:
     """One repository of a gracia database: a `triples` table and the prefixes, all
     inside one DuckDB schema named like the repository (tables configurable).
 
-    `Store(path)` opens the file and works in the default repository `main` (created on
-    first use). `repo=` selects another repository, which must exist (`create=True`
-    makes it). `connection=` uses a connection of a database that is already open: with
-    `init=False` the schema, tables and macros are not run again (a new `Store` per web
-    request stays cheap)."""
+    `Store(connection)` works on a connection of a database (`Database.cursor()`, or a
+    DuckDB connection) in the default repository `main` (created on first use). `repo=`
+    selects another repository, which must exist (`create=True` makes it). With
+    `init=False` the schema, tables and macros are not run again (a store per web
+    request stays cheap). The store closes the connection when it is closed only with
+    `close_connection=True`: it does not open connections, whoever gave it one closes
+    it, and a `RemoteConnection` makes it a store of a database that an owner has."""
 
     def __init__(
         self,
-        path: str | Path | None = "gracia.db",
+        connection,
         triples: str = "triples",
         repo: str = DEFAULT_REPOSITORY,
         *,
-        connection=None,
         create: bool = False,
         init: bool = True,
-        close_connection: bool | None = None,
-        remote=None,
+        close_connection: bool = False,
     ):
         # Over Quack the macros run in the owner process and cannot see a temp table of
         # ours: the
@@ -375,10 +294,7 @@ class Store:
         # that is
         # filled by pushing a local temp table with INSERT ... SELECT (appenders do not
         # work there).
-        self._connect_remote = (
-            remote  # a factory of attached connections, or None (local)
-        )
-        self.remote = remote is not None
+        self.remote = isinstance(connection, RemoteConnection)
         self.staging = (
             f"gracia_staging_{uuid.uuid4().hex[:12]}"
             if self.remote
@@ -399,19 +315,15 @@ class Store:
         self.records = "records"
         self._ids_ready = False
         self._type_numbers: dict[str, int] | None = None
-        self._close_connection = (
-            connection is None if close_connection is None else close_connection
-        )
-        self.con = duckdb.connect(str(path)) if connection is None else connection
+        self._close_connection = close_connection
+        self.con = connection
         try:
             # the local view of the database decides the catalog name and whether the
-            # repository
-            # exists; over Quack the rest of the SQL runs on the owner (see
+            # repository exists; over Quack the rest of the SQL runs on the owner (see
             # `RemoteConnection`)
-            self._catalog = fetch_one(self.con.execute("SELECT current_database()"))[0]
-            exists = _repository_exists(self.con, self._catalog, repo)
-            if self.remote:
-                self.con = RemoteConnection(self.con, self._catalog, remote)
+            local = connection.local if self.remote else connection
+            self._catalog = fetch_one(local.execute("SELECT current_database()"))[0]
+            exists = _repository_exists(local, self._catalog, repo)
             if not exists and repo != DEFAULT_REPOSITORY and not create:
                 raise NoSuchRepository(repo)
             if not exists and not init:
@@ -691,12 +603,11 @@ class Store:
         """A new Store on its own cursor, for one thread or one request. It shares the
         database and does no setup. Close it when done."""
         return Store(
-            triples=self.triples,
-            repo=self.repo,
-            connection=self._connect_remote() if self.remote else self.con.cursor(),  # ty: ignore[not-callable]
+            self.con.cursor(),
+            self.triples,
+            self.repo,
             init=False,
             close_connection=True,
-            remote=self._connect_remote,
         )
 
     def close(self) -> None:
@@ -746,10 +657,10 @@ class Store:
         # remote: fill a local temp table, push it afterwards
         target = "gracia_push" if self.remote else self.staging
         if self.remote:
-            self.con.local.execute(  # ty: ignore[missing-union-attribute]
+            self.con.local.execute(
                 f"CREATE OR REPLACE TEMP TABLE {target} ({_STAGING_COLUMNS})"
             )
-        appender = (self.con.local if self.remote else self.con).appender(target)  # ty: ignore[missing-union-attribute]
+        appender = (self.con.local if self.remote else self.con).appender(target)
         batch: list[tuple] = []
         count = 0
         for row in rows:
@@ -763,13 +674,13 @@ class Store:
             count += len(batch)
         appender.flush()
         if self.remote:
-            self.con.local.execute(  # ty: ignore[missing-union-attribute]
+            self.con.local.execute(
                 "CALL quack_clear_cache()"
             )  # the staging table is new
-            self.con.local.execute(  # ty: ignore[missing-union-attribute]
+            self.con.local.execute(
                 f"INSERT INTO {self.staging} SELECT * FROM temp.main.{target}"
             )
-            self.con.local.execute(f"DROP TABLE temp.main.{target}")  # ty: ignore[missing-union-attribute]
+            self.con.local.execute(f"DROP TABLE temp.main.{target}")
         return count
 
     def stage_json(self, json_file: str | Path) -> int:
@@ -1654,7 +1565,7 @@ class Store:
             "SELECT count(*), count(*) FILTER (WHERE is_published) FROM etags WHERE "
             f"{where}"
         ).fetchone()
-        stored = counts[0] > 0  # ty: ignore[not-subscriptable]
+        stored = counts[0] > 0
         if not stored:
             where = f"rec_type = {literal(slug)}"
             counts = self.con.execute(
@@ -1662,7 +1573,7 @@ class Store:
                 f"{self.records} WHERE "
                 f"{where}"
             ).fetchone()
-        total_all, total_published = counts  # ty: ignore[not-iterable]
+        total_all, total_published = counts
         total = total_published if published else total_all
         page, pages, offset, limit = page_window(total, page, size)
         shown = f"{where} AND is_published" if published else where
@@ -2271,7 +2182,7 @@ class Store:
             f"{self.ids} "
             f"WHERE type = {literal(res_type)}), 0), {self._highest_used(res_type)})"
         ).fetchone()
-        return row[0]  # ty: ignore[not-subscriptable]
+        return row[0]
 
     def highest_number(self, res_type: str) -> int:
         """The highest number a record of the type has now (0: none): not one that was
@@ -2370,7 +2281,7 @@ class Store:
             f"SELECT json FROM export_triples({literal(self.triples)}, uris := "
             f"{_uris_arg(uris)})"
         ).fetchone()
-        return row[0]  # ty: ignore[not-subscriptable]
+        return row[0]
 
     def _records_where(
         self,
@@ -2751,91 +2662,22 @@ class Store:
         return counted
 
 
-# The database as its own process: DuckDB lets one process hold a file read-write.
-# `serve_db` is
-# that owner: it opens the file and runs `quack_serve`, so other processes (the admin
-# CLI, web
-# workers) attach over localhost with a token (see RemoteConnection). The token is a
-# master key,
-# kept in an owner-only file (0600), created on first start; only loopback addresses are
-# served.
-
-LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1"})
-DEFAULT_PORT = 9494
-
-
-def owner_file(db: str | Path) -> Path:
-    """`<db>.owner`: written while `serve-db` runs, two lines: its address and its token
-    file. It is a hint for clients, who check it by connecting; a crash can leave it
-    behind."""
-    return Path(f"{db}.owner")
-
-
-def read_owner(db: str | Path) -> tuple[str, str] | None:
-    """(address, token file) from the owner file of `db`, or None when there is none."""
+def new_store(database, repo_id: str, connection=None) -> Store:
+    """A Store for an existing repository of `database` (a `Database`). Raises
+    NoSuchRepository. Without a `connection` it is on a cursor of its own and the caller
+    closes the store; given one (the cursor of a request) the store is scoped to the
+    schema of the repository on it, and leaves it open."""
     try:
-        uri, token_file = owner_file(db).read_text(encoding="utf-8").splitlines()[:2]
-    except (OSError, ValueError):
-        return None
-    return uri, token_file
-
-
-def read_or_create_token(path: Path) -> str:
-    """The token in `path`; a new random one is written there (mode 0600) when the file
-    is missing. A file that group or others can read is refused."""
-    if path.exists():
-        if path.stat().st_mode & (stat.S_IRWXG | stat.S_IRWXO):
-            raise ValueError(
-                f"{path} is readable by group or others: run `chmod 600 {path}`"
-            )
-        token = path.read_text(encoding="utf-8").strip()
-        if len(token) < 16:
-            raise ValueError(
-                f"the token in {path} is too short (at least 16 characters)"
-            )
-        return token
-    token = secrets.token_urlsafe(24)
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as handle:
-        handle.write(token + "\n")
-    return token
-
-
-def serve_db(
-    db: str | Path,
-    host: str = "localhost",
-    port: int = DEFAULT_PORT,
-    token_file: str | Path | None = None,
-    stop: threading.Event | None = None,
-    ready=None,
-) -> None:
-    """Open `db` read-write and serve it over Quack until `stop` is set (or forever).
-
-    `ready(uri, token_file)` is called once the server is listening. On the way out the
-    server is stopped, the database checkpointed and the file closed, so it can be
-    opened again at once."""
-    if str(db) == ":memory:":
-        raise ValueError("an in-memory database cannot be served: give a file")
-    if host not in LOCAL_HOSTS:
-        raise ValueError(
-            f"only {', '.join(sorted(LOCAL_HOSTS))} can be served for now, not {host!r}"
+        if repo_id != DEFAULT_REPOSITORY:
+            validate_repository_id(repo_id)
+    except ValueError as err:
+        raise NoSuchRepository(repo_id) from err
+    cursor = connection if connection is not None else database.cursor()
+    try:
+        return Store(
+            cursor, repo=repo_id, init=False, close_connection=connection is None
         )
-    token_path = Path(token_file) if token_file else Path(f"{db}.token")
-    token = read_or_create_token(token_path)
-    uri = f"quack:{host}:{port}"
-    owner_path = owner_file(db)
-    con = duckdb.connect(str(db))
-    try:
-        con.execute(f"CALL quack_serve({literal(uri)}, token = {literal(token)})")
-        # where this owner listens and which token file it uses, for clients in the same
-        # directory
-        owner_path.write_text(f"{uri}\n{token_path.resolve()}\n", encoding="utf-8")
-        if ready:
-            ready(uri, token_path)
-        (stop or threading.Event()).wait()
-    finally:
-        owner_path.unlink(missing_ok=True)
-        with contextlib.suppress(duckdb.Error):
-            con.execute(f"CALL quack_stop({literal(uri)})")
-        con.execute("CHECKPOINT")
-        con.close()
+    except BaseException:
+        if connection is None:
+            cursor.close()
+        raise

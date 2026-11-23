@@ -3,9 +3,10 @@ import time
 
 import pyoxigraph as ox
 from base import DbTestCase
+from harness import open_store
 
 from gracia.graph import Graph
-from gracia.store import Store, fetch_one
+from gracia.store import fetch_one
 
 
 def thing(number: int, value: str = "x") -> Graph:
@@ -16,7 +17,7 @@ def thing(number: int, value: str = "x") -> Graph:
 class RepositoriesLastModifiedTest(DbTestCase):
     def setUp(self):
         super().setUp()
-        self.store = Store(self.db)
+        self.store = open_store(self.db)
         self.addCleanup(self.store.close)
 
     def rows(self):  # ty: ignore[incompatible-method-override]
@@ -45,7 +46,7 @@ class RepositoriesLastModifiedTest(DbTestCase):
         self.assertGreater(second["main"], first["main"])
 
     def test_each_repository_has_its_own_row(self):
-        other = Store(self.db, repo="other", create=True)
+        other = open_store(self.db, repo="other", create=True)
         self.addCleanup(other.close)
         self.store.put(thing(1))
         other.put(thing(1))
@@ -65,8 +66,8 @@ class RepositoriesLastModifiedTest(DbTestCase):
     def test_repositories_do_not_block_each_other(self):
         # a writer of repository a holds its transaction open while repository b writes
         # and commits
-        a = Store(self.db, repo="a", create=True)
-        b = Store(self.db, repo="b", create=True)
+        a = open_store(self.db, repo="a", create=True)
+        b = open_store(self.db, repo="b", create=True)
         self.addCleanup(a.close)
         self.addCleanup(b.close)
         a.put(thing(9))  # the type is known in a
@@ -99,7 +100,7 @@ class RepositoriesLastModifiedTest(DbTestCase):
         self.assertEqual(sorted(after), ["a", "b"])
 
     def test_concurrent_first_writes_of_many_repositories(self):
-        stores = [Store(self.db, repo=f"r{n}", create=True) for n in range(6)]
+        stores = [open_store(self.db, repo=f"r{n}", create=True) for n in range(6)]
         for s in stores:
             self.addCleanup(s.close)
         errors = []

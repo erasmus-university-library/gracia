@@ -1,6 +1,7 @@
 import re
 import unittest
 
+from harness import open_store
 from support import must_search
 from test_web import HeaderPolicy, WebCase
 
@@ -8,7 +9,7 @@ from gracia import types, uri
 from gracia.main import make_config
 from gracia.predicates import HookContext
 from gracia.predicates.gracia_slug import SlugPredicate
-from gracia.store import Store, fetch_one
+from gracia.store import fetch_one
 
 ADMIN = {"X-User": "admin"}
 POSTING = {**ADMIN, "Origin": "http://localhost:80"}
@@ -23,7 +24,7 @@ class SlugSqlTest(unittest.TestCase):
         slug = "person"
 
     def setUp(self):
-        self.store = Store(":memory:")
+        self.store = open_store(":memory:")
         self.addCleanup(self.store.close)
         self.con = self.store.con
         self.con.execute(
@@ -220,7 +221,7 @@ class SlugCase(WebCase):
         self.config.begin()
         self.addCleanup(self.config.end)
         self.application.create_repository(
-            "library",
+            "test_repo",
             admin=("admin", "correct horse battery"),
             content_types=[types.available()["person"]],
         )
@@ -229,7 +230,7 @@ class SlugCase(WebCase):
         self.raw.follow = False  # ty: ignore[missing-attribute]
 
     def add(self, name: str, **fields) -> int:
-        form = self.web.get("/library/person/add", headers=ADMIN).forms[0]
+        form = self.web.get("/test_repo/person/add", headers=ADMIN).forms[0]
         form["name"] = name
         for key, value in fields.items():
             form[key] = value
@@ -238,11 +239,11 @@ class SlugCase(WebCase):
         name = must_search(r"/person/([^/]+)/", response.headers["Location"])[1]
         if name.isdigit():
             return int(name)
-        with self.application.open_repository("library") as store:
+        with self.application.new_store("test_repo") as store:
             return int(store.slug_lookup("person", name)[0].rsplit(":", 1)[1])  # ty: ignore[not-subscriptable]
 
     def slugs(self, record_uri: str):
-        with self.application.open_repository("library") as store:
+        with self.application.new_store("test_repo") as store:
             return store.current_slug(record_uri), store.slugs_of(record_uri)
 
     def get(self, path, **kw):
@@ -261,39 +262,41 @@ class SlugRecordTest(SlugCase):
         self,
     ):
         number = self.add("John Doe")
-        form = self.web.get(f"/library/person/{number}/edit", headers=ADMIN).forms[0]
+        form = self.web.get(f"/test_repo/person/{number}/edit", headers=ADMIN).forms[0]
         form["name"] = "Johnathan Doe"
         form.submit("save", headers=POSTING)
         self.assertEqual(self.slugs(f"rec:person:{number}"), ("john-doe", ["john-doe"]))
-        self.assertEqual(self.get("/library/person/john-doe").status_int, 200)
-        moved = self.get(f"/library/person/{number}")  # the number goes on to the slug
+        self.assertEqual(self.get("/test_repo/person/john-doe").status_int, 200)
+        moved = self.get(
+            f"/test_repo/person/{number}"
+        )  # the number goes on to the slug
         self.assertEqual(moved.status_int, 301)
         self.assertEqual(
-            moved.headers["Location"], "http://localhost/library/person/john-doe"
+            moved.headers["Location"], "http://localhost/test_repo/person/john-doe"
         )
 
     def test_a_new_slug_is_a_new_address_and_the_old_one_goes_on_to_it(self):
         number = self.add("John Doe")
-        form = self.web.get(f"/library/person/{number}/edit", headers=ADMIN).forms[0]
+        form = self.web.get(f"/test_repo/person/{number}/edit", headers=ADMIN).forms[0]
         form["slug"] = "johnny"
         form.submit("save", headers=POSTING)
         self.assertEqual(
             self.slugs(f"rec:person:{number}"), ("johnny", ["john-doe", "johnny"])
         )
-        old = self.get("/library/person/john-doe")
+        old = self.get("/test_repo/person/john-doe")
         self.assertEqual(old.status_int, 301)
         self.assertEqual(
-            old.headers["Location"], "http://localhost/library/person/johnny"
+            old.headers["Location"], "http://localhost/test_repo/person/johnny"
         )
-        self.assertEqual(self.get("/library/person/johnny").status_int, 200)
+        self.assertEqual(self.get("/test_repo/person/johnny").status_int, 200)
         # the rest of the address and the query go with it
-        deep = self.get("/library/person/john-doe/edit?source=turtle")
+        deep = self.get("/test_repo/person/john-doe/edit?source=turtle")
         self.assertEqual(
             deep.headers["Location"],
-            "http://localhost/library/person/johnny/edit?source=turtle",
+            "http://localhost/test_repo/person/johnny/edit?source=turtle",
         )
         posted = self.raw.post(
-            "/library/person/john-doe/edit", {}, headers=POSTING, expect_errors=True
+            "/test_repo/person/john-doe/edit", {}, headers=POSTING, expect_errors=True
         )
         self.assertEqual(
             posted.status_int, 308
@@ -302,23 +305,23 @@ class SlugRecordTest(SlugCase):
     def test_an_old_slug_can_be_chosen_again(self):
         number = self.add("John Doe")
         for slug in ("johnny", "john-doe"):
-            form = self.web.get(f"/library/person/{number}/edit", headers=ADMIN).forms[
-                0
-            ]
+            form = self.web.get(
+                f"/test_repo/person/{number}/edit", headers=ADMIN
+            ).forms[0]
             form["slug"] = slug
             form.submit("save", headers=POSTING)
         self.assertEqual(
             self.slugs(f"rec:person:{number}"), ("john-doe", ["john-doe", "johnny"])
         )
-        self.assertEqual(self.get("/library/person/johnny").status_int, 301)
-        self.assertEqual(self.get("/library/person/john-doe").status_int, 200)
+        self.assertEqual(self.get("/test_repo/person/johnny").status_int, 301)
+        self.assertEqual(self.get("/test_repo/person/john-doe").status_int, 200)
 
     def test_the_old_slugs_of_a_record_are_the_suggestions_of_the_slug_field(self):
         number = self.add("John Doe")
-        form = self.web.get(f"/library/person/{number}/edit", headers=ADMIN).forms[0]
+        form = self.web.get(f"/test_repo/person/{number}/edit", headers=ADMIN).forms[0]
         form["slug"] = "johnny"
         form.submit("save", headers=POSTING)
-        page = self.web.get(f"/library/person/{number}/edit", headers=ADMIN).text
+        page = self.web.get(f"/test_repo/person/{number}/edit", headers=ADMIN).text
         self.assertRegex(page, r'<input[^>]*name="slug"')
         select = must_search(r'<select[^>]*id="slug-options".*?</select>', page, re.S)[
             0
@@ -331,7 +334,7 @@ class SlugRecordTest(SlugCase):
         self.assertIn(
             "document.getElementById(", select
         )  # choosing one fills the field
-        add = self.web.get("/library/person/add", headers=ADMIN).text
+        add = self.web.get("/test_repo/person/add", headers=ADMIN).text
         self.assertNotIn("slug-options", add)  # a new record has no old ones yet
 
     def test_a_slug_that_is_typed_is_cleaned_and_made_free(self):
@@ -345,31 +348,31 @@ class SlugAddressTest(SlugCase):
         self,
     ):
         number = self.add("John Doe")
-        self.assertEqual(self.get("/library/person/john-doe").status_int, 200)
-        with self.application.open_repository("library") as store:
+        self.assertEqual(self.get("/test_repo/person/john-doe").status_int, 200)
+        with self.application.new_store("test_repo") as store:
             store.delete([f"rec:person:{number}"])
-        self.assertEqual(self.get("/library/person/john-doe").status_int, 410)
-        self.assertEqual(self.get(f"/library/person/{number}").status_int, 410)
+        self.assertEqual(self.get("/test_repo/person/john-doe").status_int, 410)
+        self.assertEqual(self.get(f"/test_repo/person/{number}").status_int, 410)
         self.assertEqual(
-            self.get(f"/library/person/{number + 1}").status_int, 404
+            self.get(f"/test_repo/person/{number + 1}").status_int, 404
         )  # never used
-        self.assertEqual(self.get("/library/person/nobody").status_int, 404)
+        self.assertEqual(self.get("/test_repo/person/nobody").status_int, 404)
 
     def test_the_slugs_of_a_record_that_comes_back_work_again_and_a_slug_is_never_given_twice(  # noqa: E501
         self,
     ):
         number = self.add("John Doe")
-        with self.application.open_repository("library") as store:
+        with self.application.new_store("test_repo") as store:
             store.delete([f"rec:person:{number}"])
         again = self.add("John Doe")  # the slug of the deleted one is not free
         self.assertEqual(self.slugs(f"rec:person:{again}")[0], "john-doe-2")
-        self.assertEqual(self.get("/library/person/john-doe").status_int, 410)
-        self.assertEqual(self.get("/library/person/john-doe-2").status_int, 200)
+        self.assertEqual(self.get("/test_repo/person/john-doe").status_int, 410)
+        self.assertEqual(self.get("/test_repo/person/john-doe-2").status_int, 200)
 
     def test_a_record_without_a_slug_is_at_its_number_and_the_names_of_the_views_are_not_records(  # noqa: E501
         self,
     ):
-        self.assertEqual(self.get("/library/person/add").status_int, 200)
-        self.assertEqual(self.get("/library/person/manage").status_int, 200)
-        self.assertEqual(self.get("/library/person/Not-A-Slug").status_int, 404)
-        self.assertEqual(self.get("/library/person/-").status_int, 404)
+        self.assertEqual(self.get("/test_repo/person/add").status_int, 200)
+        self.assertEqual(self.get("/test_repo/person/manage").status_int, 200)
+        self.assertEqual(self.get("/test_repo/person/Not-A-Slug").status_int, 404)
+        self.assertEqual(self.get("/test_repo/person/-").status_int, 404)

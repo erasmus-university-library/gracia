@@ -10,11 +10,11 @@ from unittest import mock
 
 import pyoxigraph as ox
 from base import DbTestCase
+from harness import opened
 from pyramid.exceptions import ConfigurationConflictError
 from test_web import WebCase
 
 from gracia import cli, init, types, uri
-from gracia.application import Application
 from gracia.interfaces import IGraciaType, known_types
 from gracia.main import make_config
 from gracia.utils import assets
@@ -309,23 +309,23 @@ class RepositoryTest(WebCase):
         self.widget = types.find_content_type(self.registry, "widget")
         self.person = types.find_content_type(self.registry, "person")
 
-    def slugs(self, repo="library") -> list[str]:
+    def slugs(self, repo="test_repo") -> list[str]:
         node = self.application[repo]
         self.addCleanup(node.close)
         return list(node.res_types)
 
     def test_a_new_repository_starts_with_the_system_types_only(self):
-        self.application.create_repository("library", admin=ADMIN)
+        self.application.create_repository("test_repo", admin=ADMIN)
         self.assertEqual(self.slugs(), ["repository", "type", "user", "group"])
 
     def test_a_new_repository_can_start_with_content_types(self):
         self.application.create_repository(
-            "library", admin=ADMIN, content_types=[self.widget, self.person]
+            "test_repo", admin=ADMIN, content_types=[self.widget, self.person]
         )
         self.assertEqual(
             self.slugs(), ["repository", "type", "user", "group", "widget", "person"]
         )
-        node = self.application["library"]
+        node = self.application["test_repo"]
         self.addCleanup(node.close)
         self.assertEqual(node["widget"].record, "rec:type:5")
         self.assertEqual(
@@ -336,35 +336,35 @@ class RepositoryTest(WebCase):
     def test_a_content_type_that_is_wrong_is_refused_before_anything_is_made(self):
         broken = SimpleNamespace(**{**self.widget.__dict__, "slug": "Bad Slug"})
         with self.assertRaises(ValueError):
-            self.application.create_repository("library", content_types=[broken])
+            self.application.create_repository("test_repo", content_types=[broken])
         self.assertEqual(self.application.list_repositories(), [])
         with self.assertRaises(ValueError):  # the same type twice
             self.application.create_repository(
-                "library", content_types=[self.widget, self.widget]
+                "test_repo", content_types=[self.widget, self.widget]
             )
         self.assertEqual(self.application.list_repositories(), [])
 
     def test_a_content_type_is_added_to_a_repository_that_exists(self):
-        self.application.create_repository("library", admin=ADMIN)
-        with self.application.open_repository("library") as store:
-            record = types.add_content_type(store, "library", self.widget)
+        self.application.create_repository("test_repo", admin=ADMIN)
+        with self.application.new_store("test_repo") as store:
+            record = types.add_content_type(store, "test_repo", self.widget)
             self.assertEqual(record, "rec:type:5")
             self.assertIsNone(
-                types.add_content_type(store, "library", self.widget)
+                types.add_content_type(store, "test_repo", self.widget)
             )  # it has it
             self.assertEqual(
-                types.add_content_type(store, "library", self.person), "rec:type:6"
+                types.add_content_type(store, "test_repo", self.person), "rec:type:6"
             )
         self.assertEqual(
             self.slugs(), ["repository", "type", "user", "group", "widget", "person"]
         )
 
     def test_adding_one_leaves_the_rest_of_the_repository_as_it_was(self):
-        self.application.create_repository("library", admin=ADMIN)
-        with self.application.open_repository("library") as store:
+        self.application.create_repository("test_repo", admin=ADMIN)
+        with self.application.new_store("test_repo") as store:
             before = store.get("rec:repository:1")
             self.assertGreater(len(before), 0)
-            types.add_content_type(store, "library", self.widget)
+            types.add_content_type(store, "test_repo", self.widget)
             after = store.get("rec:repository:1")
         wanted = {
             q.predicate.value for q in before if not isinstance(q.object, ox.BlankNode)
@@ -375,27 +375,27 @@ class RepositoryTest(WebCase):
         self.assertTrue(wanted <= kept)  # title, assets, schema: still there
         web = self.client()
         self.assertEqual(
-            web.get("/library/user", headers=basic(*ADMIN)).status_int, 200
+            web.get("/test_repo/user", headers=basic(*ADMIN)).status_int, 200
         )
         self.assertEqual(
-            web.get("/library/manage", headers=basic(*ADMIN)).status_int, 200
+            web.get("/test_repo/manage", headers=basic(*ADMIN)).status_int, 200
         )
 
     def test_the_content_type_works_in_the_web_application_without_a_line_of_code_for_it(  # noqa: E501
         self,
     ):
         self.application.create_repository(
-            "library", admin=ADMIN, content_types=[self.widget]
+            "test_repo", admin=ADMIN, content_types=[self.widget]
         )
         web = self.client(make_config({**self.settings, "gracia.types": self.package}))
         admin = basic(*ADMIN)
-        self.assertEqual(web.get("/library/widget").status_int, 200)  # public to read
-        form = web.get("/library/widget/add", headers=admin).forms[0]
+        self.assertEqual(web.get("/test_repo/widget").status_int, 200)  # public to read
+        form = web.get("/test_repo/widget/add", headers=admin).forms[0]
         self.assertIn("label", form.fields)  # from its schema file
         content_label(form).value = "First"
         first = form.submit("save", headers=admin)
-        self.assertTrue(first.location.endswith("/library/widget/1/edit?saved=1"))
-        again = web.get("/library/widget/add", headers=admin).forms[0]
+        self.assertTrue(first.location.endswith("/test_repo/widget/1/edit?saved=1"))
+        again = web.get("/test_repo/widget/add", headers=admin).forms[0]
         content_label(again).value = "Second"
         self.assertTrue(
             again.submit("save", headers=admin).location.endswith(
@@ -403,11 +403,11 @@ class RepositoryTest(WebCase):
             )
         )
         body = web.get(
-            "/library/widget/2", headers={**admin, "Accept": "application/json"}
+            "/test_repo/widget/2", headers={**admin, "Accept": "application/json"}
         ).json
         self.assertEqual(body["resource"][EX + "label"], ["Second"])
         self.assertEqual(
-            web.get("/library/widget", headers=admin).json["records"], [1, 2]
+            web.get("/test_repo/widget", headers=admin).json["records"], [1, 2]
         )
 
 
@@ -416,25 +416,25 @@ class CounterTest(WebCase):
 
     def setUp(self):
         super().setUp()
-        self.application.create_repository("library", admin=ADMIN)
+        self.application.create_repository("test_repo", admin=ADMIN)
 
     def put(self, store, *uris):
         text = "".join(f'<{i}> <urn:p> "x" .\n' for i in uris)
         store.put(ox.Dataset(ox.parse(text.encode(), format=ox.RdfFormat.TURTLE)))
 
     def test_a_type_nobody_has_heard_of_counts_from_one(self):
-        with self.application.open_repository("library") as store:
+        with self.application.new_store("test_repo") as store:
             self.assertEqual([store.mint_id("gizmo") for _ in range(3)], [1, 2, 3])
             self.assertEqual(store.mint_id("gadget"), 1)  # each type for itself
 
     def test_records_that_are_stored_move_the_counter_past_their_numbers(self):
-        with self.application.open_repository("library") as store:
+        with self.application.new_store("test_repo") as store:
             self.put(store, "rec:gizmo:40", "rec:gizmo:7", "rec:doohickey:3")
             self.assertEqual(store.mint_id("gizmo"), 41)
             self.assertEqual(store.mint_id("doohickey"), 4)
 
     def test_it_never_goes_back_and_only_records_are_stored(self):
-        with self.application.open_repository("library") as store:
+        with self.application.new_store("test_repo") as store:
             self.put(store, "rec:gizmo:50")
             self.put(store, "rec:gizmo:20")  # lower: the counter stays
             for subject in (
@@ -451,7 +451,7 @@ class CounterTest(WebCase):
 
     def test_the_counter_moves_inside_the_transaction_of_the_write(self):
         """A write that fails leaves the counter where it was."""
-        with self.application.open_repository("library") as store:
+        with self.application.new_store("test_repo") as store:
             before = store.mint_id("gizmo")
             with self.assertRaises(ValueError):  # an orphan blank node: put refuses it
                 store.put(
@@ -470,11 +470,11 @@ class CounterTest(WebCase):
         config = make_config({**self.settings, "gracia.types": package})
         config.commit()
         widget = types.find_content_type(config.registry, "widget")
-        with self.application.open_repository("library") as store:
+        with self.application.new_store("test_repo") as store:
             self.put(store, "rec:widget:30")  # before the type is even added
-            types.add_content_type(store, "library", widget)
+            types.add_content_type(store, "test_repo", widget)
         web = self.client(make_config({**self.settings, "gracia.types": package}))
-        form = web.get("/library/widget/add", headers=basic(*ADMIN)).forms[0]
+        form = web.get("/test_repo/widget/add", headers=basic(*ADMIN)).forms[0]
         content_label(form).value = "After the import"
         self.assertTrue(
             form.submit("save", headers=basic(*ADMIN)).location.endswith(
@@ -530,8 +530,8 @@ class CommandsTest(DbTestCase):
         self.config(
             **{"gracia.types": self.package, "gracia.content_types": "person widget"}
         )
-        self.assertEqual(self.create("library")[0], 0)
-        out = self.run_cli("-r", "library", "types", "list")[1]
+        self.assertEqual(self.create("test_repo")[0], 0)
+        out = self.run_cli("-r", "test_repo", "types", "list")[1]
         self.assertEqual(
             [line.split()[0] for line in out.splitlines()],
             ["repository", "type", "user", "group", "person", "widget"],
@@ -539,8 +539,8 @@ class CommandsTest(DbTestCase):
 
     def test_without_the_setting_a_new_repository_has_the_system_types_only(self):
         self.config()
-        self.create("library")
-        out = self.run_cli("-r", "library", "types", "list")[1]
+        self.create("test_repo")
+        out = self.run_cli("-r", "test_repo", "types", "list")[1]
         self.assertEqual(
             [line.split()[0] for line in out.splitlines()],
             ["repository", "type", "user", "group"],
@@ -548,7 +548,7 @@ class CommandsTest(DbTestCase):
 
     def test_a_name_in_the_config_that_is_no_content_type_is_a_clear_error(self):
         self.config(**{"gracia.content_types": "nothing"})
-        code, _, err = self.create("library")
+        code, _, err = self.create("test_repo")
         self.assertEqual(code, 1)
         self.assertIn("no content type 'nothing'", err)
         self.assertEqual(self.run_cli("repo", "list")[1], "")  # nothing was made
@@ -557,31 +557,31 @@ class CommandsTest(DbTestCase):
         self,
     ):
         self.config(**{"gracia.types": self.package})
-        self.create("library")
+        self.create("test_repo")
         code, out, err = self.run_cli(
-            "-r", "library", "types", "add", "person", "widget"
+            "-r", "test_repo", "types", "add", "person", "widget"
         )
         self.assertEqual(code, 0, err)
         self.assertIn("person: added as rec:type:5", out)
         self.assertIn("widget: added as rec:type:6", out)
-        code, out, _ = self.run_cli("-r", "library", "types", "add", "person")
-        self.assertIn("library has it already", out)
-        listing = self.run_cli("-r", "library", "types", "list")[1]
+        code, out, _ = self.run_cli("-r", "test_repo", "types", "add", "person")
+        self.assertIn("test_repo has it already", out)
+        listing = self.run_cli("-r", "test_repo", "types", "list")[1]
         self.assertIn("rec:type:6", listing)
 
     def test_add_by_the_dotted_name_of_the_package(self):
         self.config()
-        self.create("library")
+        self.create("test_repo")
         code, out, _ = self.run_cli(
-            "-r", "library", "types", "add", "gracia.types.person"
+            "-r", "test_repo", "types", "add", "gracia.types.person"
         )
         self.assertEqual(code, 0)
         self.assertIn("person: added", out)
 
     def test_what_is_not_there_is_an_error(self):
         self.config()
-        self.create("library")
-        code, _, err = self.run_cli("-r", "library", "types", "add", "nothing")
+        self.create("test_repo")
+        code, _, err = self.run_cli("-r", "test_repo", "types", "add", "nothing")
         self.assertEqual(code, 1)
         self.assertIn("no content type 'nothing'", err)
         self.assertIn("gracia.types", err)  # and how to make it known
@@ -590,8 +590,8 @@ class CommandsTest(DbTestCase):
 
     def test_records_imported_into_a_repository_with_the_new_type_are_numbered_on(self):
         self.config()
-        self.create("library")
-        self.run_cli("-r", "library", "types", "add", "person")
+        self.create("test_repo")
+        self.run_cli("-r", "test_repo", "types", "add", "person")
         records = self.write(
             "records.ttl",
             "@prefix gracia: <https://gracia.pub/ns/> .\n"
@@ -601,6 +601,6 @@ class CommandsTest(DbTestCase):
             "<rec:person:250> a gracia:Record ; "
             'gracia:resource [ a foaf:Person ; foaf:name "Grace" ] .',
         )
-        self.assertEqual(self.run_cli("-r", "library", "import", str(records))[0], 0)
-        with Application(self.db) as app, app.open_repository("library") as store:
+        self.assertEqual(self.run_cli("-r", "test_repo", "import", str(records))[0], 0)
+        with opened(self.db) as app, app.new_store("test_repo") as store:
             self.assertEqual(store.mint_id("person"), 251)

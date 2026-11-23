@@ -4,10 +4,10 @@ from pathlib import Path
 
 import pyoxigraph as ox
 from base import DATA, REC, DbTestCase
+from harness import open_store
 from support import validate
 
 from gracia.graph import ValidationError
-from gracia.store import Store
 
 EX = "http://example.org/"
 PERSON = EX + "PersonShape"
@@ -143,7 +143,7 @@ class WithTheStoreTest(DbTestCase):
     def test_validate_what_get_returns(self):
         """Resources read back from the database keep their blank nodes, so shapes still
         apply."""
-        with Store(self.db) as store:
+        with open_store(self.db) as store:
             store.put(
                 data(
                     '<rec:thing:1> a ex:Person ; ex:name "A" ; ex:address [ ex:city '

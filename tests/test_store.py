@@ -5,10 +5,11 @@ from unittest import mock
 import duckdb
 import pyoxigraph as ox
 from base import DATA, REC, DbTestCase
+from harness import open_store
 
 from gracia import store as store_module
 from gracia.graph import streaming_parse
-from gracia.store import Store, fetch_one
+from gracia.store import fetch_one
 
 EX = "http://example.org/"
 
@@ -16,7 +17,7 @@ EX = "http://example.org/"
 class ModelTest(DbTestCase):
     def test_the_columns_are_strings_and_a_list(self):
         self.load(DATA / "05_shared.ttl")
-        with Store(self.db) as store:
+        with open_store(self.db) as store:
             types = dict(
                 store.con.execute(
                     "SELECT column_name, column_type FROM (DESCRIBE triples)"
@@ -29,7 +30,7 @@ class ModelTest(DbTestCase):
 
     def test_bnodes_are_numbered_per_resource(self):
         self.load(DATA / "05_shared.ttl")
-        with Store(self.db) as store:
+        with open_store(self.db) as store:
             rows = store.con.execute(
                 "SELECT s, list(DISTINCT x) FROM (SELECT s, unnest(loc) AS x FROM "
                 "triples) "
@@ -56,7 +57,7 @@ class ModelTest(DbTestCase):
                 '<rec:thing:1> ex:p "1" ; ex:q [ ex:r "x" ; ex:t [ ex:u "y" ] ] .\n',
             )
         )
-        with Store(self.db) as store:
+        with open_store(self.db) as store:
             rows = store.con.execute(
                 "SELECT p, loc FROM triples ORDER BY len(loc), p"
             ).fetchall()
@@ -93,7 +94,7 @@ class SortTest(DbTestCase):
                     f"{name}.ttl", f'<{name}> <{EX}p> "x" ; <{EX}q> [ <{EX}r> "y" ] .\n'
                 )
             )
-        with Store(self.db) as store:
+        with open_store(self.db) as store:
             before = store.con.execute("SELECT * FROM triples ORDER BY ALL").fetchall()
             self.assertNotEqual(
                 [r[0] for r in store.con.execute("SELECT s FROM triples").fetchall()],
@@ -128,7 +129,7 @@ class SortTest(DbTestCase):
 
 class MergeDeleteTest(DbTestCase):
     def resource_rows(self, uri: str) -> int:
-        with Store(self.db) as store:
+        with open_store(self.db) as store:
             return fetch_one(
                 store.con.execute(
                     "SELECT count(*) FROM triples WHERE s = ?",
@@ -200,7 +201,7 @@ class MergeDeleteTest(DbTestCase):
     def test_failed_load_rolls_back(self):
         """Nothing is stored when the triples insert fails."""
         self.load(self.write("a.ttl", '<rec:thing:1> ex:p "1" .\n'))
-        with Store(self.db) as store:
+        with open_store(self.db) as store:
             before = fetch_one(store.con.execute("SELECT count(*) FROM triples"))[0]
             store.stage_rows(streaming_parse(DATA / "01_simple.ttl"))
             store.con.execute(
@@ -227,7 +228,7 @@ class CliTest(DbTestCase):
         )
         self.assertEqual(code, 2)
         self.assertIn("self-loop", err)
-        with Store(self.db) as store:
+        with open_store(self.db) as store:
             self.assertEqual(
                 fetch_one(store.con.execute("SELECT count(*) FROM triples"))[0], 0
             )
@@ -319,7 +320,7 @@ class LostRaceTest(DbTestCase):
             duckdb.TransactionException("Conflict on update"),
             duckdb.ConstraintException('Duplicate key "type: person"'),
         ):
-            with self.subTest(error=type(error).__name__), Store(self.db) as store:
+            with self.subTest(error=type(error).__name__), open_store(self.db) as store:
                 store.con = FailOnce(store.con, error)
                 with mock.patch("gracia.store.time.sleep"):
                     store.put(self.quads(type(error).__name__))
@@ -327,7 +328,7 @@ class LostRaceTest(DbTestCase):
                 self.assertEqual(len(store.get(self.SUBJECTS[type(error).__name__])), 1)
 
     def test_a_writer_that_keeps_losing_gives_up_with_the_error(self):
-        with Store(self.db) as store:
+        with open_store(self.db) as store:
             store.con = FailOnce(store.con, duckdb.ConstraintException("Duplicate key"))
             store.con.always = True
             with (

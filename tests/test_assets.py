@@ -356,8 +356,8 @@ class InfoTest(unittest.TestCase):
 
 class TypeVersionTest(WebCase):
     def test_a_type_exposes_the_version_of_its_files(self):
-        self.application.create_repository("library")
-        node = self.application["library"]
+        self.application.create_repository("test_repo")
+        node = self.application["test_repo"]
         self.addCleanup(node.close)
         self.assertEqual(
             node["user"].assets_version,
@@ -369,7 +369,7 @@ class TypeVersionTest(WebCase):
 
 class ListCommandTest(DbTestCase):
     def test_it_lists_each_file_the_types_use_once(self):
-        self.create_repositories("library", "archive")
+        self.create_repositories("test_repo", "archive")
         code, out, err = self.gracia("assets", "list")
         self.assertEqual(code, 0, err)
         lines = out.strip().splitlines()
@@ -384,7 +384,7 @@ class ListCommandTest(DbTestCase):
             self.assertRegex(line, r"^md5:[0-9a-f]{32}  +\d+  text/turtle +")
 
     def test_a_named_repository_that_does_not_exist_is_an_error(self):
-        self.create_repositories("library")
+        self.create_repositories("test_repo")
         code, _, err = self.gracia("assets", "list", "nope")
         self.assertEqual(code, 1)
         self.assertIn("nope", err)

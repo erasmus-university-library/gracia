@@ -11,9 +11,11 @@ import threading
 from pathlib import Path
 
 import duckdb
+from pyramid.registry import Registry
 
 from gracia import config, types
 from gracia.application import Application
+from gracia.database import DEFAULT_PORT, read_owner, serve_db
 from gracia.graph import (
     INPUT_BY_EXTENSION,
     JSON_TRIPLES,
@@ -23,15 +25,8 @@ from gracia.graph import (
     streaming_parse,
     streaming_serialize,
 )
-from gracia.resources import Repository
-from gracia.store import (
-    DEFAULT_PORT,
-    DEFAULT_REPOSITORY,
-    NoSuchRepository,
-    Store,
-    read_owner,
-    serve_db,
-)
+from gracia.main import init_from_settings, opened, shutdown
+from gracia.store import DEFAULT_REPOSITORY, NoSuchRepository, Store
 from gracia.utils import assets, passwords, xslt
 from gracia.utils.validate import validate_password, validate_userid
 
@@ -59,7 +54,8 @@ def _discover_owner(
         return settings
     try:
         token = config.read_token({"gracia.db.token_file": str(token_file)})
-        Application(uri, token=token).close()  # connecting is the probe
+        with opened(quack=uri, token=token):
+            pass  # connecting is the probe
     except ValueError as err:
         _probe_error = (
             f"an owner was expected at {uri} (token file {token_file}): {err}"
@@ -84,30 +80,39 @@ def _settings(args) -> dict[str, str]:
     return _discover_owner(config.resolve(args.config, args.db))
 
 
-def _application(args) -> Application:
+def _open_application(args, create: bool = False) -> Application:
     """The application on the database the settings name: a file, or a running
-    `serve-db`."""
+    `serve-db`. Only `import` (`create`) and the repository commands make a file."""
     settings = _settings(args)
     target = settings["gracia.db"]
-    kwargs = {
-        "cache_dir": settings.get("gracia.cache_dir") or None
-    }  # opened only when used
-    if config.is_remote(target):
-        kwargs["token"] = config.read_token(settings)
-    elif not Path(target).exists() and args.command != "repo":
+    if (
+        not config.is_remote(target)
+        and not create
+        and not Path(target).exists()
+        and args.command != "repo"
+    ):
         raise ValueError(f"no such database: {target}")
-    return Application(target, **kwargs)
+    return init_from_settings(Registry(), settings, target)
+
+
+@contextlib.contextmanager
+def _application(args, create: bool = False):
+    """`_open_application`, shut down when the block ends."""
+    application = _open_application(args, create)
+    try:
+        yield application
+    finally:
+        shutdown(application.registry)
 
 
 class _OwnedStore(Store):
-    """A store that closes the application it came from (a remote store needs its
-    own)."""
+    """A store that shuts down the application it came from."""
 
     application: Application
 
     def close(self) -> None:
         super().close()
-        self.application.close()
+        shutdown(self.application.registry)
 
 
 def _store(args, create: bool = False) -> Store:
@@ -115,25 +120,23 @@ def _store(args, create: bool = False) -> Store:
     file (DuckDB would otherwise silently create an empty database). A `quack:` database
     is served by a running `gracia serve-db`: the repository must exist there
     already."""
-    settings = _settings(args)
-    target = settings["gracia.db"]
-    if config.is_remote(target):
-        application = _application(args)
-        try:
-            store = application.open_repository(args.repo)
-        except NoSuchRepository:
-            application.close()
-            raise
-        store.__class__ = _OwnedStore
-        store.application = application  # ty: ignore[missing-attribute]
-        return store
-    if not create and not Path(target).exists():
-        raise ValueError(f"no such database: {target}")
-    return Store(
-        target,
-        triples=args.triples,
-        repo=args.repo,
-    )
+    application = _open_application(args, create)
+    try:
+        if config.is_remote(_settings(args)["gracia.db"]):
+            store = application.new_store(args.repo)
+        else:
+            store = Store(
+                application.database.cursor(),
+                args.triples,
+                args.repo,
+                close_connection=True,
+            )
+    except BaseException:
+        shutdown(application.registry)
+        raise
+    store.__class__ = _OwnedStore
+    store.application = application  # ty: ignore[missing-attribute]
+    return store
 
 
 @contextlib.contextmanager
@@ -142,16 +145,19 @@ def _ns_prefix(args, store: Store):
     settings, in the repository record): without a record, the defaults, and nothing can
     be written."""
     from gracia.extensions.ns_prefix import NsPrefixExtension
+    from gracia.main import make_config
 
-    application = getattr(store, "application", None)
-    own = application is None
-    if own:
-        application = _application(args)
+    application = store.application  # ty: ignore[missing-attribute]
+    settings = {k: v for k, v in _settings(args).items() if k.startswith("gracia.")}
+    config_ = make_config({**settings, "gracia.application": application})
+    config_.commit()  # the registry of the application has its extensions now
+    config_.begin()
+    node = application[args.repo]
     try:
-        yield NsPrefixExtension(Repository(args.repo, application))
+        yield NsPrefixExtension(node)
     finally:
-        if own:
-            application.close()
+        node.close()
+        config_.end()
 
 
 def _prefix_dict(ns_prefix) -> dict[str, str]:
@@ -167,13 +173,14 @@ def _save_prefixes(ns_prefix, prefixes: dict[str, str]) -> None:
 
 
 @contextlib.contextmanager
-def _hooks(args):
-    """The repository (-r) for an import, or None when it has no repository record to
-    know its types from (a plain triple store). The store that is given
-    `configure_store(store)` runs the SQL of the predicates of the types on what it
+def _hooks(args, store):
+    """The repository (-r) for an import, with `store` as its store, or None when it
+    has no repository record to know its types from (a plain triple store). Once
+    configured, the store runs the SQL of the predicates of the types on what it
     stores."""
     try:
         with _repository(args) as node:
+            node.use_store(store)
             try:
                 node.resource()
             except LookupError:
@@ -185,9 +192,9 @@ def _hooks(args):
 
 
 def cmd_import(args) -> int:
-    with _store(args, create=True) as store, _hooks(args) as node:
+    with _store(args, create=True) as store, _hooks(args, store) as node:
         if node is not None:
-            node.configure(store)
+            node.configure()
         for name in args.files:
             fmt = args.format or guess_format(name)
             declared: dict[str, str] = {}
@@ -222,7 +229,7 @@ def cmd_import(args) -> int:
             finally:
                 store.drop_staging()
             if node is not None:
-                node.sync_roles(store)  # an import may have made or changed types
+                node.sync_roles()  # an import may have made or changed types
             past = {"insert": "inserted", "delete": "deleted"}
             summary = ", ".join(
                 f"{n} rows {past.get(a, a)}" for a, n in sorted(counts.items())
@@ -364,11 +371,9 @@ def cmd_etags_rebuild(args) -> int:
     """Make the etags of every record again (the repository -r): what a write keeps up
     to date as it goes, for a repository that has none yet or whose data was changed
     behind the store's back."""
-    with _store(args) as store, _hooks(args) as node:
+    with _store(args) as store, _hooks(args, store) as node:
         if node is not None:
-            node.configure(
-                store
-            ).sync()  # the numbers of its types: what the ids are made of
+            node.sync_roles()  # the numbers of its types: what the ids are made of
         wrong = store.rebuild_etags()
         made = store.count_etags()
     print(f"made {made} etags, {len(wrong)} of them different from what they were")
@@ -757,7 +762,7 @@ def _registry(args, application=None):
         config_.commit()
         yield application, config_.registry, settings
         return
-    with Application(":memory:") as stand_in:  # the types need no database to be listed
+    with opened(":memory:") as stand_in:  # the types need no database to be listed
         config_ = make_config({**settings, "gracia.application": stand_in})
         config_.commit()
         yield stand_in, config_.registry, settings
@@ -880,7 +885,7 @@ def cmd_types_add(args) -> int:
             found = [
                 types.find_content_type(registry, name) for name in args.content_types
             ]
-        with application.open_repository(args.repo) as store:
+        with application.new_store(args.repo) as store:
             for res_type in found:
                 record = types.add_content_type(store, args.repo, res_type)
                 print(
@@ -888,13 +893,10 @@ def cmd_types_add(args) -> int:
                     if record
                     else f"{res_type.slug}: {args.repo} has it already"
                 )
-            node = Repository(args.repo, application)
-            try:
-                node.sync_roles(
-                    store
-                )  # the shapes of the new types say what their records have
-            finally:
-                node.close()
+            # the shapes of the new types say what their records have
+            node = application[args.repo]
+            node.use_store(store)
+            node.sync_roles()
     return 0
 
 
@@ -943,7 +945,7 @@ def cmd_serve(args) -> int:
         waitress_serve(app, host=args.host, port=args.port, threads=args.threads)
     finally:
         if app.registry.get("application_owned"):
-            app.registry["application"].close()
+            shutdown(app.registry)
     return 0
 
 

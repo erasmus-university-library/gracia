@@ -124,14 +124,16 @@ class IExtension(Interface):
         is. Returns them as a dict."""
 
 
-class IRepositoryChild(Interface):
-    """Something that can be reached as `/<repo>/<key>`, registered under its key as a
-    utility with `factory(repository, segment)` (a node of the traversal tree, or
-    `KeyError`) and `prefix`: the key is the start of the segment, not all of it (`rec:`
-    for `rec:person:34`)."""
+class ITraversable(Interface):
+    """A node that can be reached below another one (`gracia.traversal`): registered as
+    an adapter of the parent (a repository, say) under the segment that names it, so
+    `factory(parent)` makes it (a class takes the parent in `__init__`)."""
 
-    factory = Attribute("(repository, segment) -> a node, or raises KeyError")
-    prefix = Attribute("whether the key only has to start the segment")
+
+class IPrefixTraversable(Interface):
+    """Like `ITraversable`, for the segments that start with the name it is registered
+    under (`rec:` for `rec:person:34`): `factory(parent, segment)` makes the node, or
+    raises `KeyError` when the segment is not there."""
 
 
 class IPredicate(Interface):

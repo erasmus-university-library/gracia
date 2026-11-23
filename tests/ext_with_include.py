@@ -13,4 +13,4 @@ class Child:
 
 
 def includeme(config):
-    config.add_gracia_repository_child("incl:", Child, prefix=True)
+    config.add_gracia_traversable(Child, prefix="incl:")

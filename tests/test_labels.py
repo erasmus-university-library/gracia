@@ -22,28 +22,28 @@ class LabelCase(WebCase):
         self.config.begin()  # the registry, for code that runs outside a request
         self.addCleanup(self.config.end)
         self.application.create_repository(
-            "library",
+            "test_repo",
             admin=("admin", "correct horse battery"),
             content_types=[types.available()["person"]],
         )
         self.web = self.client(self.config)
 
     def add_person(self, name="Ada Lovelace"):
-        form = self.web.get("/library/person/add", headers=ADMIN).forms[0]
+        form = self.web.get("/test_repo/person/add", headers=ADMIN).forms[0]
         form["name"] = name
         response = form.submit("save", headers=POSTING)
         self.assertEqual(response.status_int, 302, response.text[:200])
         return response
 
     def labels(self, record):
-        with self.application.open_repository("library") as store:
+        with self.application.new_store("test_repo") as store:
             data = store.get(record)
         return [
             o.value for o in data.objects(ox.NamedNode(record), ox.NamedNode(uri.LABEL))
         ]
 
     def edit_type(self, **fields):
-        form = self.web.get("/library/person/manage", headers=ADMIN).forms[
+        form = self.web.get("/test_repo/person/manage", headers=ADMIN).forms[
             "form-type-settings"
         ]
         for name, text in fields.items():
@@ -60,14 +60,14 @@ class LabelTest(LabelCase):
 
     def test_the_label_follows_the_content(self):
         self.add_person("Ada Lovelace")
-        form = self.web.get("/library/person/1/edit", headers=ADMIN).forms[0]
+        form = self.web.get("/test_repo/person/1/edit", headers=ADMIN).forms[0]
         form["name"] = "Ada King"
         form.submit("save", headers=POSTING)
         self.assertEqual(self.labels("rec:person:1"), ["Ada King"])
 
     def test_the_title_of_the_edit_form_is_the_label(self):
         self.add_person("Ada Lovelace")
-        page = self.web.get("/library/person/1/edit", headers=ADMIN).text
+        page = self.web.get("/test_repo/person/1/edit", headers=ADMIN).text
         self.assertRegex(page, r'<h1 class="h3 mb-0">\s*Ada Lovelace\s*</h1>')
         self.assertIn("rec:person:1", page)  # the key stays as the subtitle
 
@@ -75,11 +75,11 @@ class LabelTest(LabelCase):
         self,
     ):
         self.add_person("Ada Lovelace")
-        page = self.web.get("/library/person/1/edit", headers=ADMIN).text
+        page = self.web.get("/test_repo/person/1/edit", headers=ADMIN).text
         field = must_search(r'<input[^>]*name="label"[^>]*>', page)[0]
         self.assertIn("readonly", field)
         self.assertIn('value="Ada Lovelace"', field)
-        form = self.web.get("/library/person/1/edit", headers=ADMIN).forms[0]
+        form = self.web.get("/test_repo/person/1/edit", headers=ADMIN).forms[0]
         form.fields["label"][0].force_value("Somebody else")  # posted by hand
         form.submit("save", headers=POSTING)
         self.assertEqual(
@@ -89,19 +89,19 @@ class LabelTest(LabelCase):
     def test_the_json_of_a_record_has_its_label(self):
         self.add_person("Ada Lovelace")
         body = self.web.get(
-            "/library/person/1", headers={**ADMIN, "Accept": "application/json"}
+            "/test_repo/person/1", headers={**ADMIN, "Accept": "application/json"}
         ).json
         self.assertEqual(body["record"][uri.LABEL], ["Ada Lovelace"])
 
     def test_a_record_without_a_label_is_called_unnamed(self):
-        with self.application.open_repository("library") as store:
+        with self.application.new_store("test_repo") as store:
             text = (
                 b"<rec:person:7> a <https://gracia.pub/ns/Record> ; "
                 b"<https://gracia.pub/ns/type> <rec:type:5> ."
             )
             store.put(ox.Dataset(ox.parse(text, format=ox.RdfFormat.TURTLE)))
         self.assertIn(
-            "(Unnamed)", self.web.get("/library/person/7/edit", headers=ADMIN).text
+            "(Unnamed)", self.web.get("/test_repo/person/7/edit", headers=ADMIN).text
         )
 
 
@@ -110,7 +110,7 @@ class EveryTypeTest(LabelCase):
 
     def test_the_system_types_say_how_their_records_are_labelled(self):
         self.add_person("Ada Lovelace")
-        self.assertEqual(self.labels("rec:repository:1"), ["library"])  # the title
+        self.assertEqual(self.labels("rec:repository:1"), ["test_repo"])  # the title
         self.assertEqual(self.labels("rec:user:1"), ["admin"])  # the user id
         self.assertEqual(
             [self.labels(f"rec:group:{n}")[0] for n in (1, 2, 3)],
@@ -122,18 +122,18 @@ class EveryTypeTest(LabelCase):
         )
 
     def test_editing_a_user_a_group_and_a_type_keeps_their_labels_right(self):
-        form = self.web.get("/library/group/2/edit", headers=ADMIN).forms[0]
+        form = self.web.get("/test_repo/group/2/edit", headers=ADMIN).forms[0]
         form["name"] = "editors"
         form.submit("save", headers=POSTING)
         self.assertEqual(self.labels("rec:group:2"), ["editors"])
-        form = self.web.get("/library/user/1/edit", headers=ADMIN).forms[0]
+        form = self.web.get("/test_repo/user/1/edit", headers=ADMIN).forms[0]
         form["userid"] = "root"
         form["password"] = ""
         form.submit("save", headers=POSTING)
         self.assertEqual(self.labels("rec:user:1"), ["root"])
 
     def test_the_label_of_the_repository_follows_its_title(self):
-        form = self.web.get("/library/manage", headers=ADMIN).forms[0]
+        form = self.web.get("/test_repo/manage", headers=ADMIN).forms[0]
         form["title"] = "The Library"
         self.assertEqual(form.submit("save", headers=POSTING).status_int, 302)
         self.assertEqual(self.labels("rec:repository:1"), ["The Library"])
@@ -144,7 +144,7 @@ class NameTest(LabelCase):
     of them)."""
 
     def submit(self, **fields):
-        form = self.web.get("/library/person/add", headers=ADMIN).forms[0]
+        form = self.web.get("/test_repo/person/add", headers=ADMIN).forms[0]
         for name, text in fields.items():
             form[name] = text
         return form.submit("save", headers=POSTING)
@@ -174,7 +174,7 @@ class NameTest(LabelCase):
         self.assertEqual(self.labels("rec:person:1"), [])  # no record was made
 
     def test_a_record_checked_against_the_shape_says_it_in_the_words_of_the_shape(self):
-        node = self.application["library"]
+        node = self.application["test_repo"]
         self.addCleanup(node.close)
         record = node["person"].blank_record()
         record.begin(1)
@@ -268,15 +268,15 @@ class EditorLoadingTest(LabelCase):
         return "codemirror" in self.web.get(path, headers=headers).text
 
     def test_the_extensions_tab_loads_the_editor(self):
-        page = self.web.get("/library/manage", headers=ADMIN).text
+        page = self.web.get("/test_repo/manage", headers=ADMIN).text
         self.assertIn("codemirror", page)
         self.assertIn('data-editor="json"', page)
 
     def test_other_pages_do_not(self):
         self.add_person()
-        self.assertFalse(self.has_editor("/library/person/1/edit"))
-        self.assertFalse(self.has_editor("/library/person/add"))
-        self.assertFalse(self.has_editor("/library", headers={}))
+        self.assertFalse(self.has_editor("/test_repo/person/1/edit"))
+        self.assertFalse(self.has_editor("/test_repo/person/add"))
+        self.assertFalse(self.has_editor("/test_repo", headers={}))
 
 
 class CodeWidgetTest(LabelCase):

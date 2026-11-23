@@ -4,7 +4,7 @@ from pyramid.renderers import render_to_response
 from pyramid.view import view_config
 
 from gracia import forms, hints, uri
-from gracia.resources import Record, Type
+from gracia.resources import Record, RecordDeleted, Type
 from gracia.views import render
 from gracia.views.index import index
 
@@ -16,14 +16,13 @@ def _plain(term):
     return term.value
 
 
-def _reachable(res_type, number) -> bool:
-    """Whether the caller can reach the record at all (traversal refuses records they
-    may not see)."""
+def _reachable(request, res_type, number) -> bool:
+    """Whether the caller may see the record at all."""
     try:
-        res_type.by_number(str(number))
-    except KeyError:
+        record = res_type[str(number)]
+    except (KeyError, RecordDeleted):
         return False
-    return True
+    return bool(request.has_permission("view", record))
 
 
 SAFE_SCHEMES = frozenset(
@@ -132,7 +131,7 @@ def value_link(request, record, term) -> str | None:
     text)."""
     if not isinstance(term, ox.NamedNode):
         return None
-    found = record.repository.store().record_with_resource_uri(term.value)
+    found = record.repository.store.record_with_resource_uri(term.value)
     parsed = uri.parse_record_uri(found) if found else None
     if parsed is not None:
         return request.resource_url(record.repository, parsed[0], str(parsed[1]))
@@ -203,7 +202,7 @@ def res_type(request):
     if context.class_uri == uri.TYPE_CLASS:
         # the type records are public, except those of the private types: do not even
         # list them
-        numbers = [n for n in numbers if _reachable(context, n)]
+        numbers = [n for n in numbers if _reachable(request, context, n)]
     return render_to_response(
         "json",
         {

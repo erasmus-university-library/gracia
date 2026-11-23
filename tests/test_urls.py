@@ -15,15 +15,15 @@ ABSOLUTE = re.compile(r"^(https?://|#|mailto:|$)")
 ADMIN = {"X-User": "admin", "Accept": "text/html"}
 
 PAGES = (
-    "/library/api",
-    "/library/manage",
-    "/library/manage?tab=settings",
-    "/library/manage?tab=extensions",
-    "/library/jobs",
-    "/library/person/manage",
-    "/library/person/add",
-    "/library/user/1/edit",
-    "/library/type/manage",
+    "/test_repo/api",
+    "/test_repo/manage",
+    "/test_repo/manage?tab=settings",
+    "/test_repo/manage?tab=extensions",
+    "/test_repo/jobs",
+    "/test_repo/person/manage",
+    "/test_repo/person/add",
+    "/test_repo/user/1/edit",
+    "/test_repo/type/manage",
 )
 
 
@@ -35,7 +35,7 @@ class AbsoluteUrlsTest(WebCase):
         self.settings["gracia.security_policy"] = HeaderPolicy()  # ty: ignore[invalid-assignment]
         self.settings["gracia.jobs_dir"] = directory.name  # ty: ignore[invalid-assignment]
         self.application.create_repository(
-            "library",
+            "test_repo",
             admin=("admin", "correct horse battery"),
             content_types=[types.available()["person"]],
         )
@@ -53,12 +53,12 @@ class AbsoluteUrlsTest(WebCase):
                 )
 
     def test_the_static_files_are_absolute_too(self):
-        page = self.web.get("/library/manage", headers=ADMIN).text
+        page = self.web.get("/test_repo/manage", headers=ADMIN).text
         self.assertRegex(page, r'<link rel="icon"[^>]*href="http://localhost/_static/')
         self.assertRegex(
             page, r'<script type="text/javascript" src="http://localhost/_static/'
         )
 
     def test_the_addresses_in_the_json_are_absolute(self):
-        document = self.web.get("/library/api", headers={"X-User": "admin"}).json
-        self.assertEqual(document["servers"], [{"url": "http://localhost/library"}])
+        document = self.web.get("/test_repo/api", headers={"X-User": "admin"}).json
+        self.assertEqual(document["servers"], [{"url": "http://localhost/test_repo"}])

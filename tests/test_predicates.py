@@ -50,11 +50,11 @@ class PredicateCase(EditCase):
     def repo(self):
         self.config.begin()
         self.addCleanup(self.config.end)
-        node = self.application["library"]
+        node = self.application["test_repo"]
         self.addCleanup(node.close)
         return node
 
-    def page(self, path="/library/person/1/edit"):
+    def page(self, path="/test_repo/person/1/edit"):
         return self.client(self.config).get(path, headers=self.admin)
 
 
@@ -180,10 +180,10 @@ class PropertyCodeTest(PredicateCase):
         self,
     ):
         client = self.client(self.config)
-        form = client.get("/library/person/1/edit", headers=self.admin).forms[0]
+        form = client.get("/test_repo/person/1/edit", headers=self.admin).forms[0]
         self.assertIn(
             "in lower case",
-            client.get("/library/person/1/edit", headers=self.admin).text,
+            client.get("/test_repo/person/1/edit", headers=self.admin).text,
         )
         form["mbox"] = "ADA@Example.ORG"
         self.assertEqual(form.submit("save", headers=self.admin).status_int, 302)
@@ -191,7 +191,7 @@ class PropertyCodeTest(PredicateCase):
 
     def test_a_property_with_no_predicate_is_stored_as_it_is(self):
         client = self.client(self.config)
-        form = client.get("/library/person/1/edit", headers=self.admin).forms[0]
+        form = client.get("/test_repo/person/1/edit", headers=self.admin).forms[0]
         form["name"] = "Ada KING"
         form.submit("save", headers=self.admin)
         self.assertIn((FOAF + "name", "Ada KING"), self.values("rec:person:1"))
@@ -203,7 +203,7 @@ class ResourceUriTest(PredicateCase):
 
     def test_a_new_record_gets_the_ark_from_the_predicate(self):
         client = self.client(self.config)
-        form = client.get("/library/person/add", headers=self.admin).forms[0]
+        form = client.get("/test_repo/person/add", headers=self.admin).forms[0]
         form["name"] = "Grace"
         form.submit("save", headers=self.admin)
         self.assertIn(
@@ -223,7 +223,7 @@ class SchemaTest(PredicateCase):
     names."""
 
     def test_the_type_record_offers_the_files_of_its_directory(self):
-        page = self.page("/library/person/manage").text
+        page = self.page("/test_repo/person/manage").text
         select = must_search(r'<select name="schema".*?</select>', page, re.S)[0]
         self.assertEqual(
             re.findall(r'<option[^>]*value="([^"]+)"', select),
@@ -231,7 +231,7 @@ class SchemaTest(PredicateCase):
         )
 
     def test_the_other_fields_of_the_type_record_stay_text_fields(self):
-        page = self.page("/library/person/manage").text
+        page = self.page("/test_repo/person/manage").text
         for name in ("name", "slug", "assets"):
             self.assertRegex(page, rf'<input type="text" name="{name}"')
 
@@ -285,13 +285,13 @@ class BatchHookTest(PredicateCase):
 
     def test_every_record_of_the_batch_goes_through_the_sql_and_nothing_is_stored(self):
         node = self.repo()
-        before = node.store().counts()
+        before = node.store.counts()
         done = node.with_hooks(self.people())
         mailboxes = {q.object.value for q in done if q.predicate.value == FOAF + "mbox"}
         self.assertEqual(mailboxes, {"a1@x.org", "a2@x.org", "a3@x.org"})
         labels = {q.object.value for q in done if q.predicate.value == uri.LABEL}
         self.assertEqual(labels, {"P1", "P2", "P3"})  # the predicates of gracia run too
-        self.assertEqual(node.store().counts(), before)  # a trial leaves nothing behind
+        self.assertEqual(node.store.counts(), before)  # a trial leaves nothing behind
 
     def test_the_same_sql_again_gives_the_same_rows(self):
         node = self.repo()
@@ -310,8 +310,7 @@ class BatchHookTest(PredicateCase):
 class SaveTest(PredicateCase):
     def test_saving_a_record_runs_the_hooks_whoever_saves_it(self):
         record = self.repo()["person"]["1"]
-        with self.application.open_repository("library") as store:
-            record.save(store)
+        record.save()
         self.assertIn((uri.LABEL, "Ada"), self.values("rec:person:1"))
         self.assertIn(
             (uri.RESOURCE_URI, "ark:/99999/ir/person/1"), self.values("rec:person:1")

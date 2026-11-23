@@ -6,12 +6,12 @@ import unittest
 from pathlib import Path
 
 import pyoxigraph as ox
+from harness import open_application
 from pyramid.registry import Registry
 from test_web import WebCase
 
 from gracia import types
 from gracia.actions import RecordsChanged, process_pending
-from gracia.application import Application
 from gracia.graph import serialize_bytes
 from gracia.store import fetch_one
 from gracia.utils import assets, xslt
@@ -61,13 +61,12 @@ class DocsCase(WebCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.tmp = Path(self._tmp.name)
-        self.application = Application(
-            str(self.tmp / "gracia.db"), cache_dir=self.tmp / "cache"
+        self.application = open_application(
+            self, str(self.tmp / "gracia.db"), cache_dir=self.tmp / "cache"
         )
-        self.addCleanup(self.application.close)
         self.settings = {"gracia.application": self.application}
         self.application.create_repository(
-            "library",
+            "test_repo",
             admin=ADMIN,
             content_types=[types.describe("gracia.types.person")],
         )
@@ -78,15 +77,15 @@ class DocsCase(WebCase):
         data = ox.Dataset(
             ox.parse((PREFIXES + "".join(turtle)).encode(), format=ox.RdfFormat.TURTLE)
         )
-        with self.application.open_repository("library") as store:
+        with self.application.new_store("test_repo") as store:
             store.put(data)
 
     def rid(self, rec_uri: str) -> int:
-        with self.application.open_repository("library") as store:
+        with self.application.new_store("test_repo") as store:
             return store.record_id_of(rec_uri)  # ty: ignore[invalid-explicit-return]
 
     def library(self):
-        repository = self.application["library"]
+        repository = self.application["test_repo"]
         self.addCleanup(repository.close)
         return repository
 
@@ -94,7 +93,7 @@ class DocsCase(WebCase):
         return self.cache.docs.compiled(self.library())
 
     def doc(self, rec_uri: str) -> dict:
-        return self.cache.doc("library", self.rid(rec_uri), rec_uri)  # ty: ignore[invalid-explicit-return]
+        return self.cache.doc(self.application["test_repo"], self.rid(rec_uri), rec_uri)  # ty: ignore[invalid-explicit-return]
 
 
 class DocTest(DocsCase):
@@ -141,10 +140,10 @@ class DocTest(DocsCase):
         )  # a link points at a record: not words to search for
 
     def test_a_repository_with_no_types_has_the_base_docs(self):
-        with self.application.open_repository("library") as store:
+        with self.application.new_store("test_repo") as store:
             store.con.execute("DELETE FROM triples WHERE s = 'rec:repository:1'")
-        self.cache.etags("library", [])  # nothing: the point is the compile below
-        self.application.cache.docs.drop("library")
+        self.cache.etags("test_repo", [])  # nothing: the point is the compile below
+        self.application.cache.docs.drop("test_repo")
         self.assertEqual(self.doc("rec:thing:1")["slug"], "gear")
 
     def test_the_text_never_has_a_credential(self):
@@ -158,7 +157,7 @@ class DocTest(DocsCase):
             quad
             for i in ids.values()
             for quad in ox.parse(
-                self.cache.graph("library", i), format=ox.RdfFormat.RDF_XML
+                self.cache.graph("test_repo", i), format=ox.RdfFormat.RDF_XML
             )
         )
         made = self.cache.docs.bulk_update(
@@ -173,7 +172,7 @@ class DocTest(DocsCase):
     def test_a_record_that_is_not_in_the_input_is_an_error_and_the_others_are_made(
         self,
     ):
-        xml = self.cache.graph("library", self.rid("rec:thing:1")).decode()  # ty: ignore[missing-union-attribute]
+        xml = self.cache.graph("test_repo", self.rid("rec:thing:1")).decode()  # ty: ignore[missing-union-attribute]
         made = self.cache.docs.bulk_update(
             self.library(), {"rec:thing:1": 1, "rec:thing:99": 2}, xml
         )
@@ -182,7 +181,7 @@ class DocTest(DocsCase):
 
     def person_doc(self, repository) -> dict:
         rid = self.rid("rec:person:1")
-        xml = self.cache.graph("library", rid).decode()  # ty: ignore[missing-union-attribute]
+        xml = self.cache.graph("test_repo", rid).decode()  # ty: ignore[missing-union-attribute]
         return self.cache.docs.bulk_update(repository, {"rec:person:1": rid}, xml)[
             "rec:person:1"
         ]
@@ -191,7 +190,7 @@ class DocTest(DocsCase):
         repository = self.library()
         for name in ("doc-nothing-01.xsl", "evil/../x.xsl"):
             repository.res_types["person"].doc_template = name
-            self.cache.docs.drop("library")
+            self.cache.docs.drop("test_repo")
             with self.assertLogs("gracia.cache", level="WARNING"):
                 doc = self.person_doc(repository)
             self.assertNotIn("given_name", doc)  # the doc of the base
@@ -233,33 +232,35 @@ class DocCacheTest(DocsCase):
         store = self.cache.docs
         rid, etag = (
             self.rid("rec:person:1"),
-            self.cache.etags("library", [self.rid("rec:person:1")])[  # ty: ignore[not-subscriptable]
+            self.cache.etags("test_repo", [self.rid("rec:person:1")])[  # ty: ignore[not-subscriptable]
                 self.rid("rec:person:1")
             ][0],
         )
         fingerprint = self.compiled().fingerprint
-        self.assertIsNotNone(store.get("library", rid, etag, fingerprint))
-        self.assertIsNone(store.get("library", rid, etag, "0123456789abcdef"))
-        self.assertIsNone(store.get("library", rid, "f" * 16, fingerprint))
+        self.assertIsNotNone(store.get("test_repo", rid, etag, fingerprint))
+        self.assertIsNone(store.get("test_repo", rid, etag, "0123456789abcdef"))
+        self.assertIsNone(store.get("test_repo", rid, "f" * 16, fingerprint))
         self.assertEqual(len(calls), 1)
 
     def test_a_doc_that_cannot_be_made_is_not_kept(self):
-        self.assertIsNone(self.cache.doc("library", 99999, "rec:thing:99"))
+        self.assertIsNone(
+            self.cache.doc(self.application["test_repo"], 99999, "rec:thing:99")
+        )
 
     def test_without_a_cache_directory_a_doc_is_made_every_time(self):
-        app = Application(str(self.tmp / "gracia.db"))
-        self.addCleanup(app.close)
+        app = open_application(self, str(self.tmp / "gracia.db"))
         self.assertFalse(app.cache.keeps_docs)
         rid = self.rid("rec:thing:1")
-        self.assertEqual(app.cache.doc("library", rid, "rec:thing:1")["slug"], "gear")  # ty: ignore[not-subscriptable]
+        doc = app.cache.doc(app["test_repo"], rid, "rec:thing:1")
+        self.assertEqual(doc["slug"], "gear")  # ty: ignore[not-subscriptable]
 
     def test_a_deleted_record_loses_its_doc(self):
         self.doc("rec:thing:1")
         rid = self.rid("rec:thing:1")
-        self.cache.forget("library", [rid])
-        etag = self.cache.etags("library", [rid])[rid][0]  # ty: ignore[not-subscriptable]
+        self.cache.forget("test_repo", [rid])
+        etag = self.cache.etags("test_repo", [rid])[rid][0]  # ty: ignore[not-subscriptable]
         self.assertIsNone(
-            self.cache.docs.get("library", rid, etag, self.compiled().fingerprint)
+            self.cache.docs.get("test_repo", rid, etag, self.compiled().fingerprint)
         )
 
     def test_the_compiled_stylesheet_is_kept_until_the_repository_is_written(self):
@@ -290,8 +291,8 @@ class WorkerTest(DocsCase):
         self.assertEqual(docs_["rec:thing:1"]["type"], "thing")
         self.assertTrue(all("error" not in d for d in docs_.values()))
         rid = self.rid("rec:person:1")
-        etag = self.cache.etags("library", [rid])[rid][0]  # ty: ignore[not-subscriptable]
-        kept = self.cache.docs.get("library", rid, etag, self.compiled().fingerprint)
+        etag = self.cache.etags("test_repo", [rid])[rid][0]  # ty: ignore[not-subscriptable]
+        kept = self.cache.docs.get("test_repo", rid, etag, self.compiled().fingerprint)
         self.assertEqual(json.loads(kept), docs_["rec:person:1"])  # ty: ignore[invalid-argument-type]
 
     def test_the_view_then_serves_what_the_worker_made(self):
@@ -301,7 +302,7 @@ class WorkerTest(DocsCase):
         self.cache.docs.bulk_update = lambda *a, **k: (calls.append(1), real(*a, **k))[
             1
         ]
-        got = self.client().get("/library/person/1/doc", headers=basic(*ADMIN))
+        got = self.client().get("/test_repo/person/1/doc", headers=basic(*ADMIN))
         self.assertEqual(got.json["given_name"], "Ada")
         self.assertEqual(calls, [])
 
@@ -314,7 +315,7 @@ class WorkerTest(DocsCase):
             events = self.run_worker()
         self.assertTrue(events)
         self.assertTrue(all(event.docs == {} for event in events))
-        with self.application.open_repository("library") as store:
+        with self.application.new_store("test_repo") as store:
             self.assertEqual(
                 fetch_one(store.con.execute("SELECT count(*) FROM actions_queue"))[0], 0
             )
@@ -322,7 +323,7 @@ class WorkerTest(DocsCase):
 
 class DocViewTest(DocsCase):
     def test_the_doc_of_a_record_as_json_for_who_may_manage(self):
-        got = self.client().get("/library/person/1/doc", headers=basic(*ADMIN))
+        got = self.client().get("/test_repo/person/1/doc", headers=basic(*ADMIN))
         self.assertEqual(got.status_int, 200)
         self.assertEqual(got.content_type, "application/json")
         self.assertEqual(got.json["record"], "rec:person:1")
@@ -331,7 +332,7 @@ class DocViewTest(DocsCase):
     def test_nobody_else_sees_it(self):
         web = self.client()
         self.assertIn(
-            web.get("/library/person/1/doc", status="*").status_int, (401, 403)
+            web.get("/test_repo/person/1/doc", status="*").status_int, (401, 403)
         )
 
 
@@ -339,7 +340,7 @@ class DocTemplateFieldTest(DocsCase):
     def test_the_edit_form_of_a_type_has_a_select_of_the_files_in_doc(self):
         page = (
             self.client()
-            .get("/library/person/manage", headers={**basic(*ADMIN), **HTML})
+            .get("/test_repo/person/manage", headers={**basic(*ADMIN), **HTML})
             .text
         )
         self.assertIn('name="docTemplate"', page)
@@ -351,13 +352,13 @@ class SwitchingDocTemplateTest(DocsCase):
     which is what an import does."""
 
     def template(self):
-        repository = self.application["library"]
+        repository = self.application["test_repo"]
         self.addCleanup(repository.close)
         return repository.res_types["person"].doc_template
 
     def post(self, name: str, force: bool = False):
         page = self.client().get(
-            "/library/person/manage", headers={**basic(*ADMIN), **HTML}
+            "/test_repo/person/manage", headers={**basic(*ADMIN), **HTML}
         )
         form = page.forms["form-type-settings"]
         if force:
@@ -370,10 +371,10 @@ class SwitchingDocTemplateTest(DocsCase):
 
     def write(self, name: str | None) -> None:
         """The type record of the person type with this doc template (None: none)."""
-        repository = self.application["library"]
+        repository = self.application["test_repo"]
         self.addCleanup(repository.close)
         record = repository.res_types["person"].record
-        with self.application.open_repository("library") as store:
+        with self.application.new_store("test_repo") as store:
             quads = [
                 q
                 for q in store.get(record)
@@ -566,13 +567,13 @@ class ManagePageAfterSaveTest(DocsCase):
     """The manage page of a type after the type was saved: its record has a slug then,
     and looking the record up by its number answers with a redirect to the slug (an
     exception that left the view: the whole request was a 301 to
-    `/library/type/person`). The page finds its record without being sent anywhere."""
+    `/test_repo/type/person`). The page finds its record without being sent anywhere."""
 
     def test_the_page_and_a_second_save_work_after_a_save(self):
         web = self.client()
         headers = {**basic(*ADMIN), **HTML}
         for template in ("", "doc-full-01.xsl"):
-            page = web.get("/library/person/manage", headers=headers)
+            page = web.get("/test_repo/person/manage", headers=headers)
             self.assertEqual(page.status_int, 200)
             form = page.forms[
                 "form-type-settings"
@@ -584,7 +585,7 @@ class ManagePageAfterSaveTest(DocsCase):
             self.assertEqual(saved.status_int, 302)
             self.assertTrue(
                 saved.headers["Location"].endswith(
-                    "/library/person/manage?tab=settings"
+                    "/test_repo/person/manage?tab=settings"
                 )
             )
 
@@ -594,7 +595,7 @@ class SchemaModeTest(DocsCase):
     can be compared with them."""
 
     def offered(self) -> dict[str, dict]:
-        repository = self.application["library"]
+        repository = self.application["test_repo"]
         self.addCleanup(repository.close)
         return {
             f["name"]: f
@@ -693,7 +694,7 @@ class SchemaModeTest(DocsCase):
         # a first look at the repository drops its stylesheet: do it before putting ours
         # in
         self.cache.check()
-        self.cache.docs._compiled["library"] = xslt.Compiled(
+        self.cache.docs._compiled["test_repo"] = xslt.Compiled(
             text
         )  # the store closes it with the others
         found = {

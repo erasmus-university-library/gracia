@@ -12,7 +12,7 @@ def doc_json(request):
     record = request.context
     record_id = request.store.record_id_of(record.uri)
     doc = (
-        request.root.cache.doc(record.repository.__name__, record_id, record.uri)
+        request.root.cache.doc(record.repository, record_id, record.uri)
         if record_id is not None
         else None
     )

@@ -5,6 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from harness import open_store
+
 from gracia import cli
 from gracia.graph import streaming_parse
 from gracia.store import Store
@@ -95,7 +97,7 @@ class DbTestCase(unittest.TestCase):
         return list(streaming_parse(path, "ntriples"))
 
     def export_json(self, uri: str | None = None) -> str:
-        with Store(self.db) as store:
+        with open_store(self.db) as store:
             return store.export_json(uri)
 
     def write(self, name: str, body: str) -> Path:

@@ -47,11 +47,11 @@ class EtagTest(unittest.TestCase):
 class IndexCase(EditCase):
     def setUp(self):
         super().setUp()
-        with self.application.open_repository("library") as store:
+        with self.application.new_store("test_repo") as store:
             store.put(ox.Dataset(ox.parse(PEOPLE.encode(), format=ox.RdfFormat.TURTLE)))
 
     def store(self):
-        return self.application.open_repository("library")
+        return self.application.new_store("test_repo")
 
     def rename(self, number: int, name: str) -> None:
         """Save one of the people again with another name (the others are not
@@ -99,7 +99,7 @@ class DependenciesTest(IndexCase):
 
 
 class IndexViewTest(IndexCase):
-    def index(self, path="/library/person/1", **headers):
+    def index(self, path="/test_repo/person/1", **headers):
         return self.client().get(
             path, headers={**self.admin, **headers}, expect_errors=True
         )
@@ -117,7 +117,7 @@ class IndexViewTest(IndexCase):
 
     def test_it_is_nested_and_the_record_the_page_is_about_comes_first(self):
         for number, name in ((2, "Bob"), (3, "Cy"), (1, "Ada")):
-            got = self.index(f"/library/person/{number}")
+            got = self.index(f"/test_repo/person/{number}")
             self.assertEqual(got.status_int, 200)
             first = must_search(r'<[\w:]+ rdf:about="([^"]+)"', got.text)[1]
             self.assertEqual(
@@ -127,11 +127,11 @@ class IndexViewTest(IndexCase):
                 got.text, rf"\n +<foaf:name>{name}</foaf:name>"
             )  # indented, nested
         self.assertNotIn(
-            "rdf:nodeID", self.index("/library/person/2").text
+            "rdf:nodeID", self.index("/test_repo/person/2").text
         )  # inline, not by id
 
     def test_the_shapes_of_the_types_on_the_page_are_in_it_and_no_others(self):
-        text = self.index("/library/person/1").text
+        text = self.index("/test_repo/person/1").text
         names = {
             q.object.value
             for q in ox.parse(text.encode(), format=ox.RdfFormat.RDF_XML)
@@ -149,17 +149,17 @@ class IndexViewTest(IndexCase):
         )  # nothing on the page is a user
         self.assertNotIn("https://gracia.pub/ns/UserGroupShape", text)
         self.assertIn('xmlns:sh="http://www.w3.org/ns/shacl#"', text)
-        users = self.index("/library/user/1").text
+        users = self.index("/test_repo/user/1").text
         self.assertIn(
             "https://gracia.pub/ns/UserShape", users
         )  # and a user's page has its own
 
     def test_the_etag_follows_the_schema_files_of_the_types_on_the_page(self):
-        first = self.index("/library/person/2").headers["ETag"]
+        first = self.index("/test_repo/person/2").headers["ETag"]
         schema = Path(self.person_assets) / "shacl" / "Person-full-01.ttl"
         schema.write_text(schema.read_text() + "\n# a change\n")
-        self.assertNotEqual(self.index("/library/person/2").headers["ETag"], first)
-        self.assertEqual(self.index("/library/person/2").status_int, 200)
+        self.assertNotEqual(self.index("/test_repo/person/2").headers["ETag"], first)
+        self.assertEqual(self.index("/test_repo/person/2").status_int, 200)
 
     def test_the_etag_changes_with_what_the_page_is_made_of_and_with_nothing_else(self):
         first = self.index().headers["ETag"]
@@ -187,7 +187,7 @@ class IndexViewTest(IndexCase):
         self.assertIn("resource_uri", got.json)
 
     def test_the_credentials_of_a_user_are_not_in_it(self):
-        got = self.index("/library/user/1")
+        got = self.index("/test_repo/user/1")
         self.assertEqual(got.status_int, 200)
         self.assertNotIn(
             "<gracia:credentials", got.text
@@ -195,4 +195,4 @@ class IndexViewTest(IndexCase):
         self.assertIsNone(re.search(r"scrypt|\$argon|pbkdf", got.text))
 
     def test_a_record_that_is_not_there_is_not_found(self):
-        self.assertEqual(self.index("/library/person/99").status_int, 404)
+        self.assertEqual(self.index("/test_repo/person/99").status_int, 404)

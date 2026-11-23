@@ -6,13 +6,12 @@ import pkgutil
 import colander
 import pyoxigraph as ox
 import venusian
-from pyramid.exceptions import ConfigurationError
 from pyramid.threadlocal import get_current_request
-from zope.interface import classImplements, implementer
+from zope.interface import implementer
 
 from gracia import init, uri
 from gracia.forms import Form, none_to_nulls, nulls_to_none, to_json
-from gracia.interfaces import IExtension, IRepository, IRepositoryChild
+from gracia.interfaces import IExtension, IRepository
 
 log = logging.getLogger("gracia.extensions")
 ENTRY_POINT_GROUP = "gracia.extensions"
@@ -49,8 +48,8 @@ def _states(repository) -> dict[str, tuple[bool | None, dict]]:
 def _write(repository, name: str, enabled: bool | None, settings: dict) -> None:
     """The one place the blank node of an extension is written (below the content of the
     repository record): the old one is replaced."""
-    store = repository.store()
-    subject, record_graph = repository.content(store)
+    store = repository.store
+    subject, record_graph = repository.content()
     graph = next(
         iter(record_graph.quads_for_subject(ox.NamedNode(repository.uri)))
     ).graph_name
@@ -246,48 +245,6 @@ def add_gracia_extension(config, name: str, cls: type) -> None:
     config.action(("gracia extension", name), register)
 
 
-class _Child:
-    def __init__(self, factory, prefix: bool):
-        self.factory, self.prefix = factory, prefix
-
-
-def add_gracia_repository_child(
-    config, key: str, factory, prefix: bool = False
-) -> None:
-    """Config directive: `/<repo>/<key>` is a node made by `factory(repository,
-    segment)`. With `prefix`, any segment that starts with the key is. A key that a type
-    could have as its slug is refused (the repository would not know which is meant):
-    keep it among the reserved slugs, or give it a character a slug cannot have
-    (`ark:`)."""
-    slug_like = uri.slug_like(key)
-    if slug_like and key not in uri.RESERVED_SLUGS:
-        raise ConfigurationError(
-            f"{key!r} could be the slug of a type: add it to uri.RESERVED_SLUGS or use "
-            "another key"
-        )
-
-    def register():
-        child = _Child(factory, prefix)
-        classImplements(_Child, IRepositoryChild)
-        config.registry.registerUtility(child, IRepositoryChild, name=key)
-
-    config.action(("gracia repository child", key), register)
-
-
-def repository_child(registry, segment: str):
-    """The child registered for this segment of a repository address: its key exactly,
-    else the longest key that starts it. None when there is none."""
-    exact = registry.queryUtility(IRepositoryChild, segment)
-    if exact is not None:
-        return exact
-    starts = [
-        (key, child)
-        for key, child in registry.getUtilitiesFor(IRepositoryChild)
-        if child.prefix and segment.startswith(key)
-    ]
-    return max(starts, key=lambda pair: len(pair[0]))[1] if starts else None
-
-
 class ExtensionPredicate:
     """The view predicate `enabled_extension="ark"`: the view is there in a repository
     where the extension is on, and not there (404) in any other."""
@@ -313,7 +270,7 @@ class ExtensionPredicate:
 def include_modules(config, targets: list[str]) -> None:
     """Call the `includeme(config)` of every module of the packages that were scanned,
     when the module defines one (an imported one is not called): for what a decorator
-    cannot say, such as `config.add_gracia_repository_child(...)`. `config.scan` does
+    cannot say. `config.scan` does
     not do this by itself."""
     for target in targets:
         package = importlib.import_module(target)

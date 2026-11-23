@@ -32,7 +32,7 @@ def head(page: str) -> str:
 
 class HeadTest(JobsViewCase):
     def page(self) -> str:
-        return self.web.get("/library/jobs", headers=as_user("ed")).text
+        return self.web.get("/test_repo/jobs", headers=as_user("ed")).text
 
     def test_the_site_has_one_stylesheet_and_its_scripts_in_the_head(self):
         found = head(self.page())
@@ -86,7 +86,7 @@ class HeadTest(JobsViewCase):
             )
 
     def test_data_is_left_alone(self):
-        response = self.web.get("/library/jobs/list", headers=as_user("ed"))
+        response = self.web.get("/test_repo/jobs/list", headers=as_user("ed"))
         self.assertNotIn("_static", response.text)
 
     def test_the_icon_is_versioned_too(self):
@@ -238,6 +238,6 @@ class SettingsTest(JobsViewCase):
                 {**self.settings(), "gracia.fanstatic.recompute_hashes": "true"}
             )
             web = TestApp(config.make_wsgi_app())
-            web.get("/library/jobs", headers=as_user("ed"))
+            web.get("/test_repo/jobs", headers=as_user("ed"))
             self.assertTrue(sig.called)
             self.assertTrue(sig.call_args.kwargs["recompute_hashes"])

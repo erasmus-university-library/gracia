@@ -2,6 +2,7 @@ import shutil
 import tempfile
 
 import pyoxigraph as ox
+from harness import open_application
 from jobs_support import JobsCase, person
 
 from gracia.actions import RecordsChanged, process_pending
@@ -28,14 +29,14 @@ class GraphJobsCase(JobsCase):
     def make_application(self) -> Application:
         self.cache_dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.cache_dir, True)
-        return Application(":memory:", cache_dir=self.cache_dir)
+        return open_application(self, ":memory:", cache_dir=self.cache_dir)
 
     def setUp(self):
         super().setUp()
         self.put(LINKED)
-        with self.application.open_repository("library") as store:
+        with self.application.new_store("test_repo") as store:
             store.rebuild_etags()
-        self.store = self.application.open_repository("library")
+        self.store = self.application.new_store("test_repo")
         self.addCleanup(self.store.close)
 
     def graphs(self, export: dict | None = None, update: bool = True) -> str:
@@ -51,8 +52,8 @@ class GraphJobsCase(JobsCase):
     def kept(self, rec_uri: str) -> bytes | None:
         """What the graph cache has for a record, at the etag it has now."""
         record_id = self.store.record_id_of(rec_uri)
-        etag = self.application.cache.etags("library", [record_id])[record_id][0]  # ty: ignore[invalid-argument-type, not-subscriptable]
-        return self.application.cache._graph_store().get("library", record_id, etag)  # ty: ignore[invalid-argument-type, missing-union-attribute]
+        etag = self.application.cache.etags("test_repo", [record_id])[record_id][0]  # ty: ignore[invalid-argument-type, not-subscriptable]
+        return self.application.cache._graph_store().get("test_repo", record_id, etag)  # ty: ignore[invalid-argument-type, missing-union-attribute]
 
 
 class ExportGraphsTest(GraphJobsCase):
@@ -68,7 +69,7 @@ class ExportGraphsTest(GraphJobsCase):
             record_id = self.store.record_id_of(item["id"])
             self.assertEqual(
                 item["etag"],
-                self.application.cache.etags("library", [record_id])[record_id][0],  # ty: ignore[invalid-argument-type, not-subscriptable]
+                self.application.cache.etags("test_repo", [record_id])[record_id][0],  # ty: ignore[invalid-argument-type, not-subscriptable]
             )
             quads = list(
                 ox.parse(item["source"].encode(), format=ox.RdfFormat.N_TRIPLES)
@@ -129,13 +130,15 @@ class ExportGraphsTest(GraphJobsCase):
         self.assertEqual(count, 14)
 
     def test_the_export_job_has_an_option_for_it_and_offers_the_trig_to_download(self):
-        spec = ExportJob().spec("library", {"res_type": "person", "graphs": True})
+        spec = ExportJob().spec("test_repo", {"res_type": "person", "graphs": True})
         self.assertEqual(
             spec["stages"],
             [{"stage": "Export", "params": {"res_type": "person", "graphs": True}}],
         )
         self.assertEqual(
-            ExportJob().spec("library", {"res_type": "person"})["stages"][0]["params"],
+            ExportJob().spec("test_repo", {"res_type": "person"})["stages"][0][
+                "params"
+            ],
             {"res_type": "person"},
         )
         job_id = self.graphs({"res_type": "person"}, update=False)
@@ -174,7 +177,7 @@ class ExportQueueTest(GraphJobsCase):
             (waiting, waiting, self.store.last_transaction()),
         )
         record_id = self.store.record_id_of("rec:person:14")
-        etag = self.application.cache.etags("library", [record_id])[record_id][0]  # ty: ignore[invalid-argument-type, not-subscriptable]
+        etag = self.application.cache.etags("test_repo", [record_id])[record_id][0]  # ty: ignore[invalid-argument-type, not-subscriptable]
         self.assertEqual(
             (items["rec:person:14"]["etag"], items["rec:person:14"]["action"]),
             (etag, "insert"),
@@ -225,17 +228,13 @@ class UpdateCacheTest(GraphJobsCase):
         self.graphs()
         kept = self.kept("rec:person:14")
         record_id = self.store.record_id_of("rec:person:14")
-        fresh = Application(
-            ":memory:"
-        )  # no cache directory: made from the database every time
-        self.addCleanup(fresh.close)
 
         def triples(xml):
             dataset = ox.Dataset(ox.parse(xml, format=ox.RdfFormat.RDF_XML))
             dataset.canonicalize(ox.CanonicalizationAlgorithm.RDFC_1_0)
             return {str(q) for q in dataset}
 
-        made = self.application.cache.graph("library", record_id)  # ty: ignore[invalid-argument-type]
+        made = self.application.cache.graph("test_repo", record_id)  # ty: ignore[invalid-argument-type]
         self.assertEqual(made, kept)
         from gracia.cache import rdfxml
 
@@ -274,7 +273,7 @@ class UpdateCacheTest(GraphJobsCase):
     def test_the_job_of_the_repository_is_the_two_stages_and_the_administrators_only(
         self,
     ):
-        spec = UpdateCacheJob().spec("library", {})
+        spec = UpdateCacheJob().spec("test_repo", {})
         self.assertEqual(
             [s["stage"] for s in spec["stages"]], ["Export", "UpdateCache"]
         )
@@ -307,7 +306,7 @@ class ProcessActionsJobTest(GraphJobsCase):
         )
         rows = self.store.pending_actions()[0]
         self.assertGreater(rows, 100)  # more than one batch
-        job_id = self.make(*ProcessActionsJob().spec("library", {})["stages"])
+        job_id = self.make(*ProcessActionsJob().spec("test_repo", {})["stages"])
         self.assertEqual(
             self.run_job(job_id), runner.EXIT_DONE, self.job(job_id)["error_msg"]
         )
@@ -333,14 +332,14 @@ class ProcessActionsJobTest(GraphJobsCase):
     def test_with_nothing_waiting_the_job_is_done_at_once(self):
         self.subscribe()
         process_pending(self.application, context.registry())
-        job_id = self.make(*ProcessActionsJob().spec("library", {})["stages"])
+        job_id = self.make(*ProcessActionsJob().spec("test_repo", {})["stages"])
         self.assertEqual(
             self.run_job(job_id), runner.EXIT_DONE, self.job(job_id)["error_msg"]
         )
         self.assertEqual(self.stage(job_id, "Export")["batches"]["total"], 0)
 
     def test_it_is_a_job_of_the_repository_for_the_administrators(self):
-        spec = ProcessActionsJob().spec("library", {})
+        spec = ProcessActionsJob().spec("test_repo", {})
         self.assertEqual(
             [st["stage"] for st in spec["stages"]], ["Export", "ProcessActions"]
         )
@@ -349,7 +348,7 @@ class ProcessActionsJobTest(GraphJobsCase):
 
     def test_what_is_queued_after_the_export_stays_in_the_queue(self):
         events = self.subscribe()
-        job_id = self.make(*ProcessActionsJob().spec("library", {})["stages"])
+        job_id = self.make(*ProcessActionsJob().spec("test_repo", {})["stages"])
         self.assertEqual(
             self.run_job(job_id), runner.EXIT_DONE, self.job(job_id)["error_msg"]
         )
@@ -369,7 +368,7 @@ class ProcessActionsJobTest(GraphJobsCase):
         events = self.subscribe()
         self.store.delete(["rec:person:14"])
         self.put(LINKED.replace("Thirteen", "Thirteen again"))
-        job_id = self.make(*ProcessActionsJob().spec("library", {})["stages"])
+        job_id = self.make(*ProcessActionsJob().spec("test_repo", {})["stages"])
         self.assertEqual(
             self.run_job(job_id), runner.EXIT_DONE, self.job(job_id)["error_msg"]
         )

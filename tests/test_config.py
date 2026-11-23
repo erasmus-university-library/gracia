@@ -169,7 +169,7 @@ class DefaultFileTest(DbTestCase):
                         [
                             "repo",
                             "create",
-                            "library",
+                            "test_repo",
                             "--admin",
                             "admin",
                             "--admin-password-file",
@@ -182,7 +182,7 @@ class DefaultFileTest(DbTestCase):
         self.assertTrue(
             (self.tmp / "site.duckdb").exists()
         )  # the file the config names
-        self.assertIn("library", out.getvalue())
+        self.assertIn("test_repo", out.getvalue())
 
     def write_password(self) -> Path:
         path = self.tmp / "pw"

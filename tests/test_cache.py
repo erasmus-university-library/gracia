@@ -1,11 +1,12 @@
 import time
+from unittest import mock
 
 import pyoxigraph as ox
+from harness import open_application, open_store
 from test_etags import TYPES, EtagCase, record
 
-from gracia.application import Application
+from gracia import cache as cache_module
 from gracia.cache import Cache, GraphStore, rdfxml
-from gracia.store import Store
 
 
 class CacheCase(EtagCase):
@@ -21,28 +22,28 @@ class CacheCase(EtagCase):
             record("rec:work:1", refs=["rec:person:1"]),
             record("rec:work:2", refs=["rec:org:1"]),
         )
-        self.app = Application(self.db, cache_dir=self.tmp / "cache")
-        self.addCleanup(self.app.close)
+        self.app = open_application(self, self.db, cache_dir=self.tmp / "cache")
         self.cache = self.app.cache
 
     def rid(self, rec_uri: str) -> int:
-        return self.store.record_id_of(rec_uri)  # ty: ignore[invalid-explicit-return]
+        return self.store.record_id_of(rec_uri)
 
     def queries(self, cache: Cache | None = None) -> list[str]:
         """Count what the cache asks the database from here on: the repository stores it
-        opens and the plain connections it reads the table with."""
+        opens (`new_store`) and the cursors it is given (`cursor`: a store has one, and
+        the table of the times is read on one)."""
         asked = []
-        app = (cache or self.cache)._application
-        for name in ("open_repository", "raw"):
-            real = getattr(app, name)
-            setattr(
-                app,
-                name,
-                lambda *a, _real=real, _name=name, **k: (
-                    asked.append(_name),
-                    _real(*a, **k),
-                )[1],
-            )
+
+        def counting(name, real):
+            return lambda *a, **k: (asked.append(name), real(*a, **k))[1]
+
+        database = (cache or self.cache)._database
+        database.cursor = counting("cursor", database.cursor)
+        patcher = mock.patch.object(
+            cache_module, "new_store", counting("new_store", cache_module.new_store)
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
         return asked
 
 
@@ -62,14 +63,14 @@ class EtagsTest(CacheCase):
         self.cache.etags("main", [a])
         asked = self.queries()
         self.cache.etags("main", [a])
-        self.assertEqual(asked.count("open_repository"), 0)
+        self.assertEqual(asked.count("new_store"), 0)
         self.cache.etags("main", [a, b])
         self.assertEqual(
-            asked.count("open_repository"), 1
+            asked.count("new_store"), 1
         )  # one query for the one that was missing
         self.cache.etags("main", [a, b, 999])
         self.cache.etags("main", [999])  # a record that is not there is remembered too
-        self.assertEqual(asked.count("open_repository"), 2)
+        self.assertEqual(asked.count("new_store"), 2)
 
     def test_the_files_are_not_read_while_they_do_not_change(self):
         self.cache.etags("main", [self.rid("rec:work:1")])
@@ -81,15 +82,15 @@ class EtagsTest(CacheCase):
     def test_a_write_gives_a_new_generation_and_the_new_etag(self):
         work = self.rid("rec:work:1")
         before = self.cache.etags("main", [work])[work]
-        generation = self.cache._generations["main"]
+        generation = self.cache._table("main", "etags")
         self.put(
             record("rec:org:1", refs=["rec:org:2"], stamp="2026-06-01T00:00:00.000000Z")
         )  # something work 1 is made of
         after = self.cache.etags("main", [work])[work]
         self.assertNotEqual(after[0], before[0])  # ty: ignore[not-subscriptable]
         self.assertEqual(after, (self.etag("rec:work:1"), ("org", "person", "work")))
-        self.assertIsNot(self.cache._generations["main"], generation)
-        self.assertEqual(generation[1][work], before)  # the old generation is as it was
+        self.assertIsNot(self.cache._table("main", "etags"), generation)
+        self.assertEqual(generation[work], before)  # the old generation is as it was
 
     def test_a_deleted_record_is_none_after_the_write(self):
         person = self.rid("rec:person:2")
@@ -100,7 +101,7 @@ class EtagsTest(CacheCase):
     def test_a_write_that_bypasses_the_store_is_seen(self):
         work = self.rid("rec:work:1")
         self.cache.etags("main", [work])
-        generation = self.cache._generations["main"]
+        generation = self.cache._table("main", "etags")
         self.store.con.execute(
             "UPDATE triples SET lit = 'raw' WHERE s = 'rec:person:2' AND lit = 'x'"
         )
@@ -110,14 +111,14 @@ class EtagsTest(CacheCase):
             "NULL)"
         )
         self.cache.check()
-        self.assertIsNot(self.cache._generations["main"], generation)
+        self.assertIsNot(self.cache._table("main", "etags"), generation)
 
     def test_a_request_that_was_running_cannot_fill_the_new_generation(self):
         work = self.rid("rec:work:1")
-        _, old = self.cache._generations.setdefault("main", (None, {}))
+        old = self.cache._table("main", "etags")
         self.put(record("rec:person:2"), record("rec:org:1", refs=["rec:org:2"]))
         self.cache.check()
-        _, new = self.cache._generations["main"]
+        new = self.cache._table("main", "etags")
         old[work] = (
             "stale",
             (),
@@ -126,30 +127,30 @@ class EtagsTest(CacheCase):
         self.assertNotEqual(self.cache.etags("main", [work])[work][0], "stale")  # ty: ignore[not-subscriptable]
 
     def test_without_a_file_the_table_is_read_every_time(self):
-        cache = Application(":memory:").cache
-        self.addCleanup(cache._application.close)
-        self.assertEqual(cache._watch, [])
+        app = open_application(self, ":memory:")
+        cache = app.cache
+        self.assertEqual(cache._files, [])
         asked = self.queries(cache)
         cache.check()
         cache.check()
-        self.assertEqual(asked.count("raw"), 2)
+        self.assertEqual(asked.count("cursor"), 2)
 
     def test_a_rebuild_of_the_etags_is_a_write_for_the_cache(self):
         work = self.rid("rec:work:1")
         self.cache.etags("main", [work])
-        generation = self.cache._generations["main"]
+        generation = self.cache._table("main", "etags")
         time.sleep(0.01)
         self.store.rebuild_etags()
         self.cache.check()
-        self.assertIsNot(self.cache._generations["main"], generation)
+        self.assertIsNot(self.cache._table("main", "etags"), generation)
 
     def test_an_application_watches_its_file_and_a_memory_database_nothing(self):
         self.assertEqual(
-            [p.name for p in self.cache._watch], [self.db.name, self.db.name + ".wal"]
+            [p.name for p in self.cache._files],
+            [self.db.name, self.db.name + ".wal"],
         )
-        memory = Application(":memory:")
-        self.addCleanup(memory.close)
-        self.assertEqual(memory.cache._watch, [])
+        memory = open_application(self, ":memory:")
+        self.assertEqual(memory.cache._files, [])
 
 
 class GraphTest(CacheCase):
@@ -181,7 +182,7 @@ class GraphTest(CacheCase):
         asked = self.queries()
         self.assertEqual(self.cache.graph("main", work), first)
         self.assertEqual(
-            asked.count("open_repository"), 0
+            asked.count("new_store"), 0
         )  # neither the etag nor the graph was asked for
 
     def test_a_write_to_what_the_record_is_made_of_makes_the_graph_again(self):
@@ -210,7 +211,7 @@ class GraphTest(CacheCase):
         asked = self.queries()
         self.assertEqual(self.cache.graph("main", work), first)
         self.assertEqual(
-            asked.count("open_repository"), 1
+            asked.count("new_store"), 1
         )  # the etag was asked for again, the graph was not
 
     def test_a_deleted_record_has_no_graph_any_more(self):
@@ -220,7 +221,7 @@ class GraphTest(CacheCase):
         self.assertIsNone(self.cache.graph("main", person))
 
     def test_without_a_directory_the_graph_is_made_every_time(self):
-        cache = Cache(self.app)
+        cache = Cache(self.app.database, self.app.registry)
         work = self.rid("rec:work:1")
         self.assertEqual(
             self.subjects(cache.graph("main", work)),  # ty: ignore[invalid-argument-type]
@@ -229,7 +230,7 @@ class GraphTest(CacheCase):
         self.assertIsNone(cache._graph_store())
 
     def test_the_graphs_of_repositories_are_apart(self):
-        other = Store(self.db, repo="other", create=True)
+        other = open_store(self.db, repo="other", create=True)
         self.addCleanup(other.close)
         other.set_type_ids(TYPES)
         other.put(record("rec:org:1", refs=["rec:org:2"], res="ark:/1/other/1"))
@@ -279,7 +280,7 @@ class GraphStoreTest(CacheCase):
         self.assertIsNone(graphs.get("main", 1, etag))
 
     def test_the_labels_of_the_sources_are_valid_nodeids_and_are_kept(self):
-        _, text = self.store.closure_source(self.rid("rec:work:1"))  # ty: ignore[not-iterable]
+        _, text = self.store.closure_source(self.rid("rec:work:1"))
         xml = rdfxml(
             text
         )  # not canonicalized: the labels are the ones the database made
@@ -321,7 +322,7 @@ class ClosureSourceTest(CacheCase):
     def test_the_etag_and_the_sources_of_the_record_first_and_then_what_it_is_made_of(
         self,
     ):
-        etag, text = self.store.closure_source(self.rid("rec:work:1"))  # ty: ignore[not-iterable]
+        etag, text = self.store.closure_source(self.rid("rec:work:1"))
         self.assertEqual(etag, self.etag("rec:work:1"))
         sources = dict(
             self.store.con.execute(

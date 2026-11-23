@@ -8,7 +8,7 @@ from webtest import TestApp
 
 from gracia.main import make_config
 
-URL = "/library/person/manage"
+URL = "/test_repo/person/manage"
 ADMIN = as_user("admin")
 
 
@@ -24,13 +24,13 @@ class AccessTest(JobsViewCase):
 
     def test_it_is_in_the_api_document_for_those_who_may_manage(self):
         paths = self.web.get(
-            "/library/api", headers={**ADMIN, "Accept": "application/json"}
+            "/test_repo/api", headers={**ADMIN, "Accept": "application/json"}
         ).json["paths"]
         self.assertEqual(
             paths["/{type}/manage"]["get"]["x-gracia-permission"], "manage"
         )
         editor = self.web.get(
-            "/library/api", headers={**as_user("ed"), "Accept": "application/json"}
+            "/test_repo/api", headers={**as_user("ed"), "Accept": "application/json"}
         )
         self.assertNotIn("/{type}/manage", editor.json["paths"])
 
@@ -71,7 +71,8 @@ class PageTest(JobsViewCase):
         page = self.page()
         button = must_search(r"<button[^>]*data-start-job[^>]*>", page)[0]
         self.assertIn(
-            'data-start-job="http://localhost/library/jobs/start?job=validate"', button
+            'data-start-job="http://localhost/test_repo/jobs/start?job=validate"',
+            button,
         )
         self.assertIn('data-start-error="#validate-problem"', button)
         self.assertIn(
@@ -86,7 +87,7 @@ class PageTest(JobsViewCase):
         page = self.page()
         self.assertRegex(
             page,
-            r'data-job-panel=""\s+data-list-url="http://localhost/library/jobs/list"',
+            r'data-job-panel=""\s+data-list-url="http://localhost/test_repo/jobs/list"',
         )
         self.assertIn('data-filter="job=validate&amp;subject=person"', page)
         self.assertIn(
@@ -97,7 +98,7 @@ class PageTest(JobsViewCase):
         self.assertIn("data-log-fold", page)
 
     def test_the_jobs_page_still_shows_its_table(self):
-        page = self.web.get("/library/jobs", headers=ADMIN).text
+        page = self.web.get("/test_repo/jobs", headers=ADMIN).text
         self.assertIn('data-compact=""', page)
         self.assertNotIn("align-middle d-none", page)
 
@@ -107,7 +108,7 @@ class PageTest(JobsViewCase):
         self.assertIn("htmx.min.js", head)
 
     def test_the_edit_address_of_the_type_record_comes_here(self):
-        got = self.web.get("/library/type/5/edit", headers=ADMIN)
+        got = self.web.get("/test_repo/type/5/edit", headers=ADMIN)
         self.assertEqual(got.status_int, 302)
         self.assertEqual(
             got.headers["Location"], "http://localhost" + URL + "?tab=settings"
@@ -143,9 +144,9 @@ class IdentificationTabTest(JobsViewCase):
         )
 
     def numbering(self) -> dict:
-        node = self.application["library"]
+        node = self.application["test_repo"]
         self.addCleanup(node.close)
-        return node.store().numbering("person")
+        return node.store.numbering("person")
 
     def test_the_tab_is_before_the_jobs_and_shows_the_number_that_is_taken(self):
         page = self.page()
@@ -166,9 +167,9 @@ class IdentificationTabTest(JobsViewCase):
         self.assertEqual(self.post(500).status_int, 302)
         self.assertEqual(self.numbering()["next"], 501)
         self.assertRegex(self.pane(), r'name="last"[^>]*value="500"')
-        node = self.application["library"]
+        node = self.application["test_repo"]
         self.addCleanup(node.close)
-        self.assertEqual(node.store().mint_id("person"), 501)
+        self.assertEqual(node.store.mint_id("person"), 501)
         self.assertEqual(
             self.numbering()["highest"], 12
         )  # nothing was made, only reserved
@@ -220,7 +221,8 @@ class JobsTabTest(JobsViewCase):
                 form, r'<input type="hidden" name="res_type" value="person"'
             )
             self.assertIn(
-                f'data-start-job="http://localhost/library/jobs/start?job={name}"', form
+                f'data-start-job="http://localhost/test_repo/jobs/start?job={name}"',
+                form,
             )
         validate = must_search(r'<form id="type-job-validate".*?</form>', pane, re.S)[0]
         self.assertIn('data-start-fields="res_type,schema"', validate)
@@ -255,7 +257,7 @@ class SaveTest(JobsViewCase):
         )
 
     def current(self) -> str:
-        node = self.application["library"]
+        node = self.application["test_repo"]
         self.addCleanup(node.close)
         return node["person"].schema
 
@@ -264,7 +266,7 @@ class SaveTest(JobsViewCase):
         got = self.save("Person-strict-01.ttl")
         self.assertEqual(got.status_int, 302)
         self.assertTrue(
-            got.headers["Location"].endswith("/library/person/manage?tab=settings")
+            got.headers["Location"].endswith("/test_repo/person/manage?tab=settings")
         )
         self.assertEqual(self.current(), "Person-strict-01.ttl")
         again = self.web.get(
@@ -281,7 +283,7 @@ class SaveTest(JobsViewCase):
 
     def test_the_rest_of_the_type_is_left_as_it_was(self):
         self.save("Person-strict-01.ttl")
-        node = self.application["library"]
+        node = self.application["test_repo"]
         self.addCleanup(node.close)
         res_type = node["person"]
         self.assertEqual(
@@ -328,7 +330,7 @@ class ValidateBeforeSavingTest(JobsViewCase):
             ("validate", "person", "user:admin"),
         )
         self.assertEqual(job["stages"][1]["params"]["schema"], "Person-strict-01.ttl")
-        node = self.application["library"]
+        node = self.application["test_repo"]
         self.addCleanup(node.close)
         self.assertEqual(
             node["person"].schema, "Person-full-01.ttl"
@@ -338,7 +340,7 @@ class ValidateBeforeSavingTest(JobsViewCase):
         mine = self.start("admin", res_type="person").json["id"]
         self.start("admin", res_type="user")  # a validation of another type
         found = self.web.get(
-            "/library/jobs/list?job=validate&subject=person", headers=ADMIN
+            "/test_repo/jobs/list?job=validate&subject=person", headers=ADMIN
         ).json["jobs"]
         self.assertEqual([j["id"] for j in found], [mine])
 
@@ -356,7 +358,7 @@ class TabsTest(JobsViewCase):
         return TestApp(config.make_wsgi_app())
 
     def current_schema(self) -> str:
-        node = self.application["library"]
+        node = self.application["test_repo"]
         self.addCleanup(node.close)
         return node["person"].schema
 
@@ -370,7 +372,7 @@ class TabsTest(JobsViewCase):
         pane = must_search(r'id="tab-settings".*?</form>', page, re.S)[0]
         self.assertIn('id="form-type-settings"', pane)  # the form is named for its tab
         self.assertIn(
-            'action="http://localhost/library/person/manage?tab=settings"', pane
+            'action="http://localhost/test_repo/person/manage?tab=settings"', pane
         )  # all post to manage
         self.assertNotIn(
             'name="tab"', pane
@@ -412,7 +414,7 @@ class TabsTest(JobsViewCase):
         for name in ("settings", "notes"):
             self.assertRegex(
                 page,
-                rf'id="form-type-{name}"[^>]*?action="http://localhost/library/person/manage\?tab={name}"',
+                rf'id="form-type-{name}"[^>]*?action="http://localhost/test_repo/person/manage\?tab={name}"',
             )
 
     def test_a_post_goes_to_the_tab_it_names_and_a_form_that_was_not_right_comes_back_in_it(  # noqa: E501
@@ -436,7 +438,7 @@ class TabsTest(JobsViewCase):
         )
         self.assertEqual(good.status_int, 302)
         self.assertTrue(
-            good.headers["Location"].endswith("/library/person/manage?tab=notes")
+            good.headers["Location"].endswith("/test_repo/person/manage?tab=notes")
         )
         self.assertEqual(
             self.current_schema(), "Person-full-01.ttl"
@@ -499,7 +501,7 @@ class FlashTest(JobsViewCase):
         self,
     ):
         web = self.web_with_tabs()
-        self.assertNotIn("Set-Cookie", web.get("/library/", headers=ADMIN).headers)
+        self.assertNotIn("Set-Cookie", web.get("/test_repo/", headers=ADMIN).headers)
         self.assertNotIn("Set-Cookie", web.get(URL, headers=ADMIN).headers)
         cookie = self.note(web, "hello").headers["Set-Cookie"]
         self.assertIn("gracia_session=", cookie)

@@ -1,6 +1,10 @@
 import os
 
+import pytest
+from pyramid import testing
+
 os.environ["GRACIA_CONFIG"] = ""
+
 
 # The test data is tiny, and every pytest-xdist worker is a process with its own DuckDB,
 # which by
@@ -45,27 +49,31 @@ duckdb.connect = _connect_with_few_threads  # ty: ignore[invalid-assignment]
 # second
 # repository, gets the real thing.
 import atexit  # noqa: E402
+import contextlib  # noqa: E402
 import shutil  # noqa: E402
 import tempfile  # noqa: E402
 from pathlib import Path  # noqa: E402
 
 from gracia import uri as _uri  # noqa: E402
 from gracia.application import Application  # noqa: E402
+from gracia.cache import Cache  # noqa: E402
+from gracia.database import Database  # noqa: E402
+from gracia.main import init, shutdown  # noqa: E402
 
 _TEMPLATES = Path(tempfile.mkdtemp(prefix="gracia_test_repositories_"))
 atexit.register(shutil.rmtree, _TEMPLATES, ignore_errors=True)
 _templates: dict[tuple, Path] = {}
 _clones = iter(range(1, 10**9))
 _real_init, _real_close, _real_create = (
-    Application.__init__,
-    Application.close,
+    Database.__init__,
+    Database.close,
     Application.create_repository,
 )
 
 
-def _init(self, path=":memory:", **kwargs):
-    _real_init(self, path, **kwargs)
-    self._in_memory = str(path) == ":memory:"
+def _init(self, db_file=":memory:", **kwargs):
+    _real_init(self, db_file, **kwargs)
+    self._in_memory = str(db_file) == ":memory:"
     self._clone: Path | None = None
 
 
@@ -78,23 +86,43 @@ def _close(self):
 
 
 def _swap_in(application, template: Path) -> None:
-    """The application holds a copy of the database in the template file."""
+    """The database of the application is a copy of the one in the template file."""
+    database = application.database
     clone = _TEMPLATES / f"clone-{next(_clones)}.db"
     shutil.copy(template, clone)
-    application._con.close()
-    application._con = duckdb.connect(
+    database._con.close()
+    database._con = duckdb.connect(
         str(clone)
     )  # the connection of a test with a database file, with the data in it
-    application._clone = clone
+    database._clone = clone
 
 
 def _clonable(application) -> bool:
+    database = application.database
     return (
-        not application.remote
-        and application._in_memory
-        and application._clone is None
+        not database.remote
+        and database._in_memory
+        and database._clone is None
         and not application.list_repositories()
     )
+
+
+@contextlib.contextmanager
+def _built_on(template: Path, registry):
+    """An application on the template file, in `registry` (the types and extensions of
+    the application that wants the copy are in it): it is only there to make what is
+    copied, so what it puts in the registry (its database and cache, what they keep)
+    is taken out again afterwards."""
+    names = ("database", "cache", "indexes", "application", *Cache.KEPT)
+    saved = {name: registry[name] for name in names if name in registry}
+    built = init(registry, template)
+    try:
+        yield built
+    finally:
+        shutdown(registry)
+        for name in names:
+            registry.pop(name, None)
+        registry.update(saved)
 
 
 def prepared(application, key, build) -> None:
@@ -111,11 +139,8 @@ def prepared(application, key, build) -> None:
     template = _templates.get(("prepared", key))
     if template is None:
         template = _TEMPLATES / f"template-{len(_templates)}.db"
-        built = Application(template)
-        try:
+        with _built_on(template, application.registry) as built:
             build(built)
-        finally:
-            built.close()
         _templates[("prepared", key)] = template
     _swap_in(application, template)
 
@@ -146,18 +171,15 @@ def _create_repository(
     template = _templates.get(key)
     if template is None:  # the normal way, once, into a file that is then only copied
         template = _TEMPLATES / f"template-{len(_templates)}.db"
-        built = Application(template)
-        try:
+        with _built_on(template, self.registry) as built:
             if not _real_create(built, repo_id, admin, content_types, ark):
                 return _real_create(self, repo_id, admin, content_types, ark)
-        finally:
-            built.close()
         _templates[key] = template
     _swap_in(self, template)
     return True
 
 
-Application.__init__, Application.close, Application.create_repository = (
+Database.__init__, Database.close, Application.create_repository = (
     _init,
     _close,
     _create_repository,
@@ -232,3 +254,12 @@ def _configured(self):
 
 
 Store._configured = _configured
+
+
+@pytest.fixture(autouse=True)
+def fresh_registry():
+    """Every test has a registry of its own as the current one (what an `Application`
+    without one of its own uses): what the application keeps in it (the etags, the
+    slugs) is not seen by the next test."""
+    with testing.testConfig():
+        yield

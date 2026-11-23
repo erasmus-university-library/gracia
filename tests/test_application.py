@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pyoxigraph as ox
 from base import DATA, REC, DbTestCase, rec
+from harness import open_application, open_store, opened
 
-from gracia.application import Application
-from gracia.store import NoSuchRepository, Store, fetch_one
+from gracia.store import NoSuchRepository, fetch_one
 
 EX = "http://example.org/"
 
@@ -20,18 +20,17 @@ def dataset(name: str, value: str = "x") -> ox.Dataset:
 class ApplicationTest(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
-        self.app = Application(":memory:")
-        self.addCleanup(self.app.close)
+        self.app = open_application(self, ":memory:")
 
     def test_starts_without_repositories(self):
         self.assertEqual(self.app.list_repositories(), [])
 
     def test_create_and_list(self):
-        self.assertTrue(self.app.create_repository("library"))
-        self.assertFalse(self.app.create_repository("library"))  # idempotent
+        self.assertTrue(self.app.create_repository("test_repo"))
+        self.assertFalse(self.app.create_repository("test_repo"))  # idempotent
         self.assertTrue(self.app.create_repository("archive"))
-        self.assertEqual(self.app.list_repositories(), ["archive", "library"])
-        self.assertTrue(self.app.has_repository("library"))
+        self.assertEqual(self.app.list_repositories(), ["archive", "test_repo"])
+        self.assertTrue(self.app.has_repository("test_repo"))
         self.assertFalse(self.app.has_repository("nope"))
 
     def test_main_is_an_ordinary_repository(self):
@@ -54,7 +53,7 @@ class ApplicationTest(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.app.create_repository(bad)
                 with self.assertRaises(NoSuchRepository):
-                    self.app.open_repository(bad)
+                    self.app.new_store(bad)
         self.assertEqual(self.app.list_repositories(), [])
 
     def test_reserved_ids_are_refused(self):
@@ -73,12 +72,12 @@ class ApplicationTest(unittest.TestCase):
                 self.app.create_repository(reserved)
 
     def test_a_repository_is_a_duckdb_schema_with_its_own_tables_and_macros(self):
-        self.app.create_repository("library")
-        cursor = self.app._con.cursor()  # ty: ignore[missing-union-attribute]
+        self.app.create_repository("test_repo")
+        cursor = self.app.database._con.cursor()  # ty: ignore[missing-union-attribute]
         tables = {
             r[0]
             for r in cursor.execute(
-                "SELECT table_name FROM duckdb_tables() WHERE schema_name = 'library'"
+                "SELECT table_name FROM duckdb_tables() WHERE schema_name = 'test_repo'"
             ).fetchall()
         }
         self.assertEqual(
@@ -110,13 +109,13 @@ class ApplicationTest(unittest.TestCase):
         macros = fetch_one(
             cursor.execute(
                 "SELECT count(*) FROM duckdb_functions() "
-                "WHERE schema_name = 'library' AND function_name = 'triples_rows'"
+                "WHERE schema_name = 'test_repo' AND function_name = 'triples_rows'"
             )
         )[0]
         self.assertEqual(macros, 1)
         ids = cursor.execute(
             "SELECT function_name FROM duckdb_functions() WHERE schema_name = "
-            "'library' "
+            "'test_repo' "
             "AND function_name IN ('type_slug', 'record_id', 'record_uri', "
             "'resource_uri') "
             "ORDER BY 1"
@@ -127,8 +126,8 @@ class ApplicationTest(unittest.TestCase):
         )
 
     def test_the_types_are_found_by_their_class_and_the_groups_by_their_ark(self):
-        self.app.create_repository("library")
-        with self.app.open_repository("library") as store:
+        self.app.create_repository("test_repo")
+        with self.app.new_store("test_repo") as store:
             found = store.records_with_resource_uris(
                 [
                     "https://gracia.pub/ns/UserGroup",
@@ -152,13 +151,13 @@ class ApplicationTest(unittest.TestCase):
 
     def test_opening_an_unknown_repository_says_how_to_create_it(self):
         with self.assertRaisesRegex(NoSuchRepository, "gracia repo create nope"):
-            self.app.open_repository("nope")
+            self.app.new_store("nope")
         self.assertEqual(self.app.list_repositories(), [])  # opening did not create it
 
     def test_repositories_share_nothing(self):
         self.app.create_repository("a")
         self.app.create_repository("b")
-        with self.app.open_repository("a") as a, self.app.open_repository("b") as b:
+        with self.app.new_store("a") as a, self.app.new_store("b") as b:
             b.set_type_ids([("book", 5)])  # b knows the type, and has no record of it
             a.put(dataset("book"))
             self.assertEqual(len(a.get(REC["book"])), 1)
@@ -171,8 +170,8 @@ class ApplicationTest(unittest.TestCase):
     def test_cursors_and_forks_use_the_repository_schema(self):
         """A cursor does not inherit the schema: the streaming export and forks must
         select it."""
-        self.app.create_repository("library")
-        with self.app.open_repository("library") as store:
+        self.app.create_repository("test_repo")
+        with self.app.new_store("test_repo") as store:
             store.put(dataset("book"))
             self.assertEqual(
                 store.export_ntriples(self.tmp / "book.nt", [REC["book"]]), 1
@@ -181,14 +180,14 @@ class ApplicationTest(unittest.TestCase):
                 self.assertEqual(len(fork.get(REC["book"])), 1)
 
     def test_concurrent_readers_each_get_their_own_store(self):
-        self.app.create_repository("library")
-        with self.app.open_repository("library") as store:
+        self.app.create_repository("test_repo")
+        with self.app.new_store("test_repo") as store:
             store.put(dataset("book"))
         failures, results = [], []
 
         def read():
             try:
-                with self.app.open_repository("library") as s:
+                with self.app.new_store("test_repo") as s:
                     results.append(len(s.get(REC["book"])))
             except Exception as err:
                 failures.append(err)
@@ -203,17 +202,17 @@ class ApplicationTest(unittest.TestCase):
 class ConcurrentWritersTest(unittest.TestCase):
     def test_writers_adding_the_same_new_term_all_succeed(self):
         """They race for the same dictionary entry; the loser repeats its load."""
-        with Application(":memory:") as app:
-            app.create_repository("library")
-            with app.open_repository(
-                "library"
+        with opened(":memory:") as app:
+            app.create_repository("test_repo")
+            with app.new_store(
+                "test_repo"
             ) as store:  # the types are there before the writers start
                 store.set_type_ids([("book", 20)])
             errors = []
 
             def write(n):
                 try:
-                    with app.open_repository("library") as store:
+                    with app.new_store("test_repo") as store:
                         store.put(dataset(f"book{n + 1}"))
                 except Exception as err:
                     errors.append(err)
@@ -224,7 +223,7 @@ class ConcurrentWritersTest(unittest.TestCase):
             for thread in threads:
                 thread.join()
             self.assertEqual(errors, [])
-            with app.open_repository("library") as store:
+            with app.new_store("test_repo") as store:
                 self.assertEqual(
                     len(store.get([rec(f"book{n + 1}") for n in range(6)])), 6
                 )
@@ -232,22 +231,22 @@ class ConcurrentWritersTest(unittest.TestCase):
 
 class ApplicationOnDiskTest(DbTestCase):
     def test_repositories_survive_a_restart(self):
-        with Application(self.db) as app:
-            app.create_repository("library")
-            with app.open_repository("library") as store:
+        with opened(self.db) as app:
+            app.create_repository("test_repo")
+            with app.new_store("test_repo") as store:
                 store.put(dataset("book"))
-        with Application(self.db) as app:
-            self.assertEqual(app.list_repositories(), ["library"])
-            with app.open_repository("library") as store:
+        with opened(self.db) as app:
+            self.assertEqual(app.list_repositories(), ["test_repo"])
+            with app.new_store("test_repo") as store:
                 self.assertEqual(len(store.get(REC["book"])), 1)
 
     def test_a_repository_may_be_named_like_the_database_file(self):
         """The catalog of gracia.db is `gracia`: a schema of that name must not be
         ambiguous."""
         path = self.tmp / "gracia.db"
-        with Application(path) as app:
+        with opened(path) as app:
             app.create_repository("gracia")
-            with app.open_repository("gracia") as store:
+            with app.new_store("gracia") as store:
                 store.put(dataset("book"))
                 self.assertEqual(len(store.get(REC["book"])), 1)
                 self.assertEqual(
@@ -256,32 +255,34 @@ class ApplicationOnDiskTest(DbTestCase):
 
     def test_store_by_path_needs_an_existing_repository_except_main(self):
         with self.assertRaises(NoSuchRepository):
-            Store(self.db, repo="library")
-        with Store(self.db, repo="library", create=True) as store:
-            self.assertEqual(store.repo, "library")
-        with Store(self.db, repo="library") as store:  # now it exists
+            open_store(self.db, repo="test_repo")
+        with open_store(self.db, repo="test_repo", create=True) as store:
+            self.assertEqual(store.repo, "test_repo")
+        with open_store(self.db, repo="test_repo") as store:  # now it exists
             self.assertEqual(
                 store.counts()["rows"], 0
             )  # not through the application: no data
-        with Store(self.db) as store:  # the default repository is created on first use
+        with open_store(
+            self.db
+        ) as store:  # the default repository is created on first use
             self.assertEqual(store.repo, "main")
 
 
 class RepositoryCommandsTest(DbTestCase):
     def test_create_and_list(self):
-        code, out, err = self.create_repositories("library", "archive")
+        code, out, err = self.create_repositories("test_repo", "archive")
         self.assertEqual(code, 0, err)
-        self.assertIn("created repository library", out)
+        self.assertIn("created repository test_repo", out)
         self.assertIn("created repository archive", out)
         self.assertTrue(self.db.exists())  # the database file was started
         code, out, _ = self.gracia("repo", "list")
-        self.assertEqual(out.split(), ["archive", "library"])
+        self.assertEqual(out.split(), ["archive", "test_repo"])
 
     def test_create_twice_is_fine(self):
-        self.create_repositories("library")
-        code, out, _ = self.create_repositories("library")
+        self.create_repositories("test_repo")
+        code, out, _ = self.create_repositories("test_repo")
         self.assertEqual(code, 0)
-        self.assertIn("repository library already exists", out)
+        self.assertIn("repository test_repo already exists", out)
 
     def test_bad_ids_are_refused(self):
         for bad in ("Bad-ID", "docs", "1abc"):
@@ -328,7 +329,7 @@ class RepositoryCommandsTest(DbTestCase):
 
 class SqlInjectionTest(unittest.TestCase):
     def test_a_hostile_id_never_reaches_sql(self):
-        with Application(":memory:") as app:
+        with opened(":memory:") as app:
             for hostile in (
                 'x"; DROP SCHEMA main; --',
                 "x' OR '1'='1",

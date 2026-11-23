@@ -10,6 +10,7 @@ import colander  # noqa: F401 - used by the data below
 import duckdb
 import luigi
 import pyoxigraph as ox
+from harness import open_application
 
 from gracia.application import Application
 from gracia.jobs import runner
@@ -41,7 +42,7 @@ REPOSITORY = """
 @prefix dct: <http://purl.org/dc/terms/> .
 @prefix foaf: <http://xmlns.com/foaf/0.1/> .
 <rec:repository:1> a gracia:Record ;
-    gracia:resource [ a gracia:Repository ; gracia:title "library" ;
+    gracia:resource [ a gracia:Repository ; gracia:title "test_repo" ;
         gracia:types ( gracia:Repository gracia:Type gracia:User gracia:UserGroup
           foaf:Person ) ] .
 <rec:type:5> a gracia:Record ; gracia:resource_uri foaf:Person ;
@@ -162,12 +163,11 @@ class Tool(Stage):
 
 
 class JobsCase(unittest.TestCase):
-    """An application with a repository `library` that has a Person type and some
+    """An application with a repository `test_repo` that has a Person type and some
     people."""
 
     def setUp(self):
         self.application = self.make_application()
-        self.addCleanup(self.application.close)
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.tmp = Path(self._tmp.name)
@@ -176,12 +176,12 @@ class JobsCase(unittest.TestCase):
         shacl.mkdir(parents=True)
         for name, text in SCHEMAS.items():
             (shacl / name).write_text(text)
-        self.application.create_repository("library")
+        self.application.create_repository("test_repo")
         self.put(REPOSITORY.replace("@ASSETS@", f"{self.tmp / 'person'}/"))
         self.put(self.people())
 
     def make_application(self) -> Application:
-        return Application(":memory:")
+        return open_application(self, ":memory:")
 
     settings: ClassVar[dict] = {}  # what `gracia run` would have: a test may set more
 
@@ -210,7 +210,7 @@ class JobsCase(unittest.TestCase):
             if text.lstrip().startswith("@prefix")
             else "@prefix gracia: <https://gracia.pub/ns/> .\n"
         )
-        with self.application.open_repository("library") as store:
+        with self.application.new_store("test_repo") as store:
             store.put(
                 ox.Dataset(
                     ox.parse((header + text).encode(), format=ox.RdfFormat.TURTLE)
@@ -221,7 +221,7 @@ class JobsCase(unittest.TestCase):
     # ---------------------------------------------------------------------------
 
     def make(self, *stages, **extra) -> str:
-        spec = validate_spec({"repo": "library", "stages": list(stages), **extra})
+        spec = validate_spec({"repo": "test_repo", "stages": list(stages), **extra})
         with JobsDb(self.application) as db:
             return db.create(spec)
 
@@ -256,6 +256,5 @@ def quack_owner(test: unittest.TestCase) -> tuple[Application, str, str]:
     owner.execute(f"CALL quack_serve('{uri}', token = '{token}')")
     test.addCleanup(owner.close)
     test.addCleanup(lambda: owner.execute(f"CALL quack_stop('{uri}')"))
-    app = Application(uri, token=token)
-    test.addCleanup(app.close)
+    app = open_application(test, quack=uri, token=token)
     return app, uri, token

@@ -30,17 +30,17 @@ class SearchJobCase(GraphJobsCase):
         context.registry().registerHandler(on_records_changed, (RecordsChanged,))
 
     def rebuild(self) -> str:
-        job_id = self.make(*RebuildSearchJob().spec("library", {})["stages"])
+        job_id = self.make(*RebuildSearchJob().spec("test_repo", {})["stages"])
         self.assertEqual(
             self.run_job(job_id), runner.EXIT_DONE, self.job(job_id)["error_msg"]
         )
         return job_id
 
     def docs(self) -> int:
-        return self.indexes.stats("library")[0]["documents"]
+        return self.indexes.stats("test_repo")[0]["documents"]
 
     def hits(self, query: str, fields=("label", "text")) -> list[int]:
-        index = tantivy.Index.open(str(self.indexes.path("library", RECORDS)))
+        index = tantivy.Index.open(str(self.indexes.path("test_repo", RECORDS)))
         index.reload()
         searcher = index.searcher()
         return sorted(
@@ -56,10 +56,10 @@ class SearchJobCase(GraphJobsCase):
 
 class RebuildTest(SearchJobCase):
     def test_an_index_that_is_not_there_is_made_with_every_record(self):
-        self.assertEqual(self.indexes.status("library", RECORDS), "missing")
+        self.assertEqual(self.indexes.status("test_repo", RECORDS), "missing")
         self.rebuild()
         self.assertEqual(
-            (self.indexes.status("library", RECORDS), self.docs()),
+            (self.indexes.status("test_repo", RECORDS), self.docs()),
             ("ok", self.records()),
         )
         self.assertEqual(
@@ -77,12 +77,12 @@ class RebuildTest(SearchJobCase):
 
     def test_a_stale_index_is_replaced_and_answers_until_then(self):
         self.rebuild()
-        path = self.indexes.path("library", RECORDS)
-        meta = self.indexes._meta("library", RECORDS)
+        path = self.indexes.path("test_repo", RECORDS)
+        meta = self.indexes._meta("test_repo", RECORDS)
         meta.write_text(
             json.dumps({"hash": "of-another-definition"})
         )  # it was made for another one
-        self.assertEqual(self.indexes.status("library", RECORDS), "stale")
+        self.assertEqual(self.indexes.status("test_repo", RECORDS), "stale")
         seen = {}
         real = Indexes.swap
 
@@ -99,20 +99,20 @@ class RebuildTest(SearchJobCase):
             seen["during"], ("stale", self.records())
         )  # the old one was there to the end
         self.assertEqual(
-            (self.indexes.status("library", RECORDS), self.docs()),
+            (self.indexes.status("test_repo", RECORDS), self.docs()),
             ("ok", self.records()),
         )
 
     def test_nothing_of_the_making_is_left(self):
         self.rebuild()
-        left = sorted(p.name for p in (self.indexes.directory / "library").iterdir())
+        left = sorted(p.name for p in (self.indexes.directory / "test_repo").iterdir())
         self.assertEqual(left, ["records", "records.json"])
 
     def test_an_index_that_missed_records_has_them_after(self):
         self.rebuild()
-        self.indexes.reset("library", RECORDS)
+        self.indexes.reset("test_repo", RECORDS)
         self.indexes.open(
-            "library", RECORDS
+            "test_repo", RECORDS
         )  # there, and empty: it has not seen a record
         self.assertEqual(self.docs(), 0)
         self.rebuild()
@@ -120,12 +120,12 @@ class RebuildTest(SearchJobCase):
 
     def test_without_a_directory_for_the_indexes_the_job_fails_and_says_why(self):
         self.application.indexes = None
-        job_id = self.make(*RebuildSearchJob().spec("library", {})["stages"])
+        job_id = self.make(*RebuildSearchJob().spec("test_repo", {})["stages"])
         self.assertEqual(self.run_job(job_id), runner.EXIT_FAILED)
         self.assertIn("gracia.index_dir", self.job(job_id)["error_msg"])
 
     def test_it_is_a_job_of_the_repository_for_the_administrators(self):
-        spec = RebuildSearchJob().spec("library", {})
+        spec = RebuildSearchJob().spec("test_repo", {})
         self.assertEqual(
             [s["stage"] for s in spec["stages"]], ["Export", "IndexRecords"]
         )
@@ -207,21 +207,21 @@ class FromTheSettingsTest(GraphJobsCase):
         self.addCleanup(shutil.rmtree, directory, True)
         self.settings = {"gracia.index_dir": directory}  # ty: ignore[invalid-attribute-access]
         self.assertIsNone(self.application.indexes)  # nothing has set it
-        job_id = self.make(*RebuildSearchJob().spec("library", {})["stages"])
+        job_id = self.make(*RebuildSearchJob().spec("test_repo", {})["stages"])
         self.assertEqual(
             self.run_job(job_id), runner.EXIT_DONE, self.job(job_id)["error_msg"]
         )
         indexes = self.application.indexes
-        self.assertEqual(indexes.directory.as_posix(), directory)  # ty: ignore[missing-union-attribute]
-        self.assertEqual(indexes.stats("library")[0]["state"], "ok")  # ty: ignore[missing-union-attribute]
+        self.assertEqual(indexes.directory.as_posix(), directory)
+        self.assertEqual(indexes.stats("test_repo")[0]["state"], "ok")
         self.assertEqual(
-            indexes.stats("library")[0]["documents"],  # ty: ignore[missing-union-attribute]
+            indexes.stats("test_repo")[0]["documents"],
             fetch_one(self.store.con.execute("SELECT count(*) FROM etags"))[0],
         )
 
     def test_without_the_setting_the_job_says_what_to_set(self):
         self.settings = {}  # ty: ignore[invalid-attribute-access]
-        job_id = self.make(*RebuildSearchJob().spec("library", {})["stages"])
+        job_id = self.make(*RebuildSearchJob().spec("test_repo", {})["stages"])
         self.assertEqual(self.run_job(job_id), runner.EXIT_FAILED)
         self.assertIn("gracia.index_dir", self.job(job_id)["error_msg"])
 
@@ -254,13 +254,13 @@ class FromTheSettingsTest(GraphJobsCase):
         )
         stage = IndexRecords(
             job_dir=str(job_dir),  # ty: ignore[unknown-argument]
-            repo="library",  # ty: ignore[unknown-argument]
+            repo="test_repo",  # ty: ignore[unknown-argument]
             n=0,  # ty: ignore[unknown-argument]
             chain=dumps([{"stage": "IndexRecords"}]),  # ty: ignore[unknown-argument]
         )
         passed, rejected = stage.process(items)
         self.assertEqual((len(passed), rejected), (len(items), []))
         self.assertEqual(
-            self.application.indexes.stats("library")[0]["documents"],  # ty: ignore[missing-union-attribute]
+            self.application.indexes.stats("test_repo")[0]["documents"],
             len(items),
         )

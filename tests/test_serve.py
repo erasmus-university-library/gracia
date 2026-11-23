@@ -26,7 +26,7 @@ class ServeProcessTest(DbTestCase):
             return err.code, json.loads(err.read())
 
     def test_it_serves_the_repositories_over_http(self):
-        self.create_repositories("library")
+        self.create_repositories("test_repo")
         port = self.free_port()
         proc = subprocess.Popen(
             [
@@ -57,9 +57,9 @@ class ServeProcessTest(DbTestCase):
                     break
                 except OSError:
                     time.sleep(0.1)
-            self.assertEqual((status, body), (200, {"repositories": ["library"]}))
-            self.assertEqual(self.get(port, "/library/")[0], 200)
-            self.assertEqual(self.get(port, "/library/api")[0], 200)
+            self.assertEqual((status, body), (200, {"repositories": ["test_repo"]}))
+            self.assertEqual(self.get(port, "/test_repo/")[0], 200)
+            self.assertEqual(self.get(port, "/test_repo/api")[0], 200)
             self.assertEqual(self.get(port, "/nope/")[0], 404)
         finally:
             watchdog.cancel()

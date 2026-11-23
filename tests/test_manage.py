@@ -21,26 +21,26 @@ POSTING = {
 
 class RepositoryDataTest(WebCase):
     def test_a_new_repository_gets_its_resource_types_and_groups(self):
-        self.application.create_repository("library")
-        with self.application.open_repository("library") as store:
+        self.application.create_repository("test_repo")
+        with self.application.new_store("test_repo") as store:
             # the repository is one record of the type `repository` (rec:type:1)
             self.assertEqual(store.records_of_type("repository"), ["rec:repository:1"])
             self.assertEqual(len(store.records_of_type("type")), 4)  # types
             self.assertEqual(len(store.records_of_type("group")), 3)  # groups
 
     def test_creating_again_does_not_reload(self):
-        self.application.create_repository("library")
-        with self.application.open_repository("library") as store:
+        self.application.create_repository("test_repo")
+        with self.application.new_store("test_repo") as store:
             before = store.counts()
-        self.application.create_repository("library")
-        with self.application.open_repository("library") as store:
+        self.application.create_repository("test_repo")
+        with self.application.new_store("test_repo") as store:
             self.assertEqual(store.counts(), before)
 
 
 class FormFromShapeTest(WebCase):
     def test_title_field_from_the_shape_file(self):
-        self.application.create_repository("library")
-        with self.application.open_repository("library") as store:
+        self.application.create_repository("test_repo")
+        with self.application.new_store("test_repo") as store:
             data = store.get("rec:repository:1")
         content = data.value(
             ox.NamedNode("rec:repository:1"), ox.NamedNode(uri.RESOURCE)
@@ -63,9 +63,9 @@ class ManageCase(WebCase):
     def setUp(self):
         super().setUp()
         self.settings["gracia.security_policy"] = HeaderPolicy()  # ty: ignore[invalid-assignment]
-        self.application.create_repository("library")
+        self.application.create_repository("test_repo")
 
-    def tabs(self, path="/library/manage"):
+    def tabs(self, path="/test_repo/manage"):
         page = self.client().get(path, headers=ADMIN).text
         return re.findall(r'data-tab="([a-z]+)"[^>]*>([^<]+)', page), page
 
@@ -77,7 +77,7 @@ class ManageCase(WebCase):
 
 class ManageViewTest(ManageCase):
     def title(self):
-        with self.application.open_repository("library") as store:
+        with self.application.new_store("test_repo") as store:
             data = store.get("rec:repository:1")
             content = data.value(
                 ox.NamedNode("rec:repository:1"), ox.NamedNode(uri.RESOURCE)
@@ -100,7 +100,7 @@ class ManageViewTest(ManageCase):
         )
         self.assertIn('class="tab-pane active" id="tab-types"', page)
         self.assertIn('class="tab-pane" id="tab-settings"', page)
-        _, page = self.tabs("/library/manage?tab=settings")
+        _, page = self.tabs("/test_repo/manage?tab=settings")
         self.assertIn('class="tab-pane active" id="tab-settings"', page)
 
     def test_the_types_tab_lists_the_types_and_each_is_a_link_to_its_manage_page(self):
@@ -140,10 +140,10 @@ class ManageViewTest(ManageCase):
         self.assertIn('name="title"', pane)
         self.assertNotIn("ark_", pane)  # the ARK settings are the ARK extension's
         self.assertIn('id="form-repository-settings"', pane)
-        self.assertIn('action="http://localhost/library/manage?tab=settings"', pane)
+        self.assertIn('action="http://localhost/test_repo/manage?tab=settings"', pane)
 
     def test_a_post_from_another_site_is_refused(self):
-        form = self.client().get("/library/manage", headers=ADMIN).forms[0]
+        form = self.client().get("/test_repo/manage", headers=ADMIN).forms[0]
         form["title"] = "Hijacked"
         response = form.submit(
             "save",
@@ -151,10 +151,10 @@ class ManageViewTest(ManageCase):
             expect_errors=True,
         )
         self.assertEqual(response.status_int, 400)
-        self.assertEqual(self.title(), ["library"])
+        self.assertEqual(self.title(), ["test_repo"])
 
     def test_a_form_that_is_not_right_comes_back_in_the_settings_tab(self):
-        form = self.client().get("/library/manage", headers=ADMIN).forms[0]
+        form = self.client().get("/test_repo/manage", headers=ADMIN).forms[0]
         form["title"] = ""
         response = form.submit("save", headers=POSTING)
         self.assertEqual(response.status_int, 200)
@@ -162,40 +162,42 @@ class ManageViewTest(ManageCase):
 
     def test_needs_the_manage_permission(self):
         web = self.client()
-        self.assertEqual(web.get("/library/manage", expect_errors=True).status_int, 403)
-        self.assertEqual(web.get("/library/manage", headers=ADMIN).status_int, 200)
+        self.assertEqual(
+            web.get("/test_repo/manage", expect_errors=True).status_int, 403
+        )
+        self.assertEqual(web.get("/test_repo/manage", headers=ADMIN).status_int, 200)
 
     def test_renders_the_form_with_the_current_title(self):
-        response = self.client().get("/library/manage", headers=ADMIN)
+        response = self.client().get("/test_repo/manage", headers=ADMIN)
         self.assertIn('name="title"', response.text)
-        self.assertIn('value="library"', response.text)
+        self.assertIn('value="test_repo"', response.text)
 
     def test_saving_replaces_the_title(self):
         web = self.client()
-        form = web.get("/library/manage", headers=ADMIN).forms[0]
+        form = web.get("/test_repo/manage", headers=ADMIN).forms[0]
         form["title"] = "The Library"
         response = form.submit("save", headers=POSTING)
         self.assertEqual(response.status_int, 302)
         self.assertEqual(self.title(), ["The Library"])
         followed = response.follow(headers=ADMIN)
         self.assertEqual(
-            response.location, "http://localhost/library/manage?tab=settings"
+            response.location, "http://localhost/test_repo/manage?tab=settings"
         )
         self.assertIn("Saved", followed.text)
         self.assertIn('class="tab-pane active" id="tab-settings"', followed.text)
 
     def test_an_empty_title_is_refused(self):
-        form = self.client().get("/library/manage", headers=ADMIN).forms[0]
+        form = self.client().get("/test_repo/manage", headers=ADMIN).forms[0]
         form["title"] = ""
         response = form.submit("save", headers=POSTING)
         self.assertEqual(response.status_int, 200)
-        self.assertEqual(self.title(), ["library"])
+        self.assertEqual(self.title(), ["test_repo"])
 
 
 class CountsTest(ManageCase):
     def test_the_types_tab_counts_the_records_of_each_type(self):
         self.application.create_repository("archive", content_types=[self.person()])
-        with self.application.open_repository("archive") as store:
+        with self.application.new_store("archive") as store:
             for n in (1, 2, 3):
                 text = (
                     f"<rec:person:{n}> a <{uri.RECORD_CLASS}> ; "
@@ -211,7 +213,7 @@ class CountsTest(ManageCase):
         )  # the one record of the repository
 
     def test_the_predicates_tab_counts_the_values_of_each_property(self):
-        cards = predicate_cards(self.tabs("/library/manage?tab=predicates")[1])
+        cards = predicate_cards(self.tabs("/test_repo/manage?tab=predicates")[1])
         label = int(must_search(r"(\d+) stored", cards[uri.LABEL])[1])
         self.assertGreater(
             label, 0
@@ -239,7 +241,7 @@ def predicate_cards(page: str) -> dict[str, str]:
 
 class PredicatesTabTest(ManageCase):
     def cards(self):
-        return predicate_cards(self.tabs("/library/manage?tab=predicates")[1])
+        return predicate_cards(self.tabs("/test_repo/manage?tab=predicates")[1])
 
     def test_every_registered_predicate_has_a_card_by_the_uri_of_its_property(self):
         cards = self.cards()
@@ -286,7 +288,7 @@ class JobsTabTest(ManageCase):
     as a whole."""
 
     def pane(self) -> str:
-        _, page = self.tabs("/library/manage?tab=jobs")
+        _, page = self.tabs("/test_repo/manage?tab=jobs")
         return must_search(r'id="tab-jobs".*', page, re.S)[0]
 
     def test_the_jobs_of_the_repository_start_from_their_own_forms_and_their_runs_are_listed_under_them(  # noqa: E501
@@ -302,7 +304,7 @@ class JobsTabTest(ManageCase):
         )[0]
         self.assertIn("Update cache", cache)
         self.assertIn(
-            'data-start-job="http://localhost/library/jobs/start?job=update_cache"',
+            'data-start-job="http://localhost/test_repo/jobs/start?job=update_cache"',
             cache,
         )
         form = must_search(
@@ -310,7 +312,7 @@ class JobsTabTest(ManageCase):
         )[0]
         self.assertIn("Rebuild etags", form)
         self.assertIn(
-            'data-start-job="http://localhost/library/jobs/start?job=rebuild_etags"',
+            'data-start-job="http://localhost/test_repo/jobs/start?job=rebuild_etags"',
             form,
         )
         self.assertNotIn("res_type", form)  # it is about the repository, not a type
@@ -332,9 +334,9 @@ class JobsTabTest(ManageCase):
         job = next(j for j in all_jobs(config.registry) if j.name == "rebuild_etags")
         self.assertEqual(job.groups, ())  # no group of users: the administrators
         self.assertEqual(
-            job.spec("library", {}),
+            job.spec("test_repo", {}),
             {
-                "repo": "library",
+                "repo": "test_repo",
                 "job": "rebuild_etags",
                 "stages": [{"stage": "RebuildEtags", "params": {}}],
             },
@@ -354,11 +356,11 @@ class StatsTabTest(ManageCase):
         self.application.cache._graph_dir = (
             self.cache_dir
         )  # a graph cache for the application of the test
-        self.store = self.application.open_repository("library")
+        self.store = self.application.new_store("test_repo")
         self.addCleanup(self.store.close)
 
     def pane(self) -> str:
-        _, page = self.tabs("/library/manage?tab=stats")
+        _, page = self.tabs("/test_repo/manage?tab=stats")
         return must_search(r'id="tab-stats".*?(?=<div class="tab-pane|\Z)', page, re.S)[
             0
         ]
@@ -430,12 +432,12 @@ class StatsTabTest(ManageCase):
         self.assertEqual(self.text(self.pane(), "stats-pages").split()[0], f"{pages:,}")
         self.assertEqual(self.text(self.pane(), "stats-etags-held").split()[0], "0")
         record_id = self.store.record_id_of("rec:person:1")
-        self.application.cache.etags("library", [record_id])  # asked for, so held
+        self.application.cache.etags("test_repo", [record_id])  # asked for, so held
         self.assertEqual(self.text(self.pane(), "stats-etags-held").split()[0], "1")
         self.assertTrue(
             self.text(self.pane(), "stats-graphs").startswith("0 in this repository")
         )
-        self.application.cache.graph("library", record_id)  # ty: ignore[invalid-argument-type]
+        self.application.cache.graph("test_repo", record_id)  # ty: ignore[invalid-argument-type]
         self.assertTrue(
             self.text(self.pane(), "stats-graphs").startswith(
                 "1 in this repository, 1 in all"
@@ -472,7 +474,7 @@ class StatsTabTest(ManageCase):
         self.settings["gracia.worker"] = "true"  # ty: ignore[invalid-assignment]
         self.settings["gracia.db"] = ":memory:"  # ty: ignore[invalid-assignment]
         _, page = self.tabs(
-            "/library/manage?tab=stats"
+            "/test_repo/manage?tab=stats"
         )  # a new app: its worker is started
         worker = self.application.cache.worker
         self.addCleanup(worker.stop)  # ty: ignore[missing-union-attribute]
@@ -484,7 +486,7 @@ class StatsTabTest(ManageCase):
         worker = Worker(self.application, Registry())
         self.application.cache.worker = worker
         self.assertIn('data-state="stopped"', self.pane())  # never started
-        worker._retry["library"] = (time.monotonic() + 30, 3)
+        worker._retry["test_repo"] = (time.monotonic() + 30, 3)
         worker._thread = threading.Thread(target=time.sleep, args=(5,), daemon=True)
         worker._thread.start()
         pane = self.pane()
@@ -500,10 +502,11 @@ class StatsTabTest(ManageCase):
         ):
             found = must_search(rf'<form id="{form}".*?</form>', pane, re.S)[0]
             self.assertIn(
-                f'data-start-job="http://localhost/library/jobs/start?job={job}"', found
+                f'data-start-job="http://localhost/test_repo/jobs/start?job={job}"',
+                found,
             )
         page = self.client().get(
-            "/library/manage?tab=stats",
+            "/test_repo/manage?tab=stats",
             headers={"X-User": "nobody"},
             expect_errors=True,
         )
@@ -524,12 +527,12 @@ class StatsTabTest(ManageCase):
         self.assertIn(
             'data-filter="job=update_cache,rebuild_search,process_actions"', dialog
         )
-        self.assertIn("http://localhost/library/jobs/list", dialog)
+        self.assertIn("http://localhost/test_repo/jobs/list", dialog)
         self.assertIn('data-progress-dialog=""', pane)
         self.assertRegex(
             pane,
             r"<a "
-            r'href="http://localhost/library/manage\?tab=stats"[^>]*id="stats-refresh"',
+            r'href="http://localhost/test_repo/manage\?tab=stats"[^>]*id="stats-refresh"',
         )
 
     def test_a_panel_that_is_not_on_show_does_not_open_a_dialog(self):
@@ -574,7 +577,7 @@ class LogoTest(ManageCase):
 
     def test_the_pages_of_a_repository_and_of_what_is_in_it_go_to_the_repository(self):
         self.application.create_repository("archive", content_types=[self.person()])
-        with self.application.open_repository("archive") as store:
+        with self.application.new_store("archive") as store:
             store.put(
                 ox.Dataset(
                     ox.parse(
@@ -603,7 +606,7 @@ class LogoTest(ManageCase):
         self,
     ):
         self.application.create_repository("archive")
-        for repo in ("library", "archive"):
+        for repo in ("test_repo", "archive"):
             page = self.client().get(f"/{repo}/manage", headers=ADMIN).text
             self.assertEqual(self.logo(page), f"http://localhost/{repo}/")
             home = (

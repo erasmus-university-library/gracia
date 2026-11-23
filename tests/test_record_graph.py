@@ -1,7 +1,8 @@
 import pyoxigraph as ox
+from harness import open_store
 from test_etags import EtagCase, record
 
-from gracia.store import Store, fetch_one
+from gracia.store import fetch_one
 
 RG = (
     "SELECT record_id, record_uri, record_type, etag, last_modified_at, graph "
@@ -153,7 +154,7 @@ class RecordGraphTest(EtagCase):
         )
 
     def test_every_repository_reads_its_own_records(self):
-        other = Store(self.db, repo="other", create=True)
+        other = open_store(self.db, repo="other", create=True)
         self.addCleanup(other.close)
         other.set_type_ids([("work", 6)])
         other.put(record("rec:work:1"))

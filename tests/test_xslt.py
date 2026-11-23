@@ -3,6 +3,7 @@ import unittest
 import xml.etree.ElementTree as ET
 
 from base import DATA, RDF_FILES, DbTestCase
+from harness import open_store
 from support import (
     diff,
     flat_rdfxml_from_file,
@@ -13,7 +14,6 @@ from support import (
 
 from gracia.extensions.ns_prefix import DEFAULT_PREFIXES
 from gracia.graph import streaming_serialize
-from gracia.store import Store
 from gracia.utils import xslt
 
 RDF_NS = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
@@ -30,7 +30,7 @@ class NestedRdfXmlTest(DbTestCase):
     def nested(self, uri: str | None = None) -> str:
         """The database (or one resource) as nested RDF/XML, the way `gracia export`
         does it."""
-        with Store(self.db) as store:
+        with open_store(self.db) as store:
             flat = streaming_serialize(
                 self.rows(store, uri),
                 "rdfxml",
@@ -49,7 +49,7 @@ class NestedRdfXmlTest(DbTestCase):
             with self.subTest(file=path.name):
                 self.db.unlink(missing_ok=True)
                 self.load(path)
-                with Store(self.db) as store:
+                with open_store(self.db) as store:
                     expected = triples_from_rows(self.rows(store))
                 rdfxml = self.nested()
                 ET.fromstring(rdfxml)  # well-formed
