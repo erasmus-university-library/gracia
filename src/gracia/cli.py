@@ -160,7 +160,7 @@ def _hooks(args, store):
         with _repository(args) as node:
             node.use_store(store)
             try:
-                node.resource()
+                node.record()
             except LookupError:
                 yield None
                 return
@@ -422,7 +422,7 @@ def cmd_assets_list(args) -> int:
                 try:
                     wanted = [
                         (k.assets, k.schema, k.name)
-                        for k in node.res_types.values()
+                        for k in node.types.values()
                         if k.assets
                     ]
                 finally:
@@ -738,7 +738,7 @@ def cmd_types_list(args) -> int:
             raise NoSuchRepository(args.repo)
         node = application[args.repo]
         try:
-            for res_type in node.res_types.values():
+            for res_type in node.types.values():
                 print(
                     f"{res_type.slug:16} {res_type.record:20} {res_type.name:12} "
                     f"{res_type.class_uri}  {res_type.schema or '-'}"

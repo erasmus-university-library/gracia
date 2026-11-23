@@ -135,7 +135,7 @@ class RepositoryManage(Manage):
                     else None
                 ),
             }
-            for res_type in self.context.res_types.values()
+            for res_type in self.context.types.values()
         ]
         return fragment(
             request, "gracia:assets/templates/repository_tab_types.pt", types=types
@@ -169,9 +169,12 @@ class RepositoryManage(Manage):
         static.need_form(form)
         if "html" in state:  # the form as it was posted, with what was wrong
             return state["html"]
-        subject, resource = self.context.content()  # the content of the repository
+        record = self.context.record()
         current = {
-            n.name: next((o.value for o in resource.objects(subject, n.predicate)), "")
+            n.name: next(
+                (o.value for o in record.graph.objects(record.resource, n.predicate)),
+                "",
+            )
             for n in schema.children
         }
         return form.render(current)
@@ -184,7 +187,8 @@ class RepositoryManage(Manage):
             data = form.validate(list(self.request.POST.items()))
         except deform.ValidationFailure as failure:
             return {"html": failure.render()}
-        subject, resource = repository.content()
+        record = repository.record()
+        subject, resource = record.resource, record.graph
         for node in schema.children:
             predicate = ox.NamedNode(node.predicate)
             for quad in [
@@ -202,7 +206,6 @@ class RepositoryManage(Manage):
                         ox.DefaultGraph(),
                     )
                 )
-        record = repository.record(resource)
         record.save()  # the label of the repository follows its title
         flash(self.request, "Saved.")
         return HTTPFound(self.action("settings"))
@@ -336,7 +339,7 @@ class RepositoryManage(Manage):
         if notice is None:
             try:
                 offered = application.cache.docs.schema(
-                    repository, list(repository.res_types)
+                    repository, list(repository.types)
                 )
             except (
                 Exception
@@ -356,7 +359,7 @@ class RepositoryManage(Manage):
                     )
                     row["measured"] = row["name"] in counts
                     row["every_type"] = bool(row["types"]) and set(row["types"]) == set(
-                        repository.res_types
+                        repository.types
                     )
                 stats = indexes.stats(repository.__name__, [definition])
                 documents = stats[0]["documents"]
@@ -403,7 +406,7 @@ class RepositoryManage(Manage):
             extension = repository.extension("search")
             if "add" in post:
                 offered = request.root.cache.docs.schema(
-                    repository, list(repository.res_types)
+                    repository, list(repository.types)
                 )
                 field = next((f for f in offered if f["name"] == post["add"]), None)
                 if field is None:
@@ -448,7 +451,7 @@ class RepositoryManage(Manage):
                 if nested is not None:
                     walk(dataset, nested)
 
-        for res_type in self.context.res_types.values():
+        for res_type in self.context.types.values():
             walk(*res_type.record_shape())
         return found
 
@@ -493,9 +496,7 @@ class RepositoryManage(Manage):
     def pane_stats(self, state):
         request, repository = self.request, self.context
         store, application = request.store, request.root
-        installed = {
-            res_type.slug: res_type for res_type in repository.res_types.values()
-        }
+        installed = {res_type.slug: res_type for res_type in repository.types.values()}
         found = store.type_stats()
         empty = {"records": 0, "published": 0, "bytes": 0, "modified": None}
         types = []

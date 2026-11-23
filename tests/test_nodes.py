@@ -57,6 +57,29 @@ class RepositoryOfNodeTest(EditCase):
         self.assertIs(record.registry, self.repo.registry)
         self.assertIs(record.application, self.application)
 
+    def test_the_record_of_the_repository_is_a_record_with_its_resource(self):
+        record = self.repo.record()
+        self.assertIsInstance(record, Record)
+        self.assertEqual(record.uri, self.repo.uri)
+        self.assertIs(record.repository, self.repo)
+        self.assertIsNotNone(record.resource)  # the blank node of its content
+        self.assertEqual(record.type.slug, "repository")  # found by its address
+
+    def test_a_traversed_record_has_its_type_as_parent_and_a_loose_one_the_repository(
+        self,
+    ):
+        traversed = self.repo["person"]["1"]
+        self.assertIs(traversed.__parent__, self.repo.types["person"])
+        self.assertIs(traversed.type, self.repo.types["person"])
+        loose = self.repo.record()
+        self.assertIs(loose.__parent__, self.repo)
+        self.assertIs(loose.type, self.repo.types["repository"])
+
+    def test_the_types_of_a_repository_are_in_types(self):
+        self.assertIn("person", self.repo.types)
+        self.assertIs(self.repo["person"], self.repo.types["person"])
+        self.assertIs(self.repo.types["person"].repository, self.repo)
+
     def test_what_is_kept_is_in_the_registry_of_the_application(self):
         registry = self.application.registry
         self.application.cache.slug(

@@ -61,7 +61,7 @@ class RecordView(View):
         record = self.record
         if isinstance(record.__parent__, Type) and record.__parent__.slug == "type":
             # a type is configured on its manage page, in the Settings tab
-            for res_type in record.repository.res_types.values():
+            for res_type in record.repository.types.values():
                 if res_type.record == record.uri:
                     return HTTPFound(
                         self.request.resource_url(

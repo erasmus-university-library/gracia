@@ -42,9 +42,9 @@ class RecordDeleted(LookupError):
 
 
 class Node:
-    def __init__(self, parent):
-        self.__parent__ = parent
-        self.repository: Repository = parent.repository
+    def __init__(self, repository, parent=None):
+        self.repository: Repository = repository
+        self.__parent__ = repository if parent is None else parent
 
     @property
     def store(self):
@@ -64,10 +64,10 @@ class Resolved(Node):
     def __init__(self, repository: "Repository", key: str):
         super().__init__(repository)
         parsed = uri.parse_record_uri(key)
-        if parsed is None or parsed[0] not in repository.res_types:
+        if parsed is None or parsed[0] not in repository.types:
             raise KeyError(key)
         self.__name__ = key
-        self.record = repository.res_types[parsed[0]][str(parsed[1])]
+        self.record = repository.types[parsed[0]][str(parsed[1])]
 
 
 @implementer(IRepository)
@@ -109,7 +109,7 @@ class Repository:
         return store
 
     def sync_roles(self) -> None:
-        for key in ("res_types", "_sql_hooks"):
+        for key in ("types", "_sql_hooks"):
             self.__dict__.pop(key, None)
         self.application.cache.invalidate(self.__name__)
         self.configure()
@@ -132,27 +132,26 @@ class Repository:
             store.close()
         self._owns_store = True
 
-    def resource(self) -> tuple[str, Graph]:
+    def _record_graph(self) -> Graph:
         graph = self.store.get(self.uri)
         if not len(graph):
             raise LookupError(f"repository {self.__name__} has no repository record")
-        return self.uri, graph
+        return graph
 
-    def content(self) -> tuple[ox.BlankNode, Graph]:
-        record_uri, graph = self.resource()
-        node = graph.value(record_uri, uri.RESOURCE)
-        if node is None:
-            raise LookupError(
-                f"the record of repository {self.__name__} has no content"
-            )
-        return node, graph
+    def record(self) -> "Record":
+        graph = self._record_graph()
+        return record_class(self.registry, uri.REPOSITORY_CLASS)(
+            self, "1", self.uri, graph
+        )
 
     def timezone(self) -> datetime.tzinfo:
         try:
-            node, graph = self.content()
+            record = self.record()
         except LookupError:
             return datetime.UTC
-        found = graph.value(node, _N(uri.TIMEZONE))
+        if record.resource is None:
+            return datetime.UTC
+        found = record.graph.value(record.resource, _N(uri.TIMEZONE))
         try:
             return (
                 zoneinfo.ZoneInfo(found.value)
@@ -166,12 +165,6 @@ class Repository:
         ):  # a name this system does not know
             return datetime.UTC
 
-    def record(self, graph: Graph) -> "Record":
-        res_type = self.res_types["repository"]
-        return record_class(self.registry, res_type.class_uri)(
-            res_type, "1", self.uri, graph
-        )
-
     def with_hooks(self, graph: "Graph | ox.Dataset") -> Graph:
         return self.store.apply_hooks(graph)
 
@@ -179,7 +172,7 @@ class Repository:
         if "_sql_hooks" not in self.__dict__:
             self.__dict__["_sql_hooks"] = [
                 statement
-                for res_type in self.res_types.values()
+                for res_type in self.types.values()
                 for statement in res_type.sql_hooks()
             ]
         return self.__dict__["_sql_hooks"]
@@ -187,19 +180,22 @@ class Repository:
     def property_roles(self) -> list[tuple[str, str, str, int]]:
         return [
             (res_type.slug, role, path, place)
-            for res_type in self.res_types.values()
+            for res_type in self.types.values()
             for role, path, place in res_type.roles()
         ]
 
     def type_numbers(self) -> list[tuple[str, int]]:
-        return [
-            (t.slug, int(t.record.rsplit(":", 1)[1])) for t in self.res_types.values()
-        ]
+        return [(t.slug, int(t.record.rsplit(":", 1)[1])) for t in self.types.values()]
 
     def shape(self):
-        node, graph = self.content()
-        prefix = graph.value(node, _N(uri.ASSETS))
-        schema = graph.value(node, _N(uri.SCHEMA_TEMPLATE))
+        record = self.record()
+        node = record.resource
+        if node is None:
+            raise LookupError(
+                f"the record of repository {self.__name__} has no content"
+            )
+        prefix = record.graph.value(node, _N(uri.ASSETS))
+        schema = record.graph.value(node, _N(uri.SCHEMA_TEMPLATE))
         found = assets.shape(
             prefix.value if prefix else None,
             schema.value if schema else None,
@@ -213,19 +209,22 @@ class Repository:
         return found
 
     @cached_property
-    def res_types(self) -> dict[str, "Type"]:
+    def types(self) -> dict[str, "Type"]:
         records, found = self.application.cache.types(self.__name__, self._type_records)
-        res_types = {}
+        found_types = {}
         for record in records:
             res_type = Type.read(self, record, found)
             if res_type is not None:
-                res_types[res_type.slug] = res_type
-        return res_types
+                found_types[res_type.slug] = res_type
+        return found_types
 
     def _type_records(self) -> tuple[list[str], Graph]:
         try:
-            node, graph = self.content()
+            graph = self._record_graph()
         except LookupError:
+            return [], Graph()
+        node = graph.value(self.uri, uri.RESOURCE)
+        if node is None:
             return [], Graph()
         head = graph.value(node, _N(uri.TYPES))
         classes = [p.value for p in graph.walk_list(head)] if head is not None else []
@@ -237,7 +236,7 @@ class Repository:
 
     def resolve_type(self, href: str) -> Path:
         slug, _, name = href.removeprefix("type:").partition("/")
-        res_type = self.res_types.get(slug)
+        res_type = self.types.get(slug)
         if res_type is None or not res_type.assets:
             raise LookupError(
                 f"no type {slug!r} with files in repository {self.__name__}"
@@ -268,7 +267,7 @@ class Repository:
         if found is not None:
             return found
         try:
-            return self.res_types[name]
+            return self.types[name]
         except KeyError:
             raise KeyError(name) from None
 
@@ -308,8 +307,8 @@ class Repository:
 class Jobs(Node):
     __name__ = "jobs"
 
-    def __init__(self, parent: Repository):
-        super().__init__(parent)
+    def __init__(self, repository: Repository):
+        super().__init__(repository)
 
     @property
     def __acl__(self):
@@ -336,27 +335,34 @@ class Jobs(Node):
             row = db.get(job_id)
         if row is None or row["repo"] != self.repository.__name__:
             raise KeyError(job_id)
-        return JobRun(self, row)
+        return self.run(row)
+
+    def run(self, row: dict) -> "JobRun":
+        run = JobRun(self.repository, row)
+        run.__parent__ = self
+        return run
 
 
 @traversable("deform")
 class DeformViews(Node):
     __name__ = "deform"
 
-    def __init__(self, parent: Repository):
-        super().__init__(parent)
+    def __init__(self, repository: Repository):
+        super().__init__(repository)
 
     def __getitem__(self, name: str) -> "DeformView":
         function = self.registry.queryUtility(IDeformView, name)
         if function is None:
             raise KeyError(name)
-        return DeformView(self, name, function)
+        view = DeformView(self.repository, name, function)
+        view.__parent__ = self
+        return view
 
 
 class DeformView(Node):
-    def __init__(self, parent: DeformViews, name: str, function):
+    def __init__(self, repository: Repository, name: str, function):
         self.__name__ = name
-        super().__init__(parent)
+        super().__init__(repository)
         self.function = function
 
     @property
@@ -367,9 +373,9 @@ class DeformView(Node):
 
 
 class JobRun(Node):
-    def __init__(self, parent: Jobs, row: dict):
+    def __init__(self, repository: Repository, row: dict):
         self.__name__ = row["id"]
-        super().__init__(parent)
+        super().__init__(repository)
         self.row = row
 
     @property
@@ -500,7 +506,9 @@ class Type(Node):
 
     def blank_record(self) -> "Record":
         cls = record_class(self.registry, self.class_uri)
-        return cls(self, None, None, Graph())  # ty: ignore[invalid-argument-type]
+        record = cls(self.repository, None, None, Graph())  # ty: ignore[invalid-argument-type]
+        record.__parent__ = self
+        return record
 
     def __getitem__(self, key: str) -> "Record":
         if _NUMBER.match(key):
@@ -539,7 +547,9 @@ class Type(Node):
             # uri)
             return None
         cls = record_class(self.registry, self.class_uri)
-        return cls(self, number, record_uri, graph)
+        record = cls(self.repository, number, record_uri, graph)
+        record.__parent__ = self
+        return record
 
 
 def _slug_of(graph: Graph, record_uri: str) -> str | None:
@@ -565,8 +575,8 @@ class Record(Node):
     )  # required predicates that `apply` sets without a field (a hash)
     source_editable = True  # whether its data can be edited as text (`views/record.py`)
 
-    def __init__(self, parent: Type, number: str, uri: str, graph: Graph):
-        super().__init__(parent)
+    def __init__(self, repository: Repository, number: str, uri: str, graph: Graph):
+        super().__init__(repository)
         self.uri, self.graph = uri, graph
         # the address of a record is its slug when it has one, else its number
         self.__name__ = (_slug_of(graph, uri) if uri else None) or number
@@ -579,7 +589,7 @@ class Record(Node):
 
     @property
     def __acl__(self):
-        res_type = self.__parent__
+        res_type = self.type
         if res_type.class_uri in PRIVATE_CLASSES:
             return TYPE_ACLS[res_type.class_uri]
         if res_type.class_uri == uri.TYPE_CLASS and self.resource is not None:
@@ -590,7 +600,13 @@ class Record(Node):
 
     @property
     def type(self) -> "Type":
-        return self.__parent__
+        parent = self.__parent__
+        if isinstance(parent, Type):  # where traversal put it, or a blank record
+            return parent
+        parsed = uri.parse_record_uri(self.uri or "")
+        if parsed is None:
+            raise AttributeError("this record is not in a type")
+        return self.repository.types[parsed[0]]
 
     @property
     def label(self) -> str:
@@ -679,7 +695,7 @@ class Record(Node):
     def edit_schema(self, request=None) -> colander.Schema:
         request = request or get_current_request()
         schema = colander.Schema()
-        for node in self._nodes(*self.__parent__.record_shape(), request):
+        for node in self._nodes(*self.type.record_shape(), request):
             schema.add(node)
         schema.validator = self._sibling_validator(schema.children)
         return schema
@@ -716,7 +732,7 @@ class Record(Node):
         return self.uri is None
 
     def cannot_be_added(self) -> list[str]:
-        res_type = self.__parent__
+        res_type = self.type
         found = res_type.shape()
         if found is None:
             return [f"The type {res_type.name} has no shape"]
@@ -727,7 +743,7 @@ class Record(Node):
         ]
 
     def begin(self, number: int) -> None:
-        res_type = self.__parent__
+        res_type = self.type
         self.__name__, self.uri = str(number), uri.record_uri(res_type.slug, number)
         record, content, rdf_type = _N(self.uri), ox.BlankNode(), _N(uri.RDF_TYPE)
         for triple in (
@@ -839,7 +855,5 @@ class Record(Node):
         self.repository.configure()
         store.put(self.graph)
         self.__name__ = store.current_slug(self.uri) or self.uri.rsplit(":", 1)[1]
-        if (
-            self.__parent__.slug == "type"
-        ):  # a type was made or changed: its roles are new
+        if self.type.slug == "type":  # a type was made or changed: its roles are new
             self.repository.sync_roles()

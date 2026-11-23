@@ -57,7 +57,7 @@ class OnlyWithPerson(Extension):
 
     @property
     def enabled(self):
-        return "person" in self.repository.res_types
+        return "person" in self.repository.types
 
     @property
     def can_disable(self):
@@ -291,9 +291,7 @@ class RegistryTest(ExtensionsCase):
             node["nope:anything"]
         with self.assertRaises(KeyError):
             node["nothing"]
-        self.assertEqual(
-            node["person"].slug if "person" in node.res_types else "x", "x"
-        )
+        self.assertEqual(node["person"].slug if "person" in node.types else "x", "x")
 
     def test_a_key_that_a_type_could_have_is_refused(self):
         config = make_config(self.settings)

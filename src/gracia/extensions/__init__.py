@@ -32,18 +32,23 @@ def _states(repository) -> dict[str, tuple[bool | None, dict]]:
     cached = repository.__dict__.get("_extension_states")
     if cached is None:
         try:
-            uri, record_graph = repository.resource()
+            record = repository.record()
         except LookupError:
             cached = {}
         else:
-            cached = read_extension_states(record_graph, uri)
+            cached = read_extension_states(record.graph, record.uri)
         repository.__dict__["_extension_states"] = cached
     return cached
 
 
 def _write(repository, name: str, enabled: bool | None, settings: dict) -> None:
     store = repository.store
-    subject, record_graph = repository.content()
+    record = repository.record()
+    subject, record_graph = record.resource, record.graph
+    if subject is None:
+        raise LookupError(
+            f"the record of repository {repository.__name__} has no content"
+        )
     graph = next(
         iter(record_graph.quads_for_subject(ox.NamedNode(repository.uri)))
     ).graph_name

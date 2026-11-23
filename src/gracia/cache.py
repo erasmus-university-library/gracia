@@ -149,7 +149,7 @@ class DocStore(GraphStore):
                 raise
 
         addresses = [assets.DOC_BASE]
-        for slug, res_type in sorted(repository.res_types.items()):
+        for slug, res_type in sorted(repository.types.items()):
             if not res_type.doc_template:
                 continue
             try:

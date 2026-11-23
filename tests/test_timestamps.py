@@ -253,7 +253,8 @@ class RepositoryZoneTest(TimesCase):
         # a name that was stored, and is not a zone here
         node = self.application["test_repo"]
         self.addCleanup(node.close)
-        subject, resource = node.content()
+        record = node.record()
+        subject, resource = record.resource, record.graph
         resource.add(
             ox.Quad(
                 subject,
@@ -262,10 +263,11 @@ class RepositoryZoneTest(TimesCase):
                 ox.DefaultGraph(),
             )
         )
-        node.record(resource).save()
+        record.save()
         fresh = self.application["test_repo"]
         self.addCleanup(fresh.close)
-        subject, resource = fresh.content()
+        fresh_record = fresh.record()
+        subject, resource = fresh_record.resource, fresh_record.graph
         self.assertEqual(
             [o.value for o in resource.objects(subject, ox.NamedNode(uri.TIMEZONE))],
             ["Nowhere/Land"],

@@ -302,7 +302,7 @@ class RepositoryTest(WebCase):
     def slugs(self, repo="test_repo") -> list[str]:
         node = self.application[repo]
         self.addCleanup(node.close)
-        return list(node.res_types)
+        return list(node.types)
 
     def test_a_new_repository_starts_with_the_system_types_only(self):
         self.application.create_repository("test_repo", admin=ADMIN)

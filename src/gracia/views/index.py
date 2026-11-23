@@ -39,18 +39,17 @@ def page_etag(stored: str, shapes: dict[str, str]) -> str:
 
 
 def shape_versions(record, slugs) -> dict[str, str]:
-    res_types = record.repository.res_types
+    types = record.repository.types
     return {
-        slug: res_types[slug].assets_version
-        for slug in sorted(set(slugs) & set(res_types))
+        slug: types[slug].assets_version for slug in sorted(set(slugs) & set(types))
     }
 
 
 def shapes_of(record, slugs) -> list:
-    res_types = record.repository.res_types
+    types = record.repository.types
     quads = list(assets.record_shape(None, None)[0])
-    for slug in sorted(set(slugs) & set(res_types)):
-        content = res_types[slug].shape()
+    for slug in sorted(set(slugs) & set(types)):
+        content = types[slug].shape()
         if content is not None:
             quads += list(content[0])
     return quads

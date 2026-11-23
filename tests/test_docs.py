@@ -186,7 +186,7 @@ class DocTest(DocsCase):
     def test_a_doc_template_that_is_not_a_file_is_left_out_and_the_others_go_on(self):
         repository = self.library()
         for name in ("doc-nothing-01.xsl", "evil/../x.xsl"):
-            repository.res_types["person"].doc_template = name
+            repository.types["person"].doc_template = name
             self.cache.docs.drop("test_repo")
             with self.assertLogs("gracia.cache", level="WARNING"):
                 doc = self.person_doc(repository)
@@ -195,7 +195,7 @@ class DocTest(DocsCase):
 
     def test_the_type_record_names_the_doc_template(self):
         repository = self.library()
-        self.assertEqual(repository.res_types["person"].doc_template, "doc-full-01.xsl")
+        self.assertEqual(repository.types["person"].doc_template, "doc-full-01.xsl")
         self.assertIn("given_name", self.person_doc(repository))
 
 
@@ -348,7 +348,7 @@ class SwitchingDocTemplateTest(DocsCase):
     def template(self):
         repository = self.application["test_repo"]
         self.addCleanup(repository.close)
-        return repository.res_types["person"].doc_template
+        return repository.types["person"].doc_template
 
     def post(self, name: str, force: bool = False):
         page = self.client().get(
@@ -366,7 +366,7 @@ class SwitchingDocTemplateTest(DocsCase):
     def write(self, name: str | None) -> None:
         repository = self.application["test_repo"]
         self.addCleanup(repository.close)
-        record = repository.res_types["person"].record
+        record = repository.types["person"].record
         with self.application.new_store("test_repo") as store:
             quads = [
                 q
@@ -578,7 +578,7 @@ class SchemaModeTest(DocsCase):
         self.addCleanup(repository.close)
         return {
             f["name"]: f
-            for f in self.cache.docs.schema(repository, list(repository.res_types))
+            for f in self.cache.docs.schema(repository, list(repository.types))
         }
 
     def test_the_base_fields_are_for_every_type_and_a_type_adds_its_own(self):

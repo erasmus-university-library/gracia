@@ -82,7 +82,7 @@ def _percent(job: dict, stages: list[dict]) -> float:
 
 def summary(request, jobs_node: Jobs, job: dict) -> dict:
     stages = _stages(job)
-    node = JobRun(jobs_node, job)
+    node = jobs_node.run(job)
     url = request.resource_url(node)
     known = any(s["batches"]["total"] is not None for s in stages)
     rejected = sum(sum(s["rejected"].values()) for s in stages)
@@ -119,7 +119,7 @@ def _visible(
     for row in db.list_jobs(
         repo=jobs_node.repository.__name__, job=job, subject=subject
     ):
-        if request.has_permission("view_job", JobRun(jobs_node, row)):
+        if request.has_permission("view_job", jobs_node.run(row)):
             out.append(summary(request, jobs_node, row))
             if len(out) >= LIST_LIMIT:
                 break
@@ -234,7 +234,7 @@ def job_status(request):
     with _db(request) as db:
         procs.reconcile(db, _directory(request))
         row = db.get(node.__name__)
-        return summary(request, node.repository, row)
+        return summary(request, node.__parent__, row)
 
 
 @view_config(

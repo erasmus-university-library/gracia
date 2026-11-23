@@ -79,10 +79,10 @@ def resolve_ark(request):
     elif parts:
         record = request.store.record_with_resource_uri("ark:/" + "/".join(parts))
     parsed = uri.parse_record_uri(record) if record else None
-    if parsed is None or parsed[0] not in repository.res_types:
+    if parsed is None or parsed[0] not in repository.types:
         raise HTTPNotFound()
     try:
-        target = repository.res_types[parsed[0]][str(parsed[1])]
+        target = repository.types[parsed[0]][str(parsed[1])]
     except (KeyError, RecordDeleted):
         raise HTTPNotFound() from None
     if not request.has_permission("view", target):
