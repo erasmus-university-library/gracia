@@ -55,10 +55,6 @@ class Application:
     def indexes(self, indexes) -> None:
         self.registry["indexes"] = indexes
 
-    @property
-    def remote(self) -> bool:
-        return self.database.remote
-
     def __getitem__(self, repo_id: str) -> Repository:
         """The node of a repository: a new one for whoever asks, as it holds the store
         and what was read for one request. The database is asked only for an id not seen
