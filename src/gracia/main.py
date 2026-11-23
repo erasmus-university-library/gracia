@@ -73,24 +73,12 @@ def opened(db_file: str | Path | None = ":memory:", **kwargs):
         shutdown(registry)
 
 
-def adopt(application: Application, registry) -> None:
-    for name in ("database", "cache", "indexes", "application"):
-        registry[name] = application.registry[name]
-    application.registry = registry
-    application.cache.registry = registry
-
-
 def includeme(config: Configurator) -> None:
     settings = config.registry.settings  # ty: ignore[missing-union-attribute]
     application = settings.get("gracia.application")
-    owned = application is None
-    if owned:
+    if application is None:  # else one that was opened in this registry (`make_config`)
         target = settings.get("gracia.db") or os.environ.get("GRACIA_DB", "gracia.db")
         application = init_from_settings(config.registry, settings, target)
-    else:  # one that was opened for this configuration: what lives across requests
-        adopt(application, config.registry)  # is in its registry now
-    config.registry["application"] = application  # ty: ignore[invalid-assignment]
-    config.registry["application_owned"] = owned  # ty: ignore[invalid-assignment]
 
     def db(request):
         connection = request.registry["database"].cursor()
@@ -212,7 +200,17 @@ def includeme(config: Configurator) -> None:
 
 
 def make_config(settings: dict | None = None) -> Configurator:
-    config = Configurator(settings=dict(settings or {}))
+    """The configuration of the web application. With an application in the settings
+    (`gracia.application`, one that `init` opened) it is made in the registry of that
+    application, which is where its database and cache are; without, the settings say
+    which database to open, in a registry of its own."""
+    settings = dict(settings or {})
+    application = settings.get("gracia.application")
+    if application is None:
+        config = Configurator(settings=settings)
+    else:
+        config = Configurator(registry=application.registry)
+        config.setup_registry(settings=settings)
     config.include("gracia.main")
     return config
 

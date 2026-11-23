@@ -58,18 +58,9 @@ class RepositoryOfNodeTest(EditCase):
         self.assertIs(record.application, self.application)
 
     def test_what_is_kept_is_in_the_registry_of_the_application(self):
-        from pyramid.registry import Registry
-
-        from gracia.main import adopt
-
-        registry = Registry()
-        adopt(self.application, registry)
-        calls = []
+        registry = self.application.registry
         self.application.cache.slug(
-            "test_repo",
-            "person",
-            "ada",
-            lambda: calls.append(1) or ("rec:person:1", False),
+            "test_repo", "person", "ada", lambda: ("rec:person:1", False)
         )
         self.assertEqual(
             registry["slugs"]["test_repo"], {("person", "ada"): ("rec:person:1", False)}

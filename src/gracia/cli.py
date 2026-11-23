@@ -887,8 +887,7 @@ def cmd_serve(args) -> int:
         )
         waitress_serve(app, host=args.host, port=args.port, threads=args.threads)
     finally:
-        if app.registry.get("application_owned"):
-            shutdown(app.registry)
+        shutdown(app.registry)
     return 0
 
 

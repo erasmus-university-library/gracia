@@ -208,11 +208,11 @@ class WidgetsTest(JobsCase):
             )
             return seen["response"]
 
-        from pyramid.config import Configurator
         from webtest import TestApp
 
-        config = Configurator(settings={"gracia.application": self.application})
-        config.include("gracia.main")
+        from gracia.main import make_config
+
+        config = make_config({"gracia.application": self.application})
         config.set_security_policy(People())
         config.add_route("t", "/t")
         config.add_view(view, route_name="t", permission=None)

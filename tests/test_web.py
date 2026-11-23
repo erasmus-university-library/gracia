@@ -131,7 +131,6 @@ class RepositoryEndpointsTest(WebCase):
     def test_an_application_can_open_its_own_database(self):
         app = make_app({"gracia.db": ":memory:"})
         self.addCleanup(shutdown, app.registry)
-        self.assertTrue(app.registry["application_owned"])
         self.assertEqual(TestApp(app).get("/").json, {"repositories": []})
 
 
