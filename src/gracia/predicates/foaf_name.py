@@ -9,16 +9,7 @@ GIVEN, FAMILY = FOAF + "givenName", FOAF + "familyName"
 
 @predicate(FOAF + "name")
 class FoafNamePredicate(Predicate):
-    """`foaf:name`: the name as it is shown. A name is there, or the two parts it is
-    made of: when it is empty and the given name and the family name are both there it
-    is made of them (the given name, a space, the family name), and a name that is there
-    is kept as it is.
-
-    The shapes of a person say it with `sh:or` (a name, or both parts): SHACL checks it
-    where records are checked, and `sibling_validator` is the same rule for the form,
-    where a field of the name cannot be required (it may be empty) and the shape's
-    `sh:or` is not a field's. The SQL looks at the node (the blank node of the content)
-    that has the parts."""
+    """`foaf:name`: the name as shown; made of the given and family name when empty."""
 
     def sibling_validator(self, nodes):
         by_property = {getattr(node, "predicate", None): node for node in nodes}

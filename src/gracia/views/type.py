@@ -17,7 +17,6 @@ def _plain(term):
 
 
 def _reachable(request, res_type, number) -> bool:
-    """Whether the caller may see the record at all."""
     try:
         record = res_type[str(number)]
     except (KeyError, RecordDeleted):
@@ -31,16 +30,11 @@ SAFE_SCHEMES = frozenset(
 
 
 def wants_html(request) -> bool:
-    """A browser: `text/html` in the `Accept` header, and not JSON. A client that names
-    nothing (or `*/*`) gets what it always got."""
     accept = request.headers.get("Accept", "")
     return "text/html" in accept and "application/json" not in accept
 
 
 def page_links(request, context, page: int, pages: int) -> list[dict]:
-    """The links under a listing, as dicts of `label`, `url` (None: not a link), `kind`
-    (`step`, `page`, `gap`) and `current`: Newer, the first page, the pages near this
-    one, the last, Older. Page 1 is the newest records and the pages go back in time."""
 
     def address(n: int) -> str:
         return request.resource_url(context, query={"page": n})
@@ -74,9 +68,6 @@ def page_links(request, context, page: int, pages: int) -> list[dict]:
 
 
 def type_page(request):
-    """The records of the type, a page of them: page 1, the one shown when none is asked
-    for, is the newest created, and the pages go back in time. Those who may edit the
-    records see the ones that are not published too."""
     context, store = request.context, request.store
     published = not request.has_permission("edit", context)
     asked = request.params.get("page")
@@ -125,10 +116,6 @@ def type_page(request):
 
 
 def value_link(request, record, term) -> str | None:
-    """Where a value leads, if it is a place: the record whose resource has this uri (a
-    resource points at the resource uri of another record, never at the record), or a
-    web, mail or phone address. Nothing else is made a link (a `javascript:` value is
-    text)."""
     if not isinstance(term, ox.NamedNode):
         return None
     found = record.repository.store.record_with_resource_uri(term.value)
@@ -139,10 +126,6 @@ def value_link(request, record, term) -> str | None:
 
 
 def record_page(request):
-    """A record for a person: its label, its type, the description if the shape of the
-    type has a property with the role `dash:DescriptionRole` that the record has, and a
-    table of the properties with `dash:KeyInfoRole`, each under the name its shape gives
-    it (`sh:name`)."""
     record = request.context
     res_type = record.type
     shapes, shape = res_type.record_shape()
@@ -217,8 +200,6 @@ def res_type(request):
 
 @view_config(context=Record, request_method="GET")
 def record(request):
-    """The index view of a record: RDF/XML (`views.index`); the plain values as JSON for
-    whoever names `application/json` in its `Accept`, and a page for a browser."""
     if "application/json" in request.headers.get("Accept", ""):
         return render_to_response("json", record_values(request), request)
     if wants_html(request):
@@ -227,8 +208,6 @@ def record(request):
 
 
 def record_values(request) -> dict:
-    """The record and its content: the plain values of the record and of the blank node
-    it holds (nested blank nodes, like a type's shape, are left out)."""
     context = request.context
     subject, resource = ox.NamedNode(context.uri), context.resource
 

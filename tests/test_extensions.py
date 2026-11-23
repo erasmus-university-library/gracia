@@ -52,9 +52,6 @@ class Demo(Extension):
 
 
 class OnlyWithPerson(Extension):
-    """On only when the repository has the type `person`: the stored flag is not what
-    decides."""
-
     title = "Only with person"
     description = "Depends on the repository."
 
@@ -97,7 +94,6 @@ class ExtensionsCase(WebCase):
         raise KeyError(name)  # a factory that finds nothing: the segment is not there
 
     def repo(self):
-        """The repository node as the next request has it: nothing cached."""
         self.config.begin()
         self.addCleanup(self.config.end)
         node = self.application["test_repo"]

@@ -185,9 +185,6 @@ class MergeDeleteTest(DbTestCase):
         self.assertNotIn("unknown", out)
 
     def test_loading_a_resource_again_replaces_it_there_is_no_load_that_only_adds(self):
-        """Every load replaces the resources it has: a second load of the same one
-        leaves one copy of its bnode (the ids restart at -1 per load, which is why a
-        load that appended would mix them)."""
         path = self.write("a.ttl", '<rec:thing:1> ex:q [ ex:r "x" ] .\n')
         self.load(path)
         self.load(path)
@@ -199,7 +196,6 @@ class MergeDeleteTest(DbTestCase):
         self.assertEqual(raised.exception.code, 2)
 
     def test_failed_load_rolls_back(self):
-        """Nothing is stored when the triples insert fails."""
         self.load(self.write("a.ttl", '<rec:thing:1> ex:p "1" .\n'))
         with open_store(self.db) as store:
             before = fetch_one(store.con.execute("SELECT count(*) FROM triples"))[0]
@@ -279,10 +275,6 @@ class CliTest(DbTestCase):
 
 
 class FailOnce:
-    """A connection that fails the first time the triples are merged, as a writer that
-    lost the race with another one does (in process: a transaction conflict; through
-    Quack: a duplicate key), and passes everything else on."""
-
     def __init__(self, con, error):
         self._con, self._error, self.failures = con, error, 0
         self.always = False

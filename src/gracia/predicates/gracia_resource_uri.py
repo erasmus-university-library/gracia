@@ -7,10 +7,7 @@ from gracia.store import literal
 
 @predicate(uri.RESOURCE_URI)
 class ResourceUriPredicate(Predicate):
-    """`gracia:resource_uri` of a record: the name its resource is published under. It
-    is required, and when nobody says another (an ORCID, a permanent URI) it is made
-    when the record is saved: for now the ARK of the record, from the settings of the
-    `ark` extension. Once it has one it keeps it."""
+    """`gracia:resource_uri`: the name a record is published under, its ARK if none."""
 
     def schema_node(self, record, request, schema_node=None):
         return colander.SchemaNode(

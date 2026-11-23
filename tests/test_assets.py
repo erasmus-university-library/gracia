@@ -44,8 +44,6 @@ class JoinTest(unittest.TestCase):
 
 
 class SchemaNameTest(unittest.TestCase):
-    """`<Type>-<profile>-<revision>.ttl`, of the type that asks for it."""
-
     def test_a_schema_file_of_the_type(self):
         for name in (
             "Person-full-03.ttl",
@@ -153,8 +151,6 @@ class ShapeLoadingTest(unittest.TestCase):
 
 
 class ProfilesTest(unittest.TestCase):
-    """One type, two profiles and a new revision: each is a file, the type picks one."""
-
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
@@ -212,8 +208,6 @@ class ProfilesTest(unittest.TestCase):
 
 
 class OverrideTest(unittest.TestCase):
-    """`config.override_asset` layers a directory over a type's files, per registry."""
-
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
@@ -260,9 +254,6 @@ class OverrideTest(unittest.TestCase):
 
 
 class InfoTest(unittest.TestCase):
-    """What the application knows about a file, computed in the process from the
-    file."""
-
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)

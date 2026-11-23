@@ -18,7 +18,6 @@ from gracia.views import View, flash, fragment, same_origin
 
 
 def _size(number) -> str:
-    """A size in bytes as text: `12 B`, `3.4 KB`, `120 MB` (a thousand to the next)."""
     number = float(number or 0)
     for unit in ("B", "KB", "MB", "GB", "TB"):
         if number < 1000 or unit == "TB":
@@ -32,13 +31,10 @@ def _size(number) -> str:
 
 
 def _when(moment) -> str:
-    """A time of the database (UTC) as text, or nothing."""
     return moment.strftime("%Y-%m-%d %H:%M UTC") if moment else ""
 
 
 class Manage(View):
-    """A manage page: the tab strip, the panes and the dispatch of a posted form."""
-
     template = "gracia:assets/templates/manage.pt"
     scope = ""  # "repository" or "type": the form of a pane is `form-<scope>-<name>`
     panes: tuple[tuple[str, str], ...] = ()  # (name, title) in the order of the strip
@@ -53,8 +49,6 @@ class Manage(View):
         return f"form-{self.scope}-{name}"
 
     def action(self, pane: str) -> str:
-        """Where a form of the pane posts: this page, with the pane named so that it
-        stays in focus."""
         return self.request.resource_url(self.context, "manage", query={"tab": pane})
 
     def page(self) -> Response:
@@ -151,7 +145,6 @@ class RepositoryManage(Manage):
     # ---------------------------------------------------------------------------
 
     def _settings_form(self) -> tuple[Form, colander.Schema]:
-        """The form of the repository resource, from the shape named by the resource."""
         schema = colander.Schema()
         for node in forms.schema_from_shape(*self.context.shape()).children:
             code = predicates.find(
@@ -225,9 +218,6 @@ class RepositoryManage(Manage):
     # name of the button.
 
     def _extension_form(self, extension):
-        """The settings form of an extension, made the same way to show it and to read a
-        post, so that what comes back after an error is the same form (with its
-        button)."""
         return settings_form(
             extension,
             self.request,
@@ -406,8 +396,6 @@ class RepositoryManage(Manage):
         )
 
     def post_repository_search(self, _rest):
-        """Add (`add=<field>`) or remove (`remove=<field>`) a field of the index `index`
-        in the settings."""
         request, repository = self.request, self.context
         post = request.POST
         index = post.get("index", "")
@@ -445,9 +433,6 @@ class RepositoryManage(Manage):
     # -------------------------------------------------------------------------
 
     def _titles(self) -> dict[str, tuple[str, str]]:
-        """The `sh:name` and `sh:description` that the shapes give a property, by its
-        URI: the record shape and the shapes of the types of the repository (the first
-        that names it)."""
         found: dict[str, tuple[str, str]] = {}
 
         def walk(dataset, shape):
@@ -626,7 +611,6 @@ class RepositoryManage(Manage):
 
     @staticmethod
     def _worker_line(worker, repo: str) -> dict:
-        """What to say of the worker that follows the writes: a state, and a detail."""
         if worker is None:
             return {
                 "state": "off",
@@ -721,7 +705,6 @@ class TypeManage(Manage):
         return self.context.record
 
     def _record(self) -> Record:
-        """The record of the type in the type `type`."""
         res_type = self.context
         return res_type.repository["type"][res_type.record.rsplit(":", 1)[1]]
 

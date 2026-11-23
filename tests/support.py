@@ -8,8 +8,6 @@ from gracia.graph import Graph, streaming_parse, streaming_serialize
 
 
 def must_search(pattern: str, text: str, flags: int = 0) -> re.Match:
-    """`re.search`, but a page that lacks what the test looks for is a failure that says
-    so."""
     found = re.search(pattern, text, flags)
     if found is None:
         raise AssertionError(f"{pattern!r} not found in: {text[:300]!r}")
@@ -21,7 +19,6 @@ RDF = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
 
 # triple = (s_type, s, p, o_type, o, lang, datatype)
 def parse_json(text):
-    """json-triples as test triples."""
     out = []
     for t in json.loads(text)["triples"]:
         s, p, o = t["subject"], t["predicate"], t["object"]
@@ -40,9 +37,6 @@ def parse_json(text):
 
 
 def prune(triples):
-    """Apply the import's semantics to the expected graph: copy each bnode once
-    per path from a uri resource (shared bnodes are duplicated) and drop what
-    the table cannot hold (bnodes without a leaf, unreachable bnodes)."""
     by_s = {}
     for t in triples:
         if t[0] == "bnode":
@@ -107,7 +101,6 @@ def _term(color: dict, res_type: str, value: str):
 
 
 def canonical(triples):
-    """Relabel bnodes by iterated neighbourhood hashing; return a Counter."""
     bn = {t[1] for t in triples if t[0] == "bnode"} | {
         t[4] for t in triples if t[3] == "bnode"
     }
@@ -135,7 +128,6 @@ def canonical(triples):
 
 
 def triples_from_rows(rows):
-    """Staging rows (`Graph.rows`) as test triples."""
     return [
         (s_type, s, p, o_type, o, lang, dt)
         for s, s_type, p, o, o_type, lang, dt in rows
@@ -143,7 +135,6 @@ def triples_from_rows(rows):
 
 
 def triples_from_file(path):
-    """The graph of an RDF file (.json = json-triples), as test triples."""
     path = Path(path)
     if path.suffix == ".json":
         return parse_json(path.read_text(encoding="utf-8"))
@@ -151,8 +142,6 @@ def triples_from_file(path):
 
 
 def flat_rdfxml_from_file(path, prefixes: dict[str, str] | None = None) -> str:
-    """The graph of an RDF file as flat RDF/XML, the way the Dataset serializer writes
-    it (bnodes keep their sharing: no unsharing as in the database)."""
     return streaming_serialize(streaming_parse(path), "rdfxml", prefixes=prefixes)  # ty: ignore[invalid-explicit-return]
 
 
@@ -177,6 +166,5 @@ def diff(expected, actual, unshare_expected: bool = True) -> str:
 
 
 def validate(dataset, shapes, shape=None):
-    """`Graph.validate` for something that may still be a plain pyoxigraph Dataset."""
     graph = dataset if isinstance(dataset, Graph) else Graph(dataset)
     return graph.validate(shapes, shape=shape)

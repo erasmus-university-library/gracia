@@ -13,9 +13,6 @@ EX = "http://example.org/"
 
 
 class HeaderPolicy:
-    """A stand-in for real users: the caller is whoever the X-User header says;
-    `admin` is in group:admin."""
-
     def identity(self, request):
         return request.headers.get("X-User")
 
@@ -39,10 +36,6 @@ class HeaderPolicy:
 
 
 class FollowingApp(TestApp):
-    """A client that goes on to where a record has moved (the number of a record that
-    has a slug, an old slug): 301 and 308, once, with the same method and body, so that
-    a test can use either address. `follow = False` shows the redirect itself."""
-
     follow = True
 
     def do_request(self, req, status=None, expect_errors=False):
@@ -66,9 +59,6 @@ class WebCase(unittest.TestCase):
         self.settings = {"gracia.application": self.application}
 
     def client(self, config=None) -> TestApp:
-        """A new client (no cookies) on the application. The app is built once per test
-        while its settings stay the same: building one is a scan of the code, 13 ms, and
-        a test makes dozens of requests."""
         if config is not None:
             return FollowingApp(config.make_wsgi_app())
         built = getattr(self, "_built_app", None)
@@ -146,8 +136,6 @@ class RepositoryEndpointsTest(WebCase):
 
 
 class RepositoryApiTest(WebCase):
-    """/<repo-id>/api: the OpenAPI document of one repository, for the caller."""
-
     def setUp(self):
         super().setUp()
         self.application.create_repository("test_repo")
@@ -227,7 +215,6 @@ class RepositoryApiTest(WebCase):
         )
 
     def test_a_view_without_a_permission_still_needs_one(self):
-        """Default deny: with no permission given a view requires "view"."""
 
         class NobodyViews(HeaderPolicy):
             def permits(self, request, context, permission):
@@ -264,7 +251,6 @@ class RepositoryApiTest(WebCase):
 
 class ExtensionTest(WebCase):
     def test_an_extension_package_is_one_more_include(self):
-        """An external package adds views and describes them with add_api_operation."""
 
         def includeme(config):  # what `gracia_statistics.includeme` would be
             config.add_view(
@@ -283,7 +269,6 @@ class ExtensionTest(WebCase):
         self.assertIn("/count", web.get("/test_repo/api").json["paths"])
 
     def test_an_including_config_overrides_what_an_included_package_registered(self):
-        """Pyramid's conflict resolution: the outer configuration wins, silently."""
         self.application.create_repository("test_repo")
         config = make_config(self.settings)
         config.add_api_operation("/api", "Our own description of the document")

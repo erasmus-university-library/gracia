@@ -54,9 +54,6 @@ def basic(user: str, password: str) -> dict:
 
 
 class DocsCase(WebCase):
-    """A file database with the person type, the doc cache on, and two or three
-    records."""
-
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
@@ -348,9 +345,6 @@ class DocTemplateFieldTest(DocsCase):
 
 
 class SwitchingDocTemplateTest(DocsCase):
-    """The doc template of the type changes: by its form, or by writing the type record,
-    which is what an import does."""
-
     def template(self):
         repository = self.application["test_repo"]
         self.addCleanup(repository.close)
@@ -370,7 +364,6 @@ class SwitchingDocTemplateTest(DocsCase):
         )
 
     def write(self, name: str | None) -> None:
-        """The type record of the person type with this doc template (None: none)."""
         repository = self.application["test_repo"]
         self.addCleanup(repository.close)
         record = repository.res_types["person"].record
@@ -474,9 +467,6 @@ class CompiledTest(unittest.TestCase):
         self.assertEqual(compiled.transform("<a/>"), "none")  # not "one"
 
     def test_it_is_only_ever_touched_by_one_thread_whoever_asks(self):
-        """SaxonC objects belong to the thread that made them (a fatal "wrong
-        IsolateThread" otherwise): however many threads ask, compile, run and close all
-        happen on the owner thread."""
         compiled = xslt.Compiled(
             self.SHEET.format(
                 "<xsl:output method='text'/><xsl:template match='/'>ok</xsl:template>"
@@ -518,9 +508,6 @@ class CompiledTest(unittest.TestCase):
             compiled.transform("<a/>")
 
     def test_a_fatal_signal_says_what_every_thread_was_doing(self):
-        """A segmentation fault anywhere in the process is reported by SaxonC's handler
-        as a StackOverflowError that says nothing; with Saxon started, the report of the
-        threads comes first."""
         import os
         import subprocess
         import sys
@@ -564,11 +551,6 @@ class CompiledTest(unittest.TestCase):
 
 
 class ManagePageAfterSaveTest(DocsCase):
-    """The manage page of a type after the type was saved: its record has a slug then,
-    and looking the record up by its number answers with a redirect to the slug (an
-    exception that left the view: the whole request was a 301 to
-    `/test_repo/type/person`). The page finds its record without being sent anywhere."""
-
     def test_the_page_and_a_second_save_work_after_a_save(self):
         web = self.client()
         headers = {**basic(*ADMIN), **HTML}
@@ -591,9 +573,6 @@ class ManagePageAfterSaveTest(DocsCase):
 
 
 class SchemaModeTest(DocsCase):
-    """The schema mode of the doc stylesheets: the fields the docs have, so the index
-    can be compared with them."""
-
     def offered(self) -> dict[str, dict]:
         repository = self.application["test_repo"]
         self.addCleanup(repository.close)
@@ -663,9 +642,6 @@ class SchemaModeTest(DocsCase):
         self.assertEqual({tuple(f["types"]) for f in found}, {("thing",)})
 
     def test_what_the_docs_have_is_what_the_schema_says(self):
-        """The two descriptions must not drift: every field of every doc is a field of
-        the schema mode (a doc field the schema lacks would be dropped by the index
-        without anyone knowing)."""
         declared = set(self.offered())
         for record in ("rec:person:1", "rec:thing:1", "rec:user:7"):
             self.assertLessEqual(set(self.doc(record)), declared, record)

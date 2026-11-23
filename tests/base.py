@@ -33,8 +33,6 @@ REC = {
 
 
 def rec(name: str) -> str:
-    """The record uri of a test subject: its entry in REC, or `rec:<letters>:<digits>`
-    of `book4`-like names."""
     if name in REC:
         return REC[name]
     found = re.fullmatch(r"([a-z]+)([1-9][0-9]*)", name)
@@ -61,16 +59,12 @@ class DbTestCase(unittest.TestCase):
             self.assertEqual(code, 0, err)
 
     def gracia(self, *args: str) -> tuple[int, str, str]:
-        """Run the CLI in-process against this test's database: (exit code, stdout,
-        stderr)."""
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             code = cli.main(["-d", str(self.db), *args])
         return code, out.getvalue(), err.getvalue()
 
     def create_repositories(self, *ids: str) -> tuple[int, str, str]:
-        """`gracia repo create` with the admin given by flags: `admin`, password
-        `s3cret-pass`."""
         password = self.tmp / "admin.pw"
         if not password.exists():
             password.write_text("s3cret-pass\n")
@@ -90,8 +84,6 @@ class DbTestCase(unittest.TestCase):
         self.assertEqual(code, 0, err)
 
     def rows(self, store: Store, uris=None) -> list[tuple]:
-        """The live records (or these uris) as staging rows: DuckDB writes the N-Triples
-        file, the parser reads it back."""
         path = self.tmp / "rows.nt"
         store.export_ntriples(path, uris)
         return list(streaming_parse(path, "ntriples"))
@@ -101,7 +93,6 @@ class DbTestCase(unittest.TestCase):
             return store.export_json(uri)
 
     def write(self, name: str, body: str) -> Path:
-        """A small turtle file with the ex: prefix."""
         path = self.tmp / name
         path.write_text(
             "@prefix ex: <http://example.org/> .\n" + body, encoding="utf-8"

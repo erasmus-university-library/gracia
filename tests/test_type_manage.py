@@ -121,9 +121,6 @@ class PageTest(JobsViewCase):
 
 
 class IdentificationTabTest(JobsViewCase):
-    """The numbers of the records of the type: shown, and a swath of them can be
-    reserved."""
-
     def page(self) -> str:
         return self.web.get(URL + "?tab=identification", headers=ADMIN).text
 
@@ -346,8 +343,6 @@ class ValidateBeforeSavingTest(JobsViewCase):
 
 
 class TabsTest(JobsViewCase):
-    """The page is tabs, each a named form, and every form posts to the manage view."""
-
     def page(self, query="", web=None) -> str:
         return (web or self.web).get(URL + query, headers=ADMIN).text
 
@@ -451,9 +446,6 @@ class TabsTest(JobsViewCase):
 
 
 class FlashTest(JobsViewCase):
-    """What a tab says after its work: kept in the session, shown once, in the
-    layout."""
-
     def web_with_tabs(self, **extra) -> TestApp:
         config = make_config({**self.settings(), **extra})
         add_notes(config)

@@ -49,8 +49,6 @@ _SHAPES: dict[tuple[str, int, str], tuple[Graph, ox.NamedNode | ox.BlankNode]] =
 
 
 def join(prefix: str, name: str) -> str:
-    """`name` inside the directory spec `prefix` (`gracia.types:user/` + `view.xsl`).
-    The name stays inside the directory: no `..`, no leading slash, no empty parts."""
     parts = name.split("/")
     if (
         not name
@@ -65,9 +63,6 @@ def join(prefix: str, name: str) -> str:
 
 
 def schema_spec(prefix: str, schema: str | None, res_type: str) -> str:
-    """The spec of the schema file `schema` of the type named `type`, in a directory
-    spec. The name has to be `<type>-<profile>-<revision>.ttl` with the name of this
-    type, so that a type cannot be pointed at the files of another."""
     found = SCHEMA_NAME.match(schema or "")
     if not found or found[1] != res_type:
         raise ValueError(
@@ -78,8 +73,6 @@ def schema_spec(prefix: str, schema: str | None, res_type: str) -> str:
 
 
 def doc_href(slug: str, name: str) -> str:
-    """The `type:` address of the doc stylesheet `name` of the type `slug`; ValueError
-    for a name that is not `doc-<profile>-<revision>.xsl`."""
     if not DOC_NAME.match(name or ""):
         raise ValueError(
             f"not a doc stylesheet: {name!r} (expected doc-<profile>-<revision>.xsl)"
@@ -88,8 +81,6 @@ def doc_href(slug: str, name: str) -> str:
 
 
 def resolve(spec: str) -> Path:
-    """The file an asset spec names, with the overrides of the current registry
-    applied."""
     try:
         asset = AssetResolver().resolve(spec)
         found = asset.exists() and not asset.isdir()
@@ -105,8 +96,6 @@ def read_text(spec: str) -> str:
 
 
 def load_shape(path: Path, class_uri: str) -> tuple[Graph, ox.NamedNode | ox.BlankNode]:
-    """The node shape in a Turtle file that targets `class_uri` (parsed once per file
-    version)."""
     stat = path.stat()
     key = (str(path), stat.st_mtime_ns, class_uri)
     if key not in _SHAPES:
@@ -139,12 +128,6 @@ def _record_shapes() -> tuple[ox.Quad, ...]:
 def record_shape(
     content=None, class_uri: str | None = None
 ) -> tuple[Graph, ox.NamedNode]:
-    """The shape of a record (`model/record.shacl.ttl`) with the shape of its content
-    embedded on `gracia:resource` (`sh:node`): (a new graph, the node of the record
-    shape). `content` is what `shape` gives, or None for a record whose type has no
-    shape. The content has to be of the class of the type (`sh:class`): its shape only
-    picks the nodes that are (`sh:targetClass`), so without this a node of another class
-    would not be looked at."""
     data = Graph(ox.Dataset(_record_shapes()))
     node = ox.NamedNode(uri.RECORD_SHAPE)
     sh = lambda name: ox.NamedNode("http://www.w3.org/ns/shacl#" + name)  # noqa: E731
@@ -164,9 +147,6 @@ def record_shape(
 
 
 def shape(prefix: str | None, schema: str | None, class_uri: str, res_type: str):
-    """The shape of `class_uri` in the schema file `schema` of the type named `type`, or
-    None (logged) when the type has no assets or no schema, or they cannot be read: such
-    a type still works, it just has no form."""
     if not prefix or not schema:
         return None
     try:
@@ -178,8 +158,6 @@ def shape(prefix: str | None, schema: str | None, class_uri: str, res_type: str)
 
 @dataclass(frozen=True)
 class Info:
-    """What is known of a file: its spec, where it is, and its version."""
-
     spec: str
     path: Path
     media_type: str
@@ -199,8 +177,6 @@ def _checksum(path: Path) -> str:
 
 
 def info(spec: str) -> Info:
-    """The file `spec` names, with its media type, size and checksum. The checksum is
-    computed again only when the file (the one the overrides give) has changed."""
     path = resolve(spec)
     stat = path.stat()
     key = (str(path), stat.st_mtime_ns, stat.st_size)
@@ -214,9 +190,6 @@ def info(spec: str) -> Info:
 def files_of(
     prefix: str, schema: str | None = None, res_type: str | None = None
 ) -> list[Info]:
-    """The files of a type that exist in the directory spec `prefix`: the schema file
-    `schema` (of the type named `type`) and the stylesheet. A schema that is not a valid
-    name or does not exist is left out."""
     specs = []
     if schema and res_type:
         with suppress(ValueError):
@@ -232,8 +205,6 @@ def files_of(
 
 
 def schemas_of(prefix: str) -> list[str]:
-    """The names of the schema files in `shacl/` of the directory spec `prefix`, by name
-    (with the overrides of the current registry applied)."""
     try:
         asset = AssetResolver().resolve(join(prefix, SCHEMA_DIR.rstrip("/")))
         if not asset.isdir():
@@ -245,8 +216,6 @@ def schemas_of(prefix: str) -> list[str]:
 
 
 def docs_of(prefix: str) -> list[str]:
-    """The names of the doc stylesheets in `doc/` of the directory spec `prefix`, by
-    name."""
     try:
         asset = AssetResolver().resolve(join(prefix, DOC_DIR.rstrip("/")))
         if not asset.isdir():
@@ -260,9 +229,6 @@ def docs_of(prefix: str) -> list[str]:
 def version(
     prefix: str | None, schema: str | None = None, res_type: str | None = None
 ) -> str:
-    """One digest over the files of a type (see `files_of`): it changes when one
-    changes, is added or goes, and when the type switches to another schema file. Empty
-    when there are no files. A record's ETag takes it in."""
     if not prefix:
         return ""
     files = files_of(prefix, schema, res_type)
@@ -276,8 +242,6 @@ def version(
 
 @contextmanager
 def using(registry):
-    """Make a Pyramid registry current, so that its overrides apply to what is resolved
-    inside. A request does this by itself; a command or a script has to."""
     manager.push({"registry": registry, "request": None})
     try:
         yield

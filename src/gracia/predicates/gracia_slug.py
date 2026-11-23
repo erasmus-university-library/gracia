@@ -15,9 +15,6 @@ RESERVED = (
 
 
 class SlugWidget(deform.widget.TextInputWidget):
-    """A text field, and a drop-down of the slugs the record has had: choosing one puts
-    it in the field (save to use it again). Anything else can be typed."""
-
     def __init__(self, options, **kw):
         super().__init__(attributes={"autocomplete": "off"}, **kw)
         self.options = list(options)
@@ -43,22 +40,7 @@ class SlugWidget(deform.widget.TextInputWidget):
 
 @predicate(uri.SLUG)
 class SlugPredicate(Predicate):
-    """`gracia:slug` of a record: its name in the address of its type,
-    `/person/john-doe`, in lower case letters and digits with dashes. A slug that a
-    record has had is its own for good: the address keeps working and goes on to the
-    current one (`Type.__getitem__`).
-
-    When it is saved the slug is made again (the SQL below): the one that is given, or
-    when there is none, one made of the label (`slugify`: accents off, anything that is
-    not a letter or a digit a dash, no other scripts), and if another record of the type
-    has it, the next that is free: `john-doe` is `john-doe-2`, then `-3`. A slug the
-    record had before is not taken. Records that come in one batch and have the same
-    label get one number each, in the order of their numbers. A slug of numbers only (it
-    would be an address of a number), and the names of the views of a type, are not
-    slugs: those records stay at their number until they are given one.
-
-    The same property is the slug of a type in the content of a type record
-    (`gracia:Type`): that is another thing, and this predicate leaves it alone."""
+    """`gracia:slug`: the name of a record in the address of its type, made on save."""
 
     def schema_node(self, record, request, schema_node=None):
         if schema_node is None or getattr(schema_node, "depth", 0) != 0:

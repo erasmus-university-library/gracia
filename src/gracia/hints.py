@@ -14,7 +14,6 @@ ROLES = {
 
 
 def paths(shapes: Graph, shape) -> set[str]:
-    """Every property that `shape` describes, the ones below it (`sh:node`) too."""
     found: set[str] = set()
     for path, prop in forms.properties(shapes, shape):
         found.add(path)
@@ -25,9 +24,6 @@ def paths(shapes: Graph, shape) -> set[str]:
 
 
 def names(shapes: Graph, shape) -> dict[str, str]:
-    """What a person calls every property `shape` describes (`sh:name`), by property
-    uri, the ones below `sh:node` too; a property that has no name is called by the last
-    part of its uri."""
     found: dict[str, str] = {}
 
     def walk(node) -> None:
@@ -45,10 +41,6 @@ def names(shapes: Graph, shape) -> dict[str, str]:
 def roles(
     shapes: Graph, shape, class_uri: str | None = None
 ) -> list[tuple[str, str, int]]:
-    """The hints of the properties of `shape`, the ones below it too, as (role, property
-    uri, place): the outer properties first, each level in `sh:order`; `place` counts
-    them. `role` is `label`, `key_info`, `description` or, for `dash:uniqueValueForClass
-    <class_uri>`, `unique`."""
     found: list[tuple[str, str, int]] = []
 
     def walk(node) -> None:

@@ -22,9 +22,6 @@ SH = "http://www.w3.org/ns/shacl#"
 
 @predicate(FOAF + "mbox")
 class MboxPredicate(Predicate):
-    """The code for a property of the content of a person: another description, and what
-    is stored is the address in lower case."""
-
     def schema_node(self, record, request, schema_node=None):
         schema_node.description = "in lower case"  # ty: ignore[invalid-assignment]
         return schema_node
@@ -198,9 +195,6 @@ class PropertyCodeTest(PredicateCase):
 
 
 class ResourceUriTest(PredicateCase):
-    """`gracia:resource_uri`: all of its code is in
-    `predicates/gracia_resource_uri.py`."""
-
     def test_a_new_record_gets_the_ark_from_the_predicate(self):
         client = self.client(self.config)
         form = client.get("/test_repo/person/add", headers=self.admin).forms[0]
@@ -219,9 +213,6 @@ class ResourceUriTest(PredicateCase):
 
 
 class SchemaTest(PredicateCase):
-    """`gracia:schemaTemplate`: a select of the files of the directory `gracia:assets`
-    names."""
-
     def test_the_type_record_offers_the_files_of_its_directory(self):
         page = self.page("/test_repo/person/manage").text
         select = must_search(r'<select name="schema".*?</select>', page, re.S)[0]
@@ -269,9 +260,6 @@ class HookTest(PredicateCase):
 
 
 class BatchHookTest(PredicateCase):
-    """The SQL of a predicate works on all the records of a batch at once, and can be
-    run again."""
-
     predicates = (MboxPredicate,)
 
     def people(self) -> ox.Dataset:

@@ -67,9 +67,6 @@ STOP = None  # a test may put the StopFlag of the running job here
 
 
 class Echo(Source):
-    """`n_items` items `item-1` .. `item-n`, in batches of `size`; the parameters make
-    things go wrong or slow."""
-
     n_items = luigi.IntParameter(default=6)
     size = luigi.IntParameter(default=2)
     sleep = luigi.FloatParameter(default=0.0)
@@ -110,14 +107,10 @@ class Echo(Source):
 
 
 def echo(**params) -> dict:
-    """A stage entry for a job: `Echo` with 6 items in batches of 2, unless told
-    otherwise."""
     return {"stage": "Echo", "params": {"n_items": 6, "size": 2, **params}}
 
 
 class Reject(Stage):
-    """Rejects the items named in `ids` (comma separated), passes the rest."""
-
     ids = luigi.Parameter(default="")
 
     def process(self, items):
@@ -132,24 +125,16 @@ class Reject(Stage):
 
 
 class Keep(Stage):
-    """Passes everything on unchanged: the output is a hard link of the input."""
-
     def process(self, items):
         return items, []
 
 
 class Mark(Stage):
-    """A transform: every item gets a mark (the data changes, so the file is
-    written)."""
-
     def process(self, items):
         return [{**i, "marked": True} for i in items], []
 
 
 class Tool(Stage):
-    """Stands in for a call to a tool or a web service that fails the first `failures`
-    times."""
-
     failures = luigi.IntParameter(default=0)
     counter = luigi.Parameter(default="")
 
@@ -163,9 +148,6 @@ class Tool(Stage):
 
 
 class JobsCase(unittest.TestCase):
-    """An application with a repository `test_repo` that has a Person type and some
-    people."""
-
     def setUp(self):
         self.application = self.make_application()
         self._tmp = tempfile.TemporaryDirectory()
@@ -186,8 +168,6 @@ class JobsCase(unittest.TestCase):
     settings: ClassVar[dict] = {}  # what `gracia run` would have: a test may set more
 
     def people(self) -> str:
-        """12 people: 3 have no name, 4 have no mail address, 1 has a bad one, 1 has no
-        content."""
         header = (
             "@prefix gracia: <https://gracia.pub/ns/> . @prefix foaf: <"
             + FOAF
@@ -235,7 +215,6 @@ class JobsCase(unittest.TestCase):
             return db.get(job_id)  # ty: ignore[invalid-explicit-return]
 
     def stage(self, job_id: str, name: str) -> dict:
-        """The snapshot of one stage, from the job row."""
         return next(
             s for s in self.job(job_id)["progress"]["stages"] if s["name"] == name
         )
@@ -245,8 +224,6 @@ class JobsCase(unittest.TestCase):
 
 
 def quack_owner(test: unittest.TestCase) -> tuple[Application, str, str]:
-    """An application that reaches an in-memory database through a Quack owner: with the
-    address and the token of that owner."""
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]

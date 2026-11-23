@@ -26,11 +26,6 @@ def add_api_operation(
     at: str | None = None,
     shown: str | None = None,
 ):
-    """Config directive: describe an operation of a repository in its OpenAPI document.
-    `permission` should be the permission of the view that serves it. An operation of a
-    node below the repository (`at="jobs"`) is listed to those who hold `shown`
-    (default: the permission) on that node: a permission that is about one object
-    (`view_job`) is not held on the node itself."""
     operation = Operation(path, method.lower(), summary, permission, at, shown)
 
     def register():
@@ -40,7 +35,6 @@ def add_api_operation(
 
 
 def document(request) -> dict:
-    """The OpenAPI 3 document of `request.context` (a repository), for this caller."""
     repo_id = request.context.__name__
     paths: dict[str, dict] = {}
     operations = sorted(
@@ -68,7 +62,6 @@ def document(request) -> dict:
 
 
 def includeme(config) -> None:
-    """The `add_api_operation` directive, and the operations the core views offer."""
     config.add_directive("add_api_operation", add_api_operation)
     config.add_api_operation("/", "The repository: its rows")
     config.add_api_operation("/{type}", "A type of record: the numbers of its records")

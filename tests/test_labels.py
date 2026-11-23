@@ -106,8 +106,6 @@ class LabelTest(LabelCase):
 
 
 class EveryTypeTest(LabelCase):
-    """Each type has a query, so each kind of record has a label."""
-
     def test_the_system_types_say_how_their_records_are_labelled(self):
         self.add_person("Ada Lovelace")
         self.assertEqual(self.labels("rec:repository:1"), ["test_repo"])  # the title
@@ -140,9 +138,6 @@ class EveryTypeTest(LabelCase):
 
 
 class NameTest(LabelCase):
-    """`foaf:name` of a person: a name, or both parts it is made of (and then it is made
-    of them)."""
-
     def submit(self, **fields):
         form = self.web.get("/test_repo/person/add", headers=ADMIN).forms[0]
         for name, text in fields.items():
@@ -190,8 +185,6 @@ class NameTest(LabelCase):
 
 
 class LabelSqlTest(unittest.TestCase):
-    """The SQL of the label predicate, on the rows of a batch (`flat`)."""
-
     NAME, TITLE = "http://xmlns.com/foaf/0.1/name", "http://purl.org/dc/terms/title"
 
     class Type:
@@ -261,9 +254,6 @@ class LabelSqlTest(unittest.TestCase):
 
 
 class EditorLoadingTest(LabelCase):
-    """CodeMirror is needed only by the pages with an editor field, never by public
-    pages."""
-
     def has_editor(self, path, headers=ADMIN):
         return "codemirror" in self.web.get(path, headers=headers).text
 

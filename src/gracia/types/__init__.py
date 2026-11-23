@@ -27,9 +27,6 @@ _RDF = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
 
 @dataclass(frozen=True)
 class ContentType:
-    """A type as the code describes it: a content type, or (see `SYSTEM_TYPES`) a system
-    type."""
-
     package: str
     name: str
     slug: str
@@ -79,15 +76,11 @@ SYSTEM_TYPES = (
 
 
 def assets_spec(package: str) -> str:
-    """The asset spec of the directory of a type package: `gracia.types.person` is the
-    package `gracia.types`, directory `person`."""
     parent, _, name = package.rpartition(".")
     return f"{parent}:{name}/" if parent else f"{name}:"
 
 
 def describe(package: str) -> ContentType:
-    """The content type of a package: its `TYPE`, checked, and its schema file must
-    exist."""
     module = importlib.import_module(package)
     descriptor = getattr(module, "TYPE", None)
     if not isinstance(descriptor, dict):
@@ -129,8 +122,6 @@ def describe(package: str) -> ContentType:
 
 
 def _packages(extra=()) -> list[str]:
-    """The packages that may be content types: subpackages of `gracia.types`, entry
-    points and the dotted names given."""
     import gracia.types as here
 
     found = [
@@ -145,8 +136,6 @@ def _packages(extra=()) -> list[str]:
 
 
 def available(extra=()) -> dict[str, ContentType]:
-    """Every content type there is, by slug. A package that has no `TYPE` is passed over
-    (it may be a package of code only); one whose `TYPE` is wrong is an error."""
     found: dict[str, ContentType] = {}
     for package in _packages(extra):
         module = importlib.import_module(package)
@@ -164,15 +153,10 @@ def listed(settings: dict, key: str) -> list[str]:
 
 
 def content_types(registry) -> dict:
-    """The content types the application knows, by slug: the types in the registry that
-    are not system types and are described (a type that only has a record class has no
-    slug)."""
     return {k.slug: k for k in known_types(registry) if k.slug and not k.system}
 
 
 def find_content_type(registry, name: str):
-    """A content type by slug or by the dotted name of its package; ValueError when
-    there is none."""
     known = content_types(registry)
     found = known.get(name) or next(
         (k for k in known.values() if k.package == name), None
@@ -189,8 +173,6 @@ def find_content_type(registry, name: str):
 
 
 def enabled(registry, settings: dict) -> list:
-    """The content types a new repository gets: the setting `gracia.content_types`
-    (slugs, or dotted names of packages), looked up in the registry."""
     return [
         find_content_type(registry, name)
         for name in listed(settings, "gracia.content_types")
@@ -198,20 +180,12 @@ def enabled(registry, settings: dict) -> list:
 
 
 def packages(settings: dict) -> list[str]:
-    """The packages the web application includes, for their `includeme`: the system
-    types, and every content type there is (a package without an `includeme` is skipped
-    by the caller)."""
     extra = listed(settings, "gracia.types")
     found = [*SYSTEM_PACKAGES, *(c.package for c in available(extra).values()), *extra]
     return list(dict.fromkeys(found))
 
 
 def add_content_type(store, repo_id: str, content_type: ContentType) -> str | None:
-    """Add a content type to a repository that exists: a type record, and the type in
-    the list in the content of the repository record. Returns the URI of the type
-    record, or None when the repository has a type with that slug already. It changes
-    only those two records, in one transaction; the counter of the type's records needs
-    nothing."""
     repo_uri = uri.repository_uri()
     subject = _N(repo_uri)
     resource = store.get(repo_uri)
@@ -286,10 +260,6 @@ def add_content_type(store, repo_id: str, content_type: ContentType) -> str | No
 
 @implementer(IGraciaType)
 class TypeInfo:
-    """What the application knows about a type (see `IGraciaType`). Filled in by two
-    directives, in either order: `add_gracia_type` (the descriptor) and
-    `add_record_class` (the code)."""
-
     def __init__(self, class_uri: str):
         self.class_uri = class_uri
         self.name = self.slug = self.schema = self.assets = self.package = None
@@ -301,8 +271,6 @@ class TypeInfo:
 
 
 def _info(registry, class_uri: str) -> TypeInfo:
-    """The `TypeInfo` of a class, made (and registered under the URI) when there is
-    none."""
     info = registry.queryUtility(IGraciaType, class_uri)
     if info is None:
         info = TypeInfo(class_uri)
@@ -311,9 +279,6 @@ def _info(registry, class_uri: str) -> TypeInfo:
 
 
 def add_gracia_type(config, content_type, system: bool = False) -> None:
-    """Config directive: register a type (a `gracia.types.ContentType`) as an
-    `IGraciaType` utility, under its class URI and its slug. A class or a slug that
-    another type has is a conflict."""
 
     def register():
         registry = config.registry
@@ -348,9 +313,6 @@ def add_gracia_type(config, content_type, system: bool = False) -> None:
 
 
 class TypeClassPredicate:
-    """View predicate `type_class=<uri>`: the context is a type that describes that
-    class."""
-
     def __init__(self, value, config):
         self.value = value
 
@@ -364,13 +326,6 @@ class TypeClassPredicate:
 
 
 def add_record_class(config, class_uri: str, cls: type[Record]) -> None:
-    """Config directive: use `cls` for the records of the type that describes
-    `class_uri`.
-
-    A class that asks for other permissions than `Record` does (`edit_permission`,
-    `add_permission`) gets the generic edit and add views registered for itself with
-    those permissions, so who may edit or add is a matter of the ACLs of the resources.
-    """
 
     def register():
         _info(config.registry, class_uri).record_class = cls

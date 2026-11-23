@@ -28,8 +28,6 @@ pytestmark = pytest.mark.processes
 
 
 class ProcessCase(JobsCase):
-    """The same repository and people, in a database that other processes can reach."""
-
     def make_application(self):
         application, self.uri, self.token = quack_owner(self)
         return application
@@ -77,8 +75,6 @@ class ProcessCase(JobsCase):
         procs.reap_children()
 
     def held(self, **params) -> dict:
-        """A stage whose batches wait for as long as `self.hold` exists, and say when
-        they start."""
         self.hold.write_text("")
         return echo(hold=str(self.hold), marker=str(self.marker), **params)
 
@@ -226,8 +222,6 @@ class StopTest(ProcessCase):
     def test_a_job_that_does_not_stop_in_time_is_killed_with_the_workers_it_forked(
         self,
     ):
-        """The process leads a group; a stop signals the group, so the workers it forked
-        go too."""
         job_id = self.running(n_items=3, size=1)  # batches that never end
         pid = self.job(job_id)["pid"]
         self.assertEqual(os.getpgid(pid), pid)
@@ -275,7 +269,6 @@ class StopTest(ProcessCase):
         self.assertEqual(self.stage(job_id, "Echo")["processed"], 8)
 
     def test_a_pid_that_is_not_the_job_is_never_signalled(self):
-        """A reused pid: the start time does not match, so nothing is sent to it."""
         job_id = self.make(ECHO)
         with JobsDb(self.application) as db:
             db.update_job(

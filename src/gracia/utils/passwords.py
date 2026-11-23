@@ -19,7 +19,6 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(password: str, stored: str) -> bool:
-    """True when `password` matches `stored`; a malformed string never matches."""
     try:
         scheme, n, r, p, salt, digest = stored.split("$")
         if scheme != "scrypt":
@@ -35,8 +34,6 @@ _DUMMY = None
 
 
 def verify_nothing(password: str) -> bool:
-    """Spend the time of a verification when there is no hash to check, so that an
-    unknown user takes as long to refuse as a wrong password does."""
     global _DUMMY
     if _DUMMY is None:
         _DUMMY = hash_password("not a password")

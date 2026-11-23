@@ -86,7 +86,6 @@ def _close(self):
 
 
 def _swap_in(application, template: Path) -> None:
-    """The database of the application is a copy of the one in the template file."""
     database = application.database
     clone = _TEMPLATES / f"clone-{next(_clones)}.db"
     shutil.copy(template, clone)
@@ -109,10 +108,6 @@ def _clonable(application) -> bool:
 
 @contextlib.contextmanager
 def _built_on(template: Path, registry):
-    """An application on the template file, in `registry` (the types and extensions of
-    the application that wants the copy are in it): it is only there to make what is
-    copied, so what it puts in the registry (its database and cache, what they keep)
-    is taken out again afterwards."""
     names = ("database", "cache", "indexes", "application", *Cache.KEPT)
     saved = {name: registry[name] for name in names if name in registry}
     built = init(registry, template)
@@ -126,13 +121,6 @@ def _built_on(template: Path, registry):
 
 
 def prepared(application, key, build) -> None:
-    """Make `application` (on a database in memory, with nothing in it) hold what
-    `build(app)` makes of an application: built once in a process, into a template file,
-    and copied for every later test. For the state that a whole group of tests starts
-    from (a repository with some records in it): a write is 0.1 s at any size, and a
-    test that starts with two of them spends a quarter of a second before it begins.
-    `key` says which state it is; anything else (a database in a file, a second
-    repository) just runs `build`."""
     if not _clonable(application):
         build(application)
         return
@@ -258,8 +246,5 @@ Store._configured = _configured
 
 @pytest.fixture(autouse=True)
 def fresh_registry():
-    """Every test has a registry of its own as the current one (what an `Application`
-    without one of its own uses): what the application keeps in it (the etags, the
-    slugs) is not seen by the next test."""
     with testing.testConfig():
         yield

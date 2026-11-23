@@ -16,7 +16,6 @@ from pathlib import Path
 
 
 def inline(text: str) -> str:
-    """A run of text with `code` spans and **bold** words turned into markup."""
     out, last = [], 0
     for m in re.finditer(r"`([^`\n]+)`|\*\*([^*\n]+)\*\*", text):
         if m.group(1):
@@ -35,8 +34,6 @@ def is_example(line: str) -> bool:
 
 
 def example_block(lines: list[str]) -> str:
-    """The code of an example: the `>>>` and `...` prompt in red, what follows it in
-    the text colour."""
     out = []
     for line in lines:
         escaped = html.escape(line)

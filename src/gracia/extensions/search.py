@@ -172,16 +172,10 @@ class SearchExtension(Extension):
         )  # a repository that never said has it on
 
     def add_field(self, index: str, field: dict) -> None:
-        """Add a field (as `search.Field.as_dict()` has it) to the index named `index`
-        of the settings. `ExtensionError` for an index that is not there, a field that
-        is, or one that is not right."""
         indexes = self._indexes_with(index, lambda fields: _added(fields, field))
         self.save_settings({"indexes": indexes})
 
     def remove_field(self, index: str, name: str) -> None:
-        """Take the field `name` out of the index `index` of the settings. The fields
-        the index and the search page cannot do without stay
-        (`search.REQUIRED_FIELDS`)."""
         if name in search.REQUIRED_FIELDS:
             raise ExtensionError(
                 [f"{name} is needed by the index and cannot be removed"]
@@ -198,7 +192,6 @@ class SearchExtension(Extension):
         raise ExtensionError([f"there is no index {index!r}"])
 
     def definitions(self) -> list[search.IndexDefinition]:
-        """The indexes of the repository: none when the extension is off."""
         if not self.enabled:
             return []
         return [

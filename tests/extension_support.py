@@ -8,9 +8,6 @@ PLACEHOLDER = ox.NamedNode("urn:gracia:content")
 def put_extension_state(
     application, name="demo", settings=None, enabled=None, turtle=None, repo="test_repo"
 ):
-    """Add a blank node for an extension below the content of the repository record.
-    `turtle` may say it by hand (about `<urn:gracia:content>`, which stands for the
-    content)."""
     with application.new_store(repo) as store:
         repo_uri = uri.repository_uri()
         data = store.get(repo_uri)

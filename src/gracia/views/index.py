@@ -17,15 +17,10 @@ SHAPES = {"sh": "http://www.w3.org/ns/shacl#", "dash": "http://datashapes.org/da
 
 
 def digest(lines: list[str]) -> str:
-    """16 hex digits of the lines, in the order given (not a secret: a version for
-    caches)."""
     return hashlib.blake2b("\n".join(lines).encode("utf-8"), digest_size=8).hexdigest()
 
 
 def etag_of(versions: dict[str, object], shapes: dict[str, str] | None = None) -> str:
-    """The etag of a page made by walking its records: the records and when they were
-    changed, and the versions of the shapes of their types, a line each, sorted. (A page
-    whose record has a stored etag takes that: `page_etag`.)"""
     lines = [
         f"{rec_uri} {modified.isoformat()}"  # ty: ignore[missing-attribute]
         for rec_uri, modified in versions.items()
@@ -35,8 +30,6 @@ def etag_of(versions: dict[str, object], shapes: dict[str, str] | None = None) -
 
 
 def page_etag(stored: str, shapes: dict[str, str]) -> str:
-    """The etag of a page: the etag stored for its record, and the versions of the
-    shapes of its types, which are files and not in the database."""
     return digest(
         [
             f"etag:{stored}",
@@ -46,8 +39,6 @@ def page_etag(stored: str, shapes: dict[str, str]) -> str:
 
 
 def shape_versions(record, slugs) -> dict[str, str]:
-    """The version of the files of each of these types (by slug) that the repository
-    has."""
     res_types = record.repository.res_types
     return {
         slug: res_types[slug].assets_version
@@ -56,9 +47,6 @@ def shape_versions(record, slugs) -> dict[str, str]:
 
 
 def shapes_of(record, slugs) -> list:
-    """The quads of the shapes for a page made of records of these types (slugs): the
-    shape that every record has, and the shape of the content of each type that is
-    there. A type that has no schema has no shape."""
     res_types = record.repository.res_types
     quads = list(assets.record_shape(None, None)[0])
     for slug in sorted(set(slugs) & set(res_types)):
@@ -69,7 +57,6 @@ def shapes_of(record, slugs) -> list:
 
 
 def slugs_of(uris) -> set[str]:
-    """The types of records, from their uris (`rec:<type>:<n>`)."""
     return {parsed[0] for u in uris if (parsed := uri.parse_record_uri(u))}
 
 

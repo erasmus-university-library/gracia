@@ -32,15 +32,6 @@ _armed = False
 
 
 def arm_crash_report() -> None:
-    """Have a fatal signal print the Python stack of every thread, once the process has
-    SaxonC in it.
-
-    SaxonC (a GraalVM native image) installs a handler for SIGSEGV, and any segmentation
-    fault in the process, whichever native library it came from (Tantivy, DuckDB, LMDB),
-    is then reported as a `StackOverflowError` of the "wrong IsolateThread", which says
-    nothing about the cause. Python's `faulthandler` passes the signal on to the handler
-    that was there before it, so enabled after SaxonC's it first says what every thread
-    was doing. Called when a processor is made; it does nothing again."""
     global _armed
     if _armed:
         return
@@ -52,12 +43,10 @@ def arm_crash_report() -> None:
 
 
 class XsltError(RuntimeError):
-    """A stylesheet could not be compiled or run, or its input is not well-formed."""
+    pass
 
 
 def _guarded(function):
-    """Saxon raises its own exception type: report it as an XsltError with its
-    message."""
 
     @wraps(function)
     def wrapper(*args, **kwargs):
@@ -70,7 +59,6 @@ def _guarded(function):
 
 
 def bundled_names() -> list[str]:
-    """File names of every stylesheet shipped with gracia."""
     return sorted(
         p.name
         for p in (files("gracia") / "assets" / "xslt").iterdir()
@@ -83,7 +71,6 @@ def bundled_text(name: str) -> str:
 
 
 def _compile(compiler, stylesheet: str | Path):
-    """A stylesheet given as its text, as a path, or as the name of a bundled one."""
     text = str(stylesheet)
     if "<xsl:" in text:
         executable = compiler.compile_stylesheet(stylesheet_text=text)
@@ -97,8 +84,6 @@ def _compile(compiler, stylesheet: str | Path):
 
 
 def _text(stylesheet: str | Path) -> str:
-    """The text of a stylesheet given as text, as a path or as the name of a bundled
-    one."""
     text = str(stylesheet)
     if "<xsl:" in text:
         return text
@@ -108,7 +93,6 @@ def _text(stylesheet: str | Path) -> str:
 
 
 def type_references(text: str) -> list[str]:
-    """The `type:` hrefs of the xsl:import and xsl:include elements of a stylesheet."""
     try:
         root = ET.fromstring(text)
     except ET.ParseError:
@@ -125,10 +109,6 @@ def type_references(text: str) -> list[str]:
 def type_files(
     stylesheets: Iterable[str], resolve: Callable[[str], Path]
 ) -> dict[str, Path]:
-    """The file `resolve` gives for every `type:` address the stylesheets import, and
-    that the files they import import in turn (empty: there are none). Every file is
-    resolved by itself, which is what keeps a file-by-file override of a type and the
-    type assets of the repository right."""
     entries: dict[str, Path] = {}
     pending = list(stylesheets)
     while pending:
@@ -161,30 +141,11 @@ def _catalog(entries: dict[str, Path]) -> str:
 def type_catalog(
     stylesheets: Iterable[str], resolve: Callable[[str], Path]
 ) -> str | None:
-    """An OASIS catalog that maps every `type:` address the stylesheets import, and that
-    the files they import import in turn, to the file `resolve` gives for it (None:
-    there are none).
-
-    Saxon (as SaxonC offers it) takes no resolver written in Python, only catalogs, so
-    the addresses are found beforehand."""
     entries = type_files(stylesheets, resolve)
     return _catalog(entries) if entries else None
 
 
 class _Owner:
-    """The one thread that owns every long-lived SaxonC object (`Compiled`): they are
-    made, run and let go of here and nowhere else, whoever asks.
-
-    SaxonC is a GraalVM native image, and its objects belong to the OS thread that made
-    them. Used from another thread they may seem to work, until a garbage collection
-    finds a thread running with another's handle and the process dies with "wrong
-    IsolateThread" (a fatal `StackOverflowError` that no Python `except` can catch). A
-    cache is used by the worker thread and by requests, so a compiled stylesheet cannot
-    be left to the thread that happened to compile it: callers hand the work over
-    (`call`) and wait. The thread has a big stack, since a stylesheet may recurse
-    (`threading.stack_size` is for the threads made after it is set, so it is set only
-    while this one starts)."""
-
     STACK = 64 * 1024 * 1024
 
     def __init__(self):
@@ -206,8 +167,6 @@ class _Owner:
                     future.set_exception(err)
 
     def call(self, function, *args):
-        """Run `function(*args)` on the thread and give back what it returns (or raise
-        what it raised). On the thread itself it just runs."""
         if threading.current_thread() is self.thread:
             return function(*args)
         future: Future = Future()
@@ -220,8 +179,6 @@ _owner_lock = threading.Lock()
 
 
 def owner() -> _Owner:
-    """The thread that owns the long-lived SaxonC objects, started by the first one that
-    needs it."""
     global _owner
     with _owner_lock:
         if _owner is None or not _owner.thread.is_alive():
@@ -230,20 +187,6 @@ def owner() -> _Owner:
 
 
 class Compiled:
-    """A stylesheet compiled once and run many times (`transform`): what a cache keeps.
-
-    SaxonC resolves `xsl:import` and `xsl:include` when it compiles, so the executable
-    has the text of every file as it was then: an edit of an imported file is not seen
-    by it. Whoever keeps one throws it away when the files may have changed.
-    `fingerprint` is a hash of the stylesheet and of the files it imports, which is what
-    something made with it is stamped with.
-
-    The processor lives as long as the executable, and both live on the thread of
-    `owner()`: every method here is run there (see `_Owner` for why), so a run, which
-    sets parameters on the executable, cannot meet another, and the worker thread and a
-    request may both ask. `threads` is the set of the threads that ever touched the
-    objects (one, the owner: a test looks)."""
-
     def __init__(self, stylesheet: str, res_types: Callable[[str], Path] | None = None):
         text = _text(stylesheet)
         entries = type_files([text], res_types) if res_types else {}
@@ -279,8 +222,6 @@ class Compiled:
 
     @_guarded
     def transform(self, xml_text: str, params: dict[str, str] | None = None) -> str:
-        """The result of the stylesheet over an XML document (the parameters are
-        strings)."""
         return self._owner.call(self._transform, xml_text, params)
 
     def _transform(self, xml_text: str, params: dict[str, str] | None) -> str:
@@ -325,12 +266,6 @@ def transform(
     params: dict[str, str] | None = None,
     res_types: Callable[[str], Path] | None = None,
 ) -> str:
-    """Run stylesheets one after the other over an XML document, each over the previous
-    result (kept in memory). Returns the serialized result of the last one.
-
-    With `types`, a stylesheet may `xsl:import` or `xsl:include` the file of a type with
-    `href="type:<slug>/<file>"`; `types` turns such an address into a path (see
-    `resources.Repository.resolve_type`)."""
     catalog = (
         type_catalog([_text(s) for s in stylesheets], res_types) if res_types else None
     )
@@ -360,11 +295,8 @@ def transform(
 
 
 def render(name: str, flat_rdfxml: str, params: dict[str, str] | None = None) -> str:
-    """Flat RDF/XML -> the output of a bundled export format (see FORMATS)."""
     return transform(flat_rdfxml, NESTED, *FORMATS[name], params=params)
 
 
 def nest(flat_rdfxml: str, params: dict[str, str] | None = None) -> str:
-    """Flat RDF/XML -> nested RDF/XML with collections. `params` are the parameters of
-    the stylesheet (`record_uri`: the resource the document is about comes first)."""
     return transform(flat_rdfxml, NESTED, params=params)

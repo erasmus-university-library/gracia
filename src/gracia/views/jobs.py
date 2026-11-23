@@ -40,15 +40,12 @@ def _moment(value):
 
 
 def _label(request, job: dict) -> str:
-    """What the job is, for a list: its title and what it is about."""
     found = request.registry.queryUtility(IJob, job["job"] or "")
     title = found.title if found is not None else (job["job"] or "Job")
     return f"{title}: {job['subject']}" if job["subject"] else title
 
 
 def _stages(job: dict) -> list[dict]:
-    """The stages of a job for the panel: the last snapshot, or, before there is one,
-    the definition with everything pending."""
     snapshot = (job.get("progress") or {}).get("stages")
     if snapshot:
         return snapshot
@@ -69,7 +66,6 @@ def _stages(job: dict) -> list[dict]:
 
 
 def _percent(job: dict, stages: list[dict]) -> float:
-    """How far the job is: the stages overlap, so the mean of how far each one is."""
     if job["state"] == "done":
         return 100.0
     fractions = []
@@ -85,7 +81,6 @@ def _percent(job: dict, stages: list[dict]) -> float:
 
 
 def summary(request, jobs_node: Jobs, job: dict) -> dict:
-    """One job for the panel: state, every stage, and how far it is."""
     stages = _stages(job)
     node = JobRun(jobs_node, job)
     url = request.resource_url(node)
@@ -120,7 +115,6 @@ def summary(request, jobs_node: Jobs, job: dict) -> dict:
 def _visible(
     request, jobs_node: Jobs, db: JobsDb, job=None, subject=None
 ) -> list[dict]:
-    """The jobs of this repository the caller may see, newest first."""
     out = []
     for row in db.list_jobs(
         repo=jobs_node.repository.__name__, job=job, subject=subject
@@ -133,9 +127,6 @@ def _visible(
 
 
 def start_job(request, node: Jobs, job, params: dict) -> str:
-    """Make the job `job` (an `IJob`) of the answers `params` and start its process:
-    returns the id. The caller has checked the permission. A spec that does not pass is
-    a `JobSpecError`."""
     spec = validate_spec(job.spec(node.repository.__name__, params))
     directory = _directory(request)
     settings = request.registry.settings
@@ -250,8 +241,6 @@ def job_status(request):
     context=JobRun, name="download", permission="view_job", request_method="GET"
 )
 def download(request):
-    """The file the job offers (what it rejected): by the name in its row, never by a
-    path."""
     node = request.context
     with _db(request) as db:
         row = db.get(node.__name__)
@@ -271,10 +260,6 @@ def download(request):
 
 @view_config(context=JobRun, name="log", permission="view_job", request_method="GET")
 def log(request):
-    """Part of one of the two logs: from `offset` on (the end of the last 64 KB without
-    one), at most 64 KB; `X-Log-Offset` is where to ask next. The name is one of a fixed
-    list. While the job runs only whole lines are given: a record can be written in two
-    pieces, and the half that is there is left for the next request."""
     node = request.context
     name = LOGS.get(request.params.get("name", "luigi"))
     if name is None:
@@ -304,7 +289,6 @@ def log(request):
 
 @view_config(context=JobRun, name="logs", permission="view_job", request_method="GET")
 def log_page(request):
-    """The page that follows a log: see `static/scripts/joblog.js`."""
     node = request.context
     with _db(request) as db:
         row = db.get(node.__name__)

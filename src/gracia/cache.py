@@ -22,9 +22,6 @@ GRAPH_CACHE_BYTES = (
 
 
 class GraphStore:
-    """RDF/XML by repository and record id, each with the etag it was made at, in an
-    LMDB directory (many processes may read it, one writes at a time)."""
-
     def __init__(self, path: str | Path, size: int = GRAPH_CACHE_BYTES):
         Path(path).mkdir(parents=True, exist_ok=True)
         # metasync off: a crash may lose the last write, never corrupt the file; it is
@@ -37,7 +34,6 @@ class GraphStore:
         return repo.encode() + b"\0" + record_id.to_bytes(4, "big")
 
     def get(self, repo: str, record_id: int, etag: str) -> bytes | None:
-        """The RDF/XML of the record if it was made at `etag`."""
         with self._env.begin() as txn:
             value = txn.get(self._key(repo, record_id))
             if value is not None and value[:16] == etag.encode():
@@ -45,16 +41,9 @@ class GraphStore:
         return None
 
     def put(self, repo: str, record_id: int, etag: str, xml: bytes) -> None:
-        """Keep the RDF/XML of one record (see `put_many`)."""
         self.put_many([(repo, record_id, etag, xml)])
 
     def put_many(self, entries) -> None:
-        """Keep the RDF/XML of many records, `(repo, record_id, etag, xml)` each, in one
-        transaction (a transaction of its own for each took 0.45 ms a record, nearly all
-        of it the sync to disk). When the map is full everything is dropped and the
-        write is made again: a cache that is full is a cache that starts over. (LMDB
-        reuses the pages of a transaction only from the one after next, so a second drop
-        may be needed.)"""
         entries = list(entries)
         for _ in range(3):
             try:
@@ -68,8 +57,6 @@ class GraphStore:
         raise ValueError(f"{len(entries)} graphs do not fit the graph cache")
 
     def count(self, repo: str, limit: int = 100_000) -> int:
-        """How many entries a repository has, counting no further than `limit` (the keys
-        are read, so counting a million of them would take a while)."""
         prefix = repo.encode() + b"\0"
         found = 0
         with self._env.begin() as txn:
@@ -82,8 +69,6 @@ class GraphStore:
         return found
 
     def stats(self) -> dict:
-        """Entries of all repositories, the bytes the pages that hold them take, the
-        size of the file and the most the map may grow to."""
         with self._env.begin() as txn:
             stat = txn.stat()
         pages = stat["branch_pages"] + stat["leaf_pages"] + stat["overflow_pages"]
@@ -96,8 +81,6 @@ class GraphStore:
         }
 
     def delete_many(self, repo: str, record_ids) -> None:
-        """Forget the RDF/XML of records (they are gone: nothing would match an entry of
-        theirs, but it would stay in the file)."""
         with self._env.begin(write=True) as txn:
             for record_id in record_ids:
                 txn.delete(self._key(repo, record_id))
@@ -107,20 +90,6 @@ class GraphStore:
 
 
 class DocStore(GraphStore):
-    """The docs (JSON) of records: made by the doc stylesheet of a repository and kept
-    in LMDB by repository and record id, each with the etag of the graph it was made
-    from and the fingerprint of the stylesheet that made it (the entry is used only for
-    both). The same file layout and the same behaviour when the map is full as
-    `GraphStore`. Without a `path` nothing is kept: docs are made every time.
-
-    The doc stylesheet of a repository is the base and the `docTemplate` of each of its
-    types, imported by one generated stylesheet and compiled once. The store keeps it
-    for as long as the repository stays as it is (`drop`, called by `Cache.check` when
-    the repository was written): SaxonC resolves the imports when it compiles, so a
-    compiled stylesheet must not outlive a change of the files or of the types. The
-    registry of the application has to be the current one when it is compiled (a request
-    has put it there, `gracia.actions` does it for the worker)."""
-
     BUNDLED_BASE = "gracia.types:type/doc/doc-base-01.xsl"
 
     def __init__(self, cache: "Cache", path: str | Path | None = None):
@@ -136,7 +105,6 @@ class DocStore(GraphStore):
 
     @property
     def keeps(self) -> bool:
-        """Whether docs are kept (there is a directory) or only made."""
         return self._env is not None
 
     def get(
@@ -152,8 +120,6 @@ class DocStore(GraphStore):
         return None
 
     def compiled(self, repository) -> xslt.Compiled:
-        """The doc stylesheet of a repository, compiled once for as long as it stays as
-        it is."""
         # a repository that was written drops its stylesheet
         self._cache.check()
         with self._lock:
@@ -163,8 +129,6 @@ class DocStore(GraphStore):
             return found
 
     def drop(self, repo: str) -> None:
-        """Let go of the compiled doc stylesheet of a repository (the next doc compiles
-        it again)."""
         with self._lock:
             old = self._compiled.pop(repo, None)
         if old is not None:
@@ -173,10 +137,6 @@ class DocStore(GraphStore):
             old.close()
 
     def _compile(self, repository) -> xslt.Compiled:
-        """Roll up the doc stylesheets: the base, then the `docTemplate` of each type
-        that has one, by slug (`import`, so what a type says is of higher precedence). A
-        type whose file is not there, or is not named right, is left out (and logged):
-        its records get the doc of the base, and the other types go on."""
 
         def resolve(href: str):
             try:
@@ -214,9 +174,6 @@ class DocStore(GraphStore):
     def _run(
         self, repository, params: dict[str, str], xml: str
     ) -> tuple[str, xslt.Compiled]:
-        """The output of the stylesheet of the repository over `xml`, and the stylesheet
-        that made it. One that was dropped while it was waited for is made again
-        once."""
         for attempt in (1, 2):
             compiled = self.compiled(repository)
             try:
@@ -233,12 +190,6 @@ class DocStore(GraphStore):
         rdfxml: str,
         etags: dict[int, str] | None = None,
     ) -> dict[str, dict]:
-        """The docs of the records `ids` (uri -> record id) of a repository, by record
-        uri, from RDF/XML that has them and what they are made of: one run of the
-        stylesheet for all of them, and the ones that could be made are kept under their
-        etag (`etags`: record id -> etag of the graph; without it nothing is kept). A
-        doc that could not be made is `{"record": uri, "error": why}`, is logged and is
-        not kept."""
         if not ids:
             return {}
         out, compiled = self._run(repository, {"records": json.dumps(ids)}, rdfxml)
@@ -263,10 +214,6 @@ class DocStore(GraphStore):
         return made
 
     def schema(self, repository, slugs: list[str]) -> list[dict]:
-        """The fields the docs of the types `slugs` have (the schema mode of the doc
-        stylesheet): one dict for each, in the form of `gracia.search.Field.as_dict()`
-        and `types`, the slugs of the types that have it (and `conflict` when two of
-        them say it differently)."""
         types = "".join(f"<type slug={quoteattr(slug)}/>" for slug in slugs)
         return json.loads(
             self._run(repository, {"schema": "true"}, f"<types>{types}</types>")[0]
@@ -281,35 +228,19 @@ class DocStore(GraphStore):
 
 
 def dataset_rdfxml(dataset: ox.Dataset) -> bytes:
-    """A dataset (the default graph) as RDF/XML, the blank nodes as they are (the
-    sources name them `b<record id>_<n>`, valid `rdf:nodeID`s that are the same wherever
-    the record is). The order of the elements is not fixed. The result is not checked:
-    the writer does not refuse a predicate that ends in a digit or a `/` (it has no XML
-    name) or a control character in a literal, and such a graph is not well-formed
-    XML."""
     return serialize_bytes(dataset, format=ox.RdfFormat.RDF_XML)
 
 
 def rdfxml(ntriples: str) -> bytes:
-    """N-Triples as RDF/XML (see `dataset_rdfxml`)."""
     return dataset_rdfxml(
         ox.Dataset(ox.parse(ntriples.encode(), format=ox.RdfFormat.N_TRIPLES))
     )
 
 
 class Cache:
-    """The etag and graph caches of one `Application`, and what it keeps of its
-    repositories between their writes: `registry[name][repo][key]` for the names in
-    `KEPT` (`registry["etags"]`, `registry["slugs"]` and `registry["types"]` of the
-    application), all of a repository forgotten (`invalidate`) when it is written."""
-
     KEPT = ("etags", "slugs", "types")
 
     def __init__(self, database, registry, *, db_file=None, graph_dir=None):
-        """`db_file` is the database file to watch for writes (None: the table of the
-        times of the writes is read at every check), `graph_dir` the LMDB directory of
-        the graphs (None: graphs are made again every time). It lives in the registry
-        (`registry["cache"]`), and what it keeps in the registry's dicts."""
         self._database = database
         self.registry = registry
         self._files = [Path(db_file), Path(f"{db_file}.wal")] if db_file else []
@@ -323,13 +254,10 @@ class Cache:
 
     @property
     def keeps_graphs(self) -> bool:
-        """Whether there is a graph cache to keep (a graph directory is set)."""
         return bool(self._graph_dir)
 
     @property
     def docs(self) -> DocStore:
-        """The docs: their cache (if there is a directory) and the doc stylesheets,
-        opened by the first use."""
         if self._docs is None:
             self._docs = DocStore(
                 self,
@@ -343,8 +271,6 @@ class Cache:
         return self._graphs
 
     def file_signature(self) -> tuple | None:
-        """What the files of the database look like now, or None when there are none to
-        watch: whoever compares signatures has to look every time then."""
         if not self._files:
             return None
         signature = []
@@ -357,9 +283,6 @@ class Cache:
         return tuple(signature)
 
     def last_written(self) -> dict[str, object]:
-        """When each repository was last written, by its id
-        (`main.repositories_last_modified_at`: the triggers keep it, so a write outside
-        the store counts too). One query."""
         connection = self._database.cursor()
         try:
             return dict(
@@ -374,16 +297,11 @@ class Cache:
             connection.close()
 
     def check(self) -> None:
-        """Forget what the caches held of every repository that was written since the
-        last check. Cheap when the files did not change (two `stat`s). It also sees to
-        it that the worker that follows the writes is still running, and starts it
-        again if it is not."""
         if self.worker is not None:
             self.worker.ensure_running()
         self._refresh()
 
     def _refresh(self) -> None:
-        """The part of `check` that looks for writes (it leaves the worker alone)."""
         signature = self.file_signature()
         if signature is not None and signature == self._seen:
             return
@@ -395,31 +313,21 @@ class Cache:
         self._written, self._seen = written, signature
 
     def written(self) -> dict[str, object]:
-        """When each repository was written, as of now: for whoever follows the writes
-        and keeps what it saw last (the worker)."""
         self._refresh()
         return dict(self._written)
 
     def invalidate(self, repo: str) -> None:
-        """Forget everything that is kept of a repository, and drop its doc
-        stylesheet."""
         for name in self.KEPT:
             self._shared(name).pop(repo, None)
         self.docs.drop(repo)
 
     def _table(self, repo: str, name: str) -> dict:
-        """What is kept under `name` for a repository. Taken before loading what goes
-        in: a write that comes while it loads forgets the table, and what was loaded
-        goes to the old one, which nobody reads."""
         return self._shared(name).setdefault(repo, {})
 
     def _shared(self, name: str) -> dict:
-        """What is kept under `name` for all repositories, by repository."""
         return self.registry.setdefault(name, {})
 
     def _kept(self, repo: str, name: str, key, load):
-        """`load()`, kept until the repository is written; what is not there (None) is
-        not kept."""
         self._refresh()
         table = self._table(repo, name)
         if key in table:
@@ -430,23 +338,14 @@ class Cache:
         return value
 
     def types(self, repo: str, load):
-        """What `load()` says of the types of a repository, kept until the repository
-        is written (not read again by every request)."""
         return self._kept(repo, "types", None, load)
 
     def slug(self, repo: str, rec_type: str, slug: str, load):
-        """`load()` (`Store.slug_lookup`: the record of a slug of a type and whether it
-        is deleted), kept until the repository is written. What is not there (None) is
-        not kept, so a slug that is made is found at once, and what is kept can not
-        outgrow the table of slugs."""
         return self._kept(repo, "slugs", (rec_type, slug), load)
 
     def etags(
         self, repo: str, record_ids
     ) -> dict[int, tuple[str, tuple[str, ...]] | None]:
-        """For each record id, `(etag as 16 hex digits, slugs of the types its page is
-        made of)`, or None when the record has no etag. One query for all that are not
-        cached yet."""
         self.check()
         generation = self._table(repo, "etags")  # this one, whatever happens next
         missing = [i for i in dict.fromkeys(record_ids) if i not in generation]
@@ -464,13 +363,9 @@ class Cache:
 
     @property
     def keeps_docs(self) -> bool:
-        """Whether there is a doc cache to keep (a graph directory is set)."""
         return bool(self._graph_dir)
 
     def doc(self, repository, record_id: int, record_uri: str) -> dict | None:
-        """The doc of a record, or None when the record has no etag. Kept, or made from
-        the graph and kept (when there is a directory for it). A doc that cannot be made
-        is `{"record", "error"}`, and is not kept."""
         repo = repository.__name__
         current = self.etags(repo, [record_id])[record_id]
         if current is None:
@@ -492,8 +387,6 @@ class Cache:
         )[record_uri]
 
     def graph(self, repo: str, record_id: int) -> bytes | None:
-        """The RDF/XML of a record and everything its page is made of, or None when the
-        record has no etag. Made once per etag."""
         current = self.etags(repo, [record_id])[record_id]
         if current is None:
             return None
@@ -511,10 +404,6 @@ class Cache:
         return xml
 
     def keep(self, repo: str, entries) -> None:
-        """Put the RDF/XML of records in the graph cache, `(record_id, etag, xml)` each,
-        in one transaction (what `graph` does for itself; the job that makes them all
-        again does it for a batch at a time). `ValueError` when there is no graph
-        directory."""
         graphs = self._graph_store()
         if graphs is None:
             raise ValueError("there is no graph cache: set gracia.cache_dir")
@@ -523,13 +412,9 @@ class Cache:
         )
 
     def etags_held(self, repo: str) -> int:
-        """How many etags of a repository the cache holds in memory now (its current
-        generation)."""
         return len(self._shared("etags").get(repo, {}))
 
     def graph_stats(self, repo: str) -> dict | None:
-        """What the graph cache holds, or None when there is none (no graph directory):
-        `GraphStore.stats` and the entries of `repo`, counted up to 100,000."""
         graphs = self._graph_store()
         if graphs is None:
             return None
@@ -540,7 +425,6 @@ class Cache:
         }
 
     def forget(self, repo: str, record_ids) -> None:
-        """Take the graphs of records that are gone out of the graph cache."""
         graphs = self._graph_store()
         if graphs is not None:
             graphs.delete_many(repo, record_ids)

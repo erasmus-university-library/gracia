@@ -105,8 +105,6 @@ class EditCase(WebCase):
         self.admin, self.editor = basic(*ADMIN), basic(*EDITOR)
 
     def build_fixture(self, application):
-        """The repository `test_repo` with the person type and the people of `PEOPLE`,
-        and an editor."""
         application.create_repository("test_repo", admin=ADMIN)
         with application.new_store("test_repo") as store:
             people = PEOPLE.replace("@ASSETS@", self.person_assets)
@@ -122,7 +120,6 @@ class EditCase(WebCase):
         return web.get(path, headers=headers, expect_errors=True).status_int
 
     def number_of(self, slug: str, res_type: str = "person") -> str:
-        """The number of the record of a type that has (or had) this slug."""
         with self.application.new_store("test_repo") as store:
             return store.slug_lookup(res_type, slug)[0].rsplit(":", 1)[1]  # ty: ignore[not-subscriptable]
 
@@ -143,8 +140,6 @@ class EditCase(WebCase):
 
 class RegistryTest(EditCase):
     def record_class(self, slug):
-        """The class of the records of a type, asked of the registry: nothing is
-        imported by name."""
         config = make_config(self.settings)
         config.commit()
         return config.registry.queryUtility(IGraciaType, slug).record_class  # ty: ignore[missing-union-attribute]
@@ -169,8 +164,6 @@ class RegistryTest(EditCase):
         self.assertIs(self.context_class("/test_repo/type/2"), Record)
 
     def test_a_type_package_is_included_by_its_dotted_name(self):
-        """`gracia.types` lists the type packages; each registers itself in its
-        `includeme`."""
         import sys
 
         with tempfile.TemporaryDirectory() as root:
@@ -239,10 +232,6 @@ class RegistryTest(EditCase):
 
 
 class SubclassedViewTest(EditCase):
-    """A type's own record class can have its own edit page by subclassing `RecordView`:
-    the form, the source and saving are the base's, a subclass changes what is its
-    own."""
-
     def test_a_subclass_changes_the_heading_and_leaves_the_form_the_source_and_saving(
         self,
     ):
@@ -587,17 +576,11 @@ class AddViewTest(EditCase):
 
 
 class SwitchingSchemaTest(EditCase):
-    """The type record names the schema file its records follow: switching is a change
-    of data."""
-
     def fields(self, path="/test_repo/person/1/edit"):
         response = self.client().get(path, headers=self.admin)
         return {n for n in ("name", "mbox") if f'name="{n}"' in response.text}
 
     def switch(self, schema, by_hand=False):
-        """Post the type record with this schema file. The form only offers the files
-        there are; `by_hand` posts a name it does not offer, as a made-up request
-        would."""
         form = (
             self.client()
             .get("/test_repo/person/manage", headers=self.admin)

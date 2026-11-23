@@ -22,7 +22,6 @@ def parse(path) -> Graph:
 
 
 def iso(a, b) -> bool:
-    """Same graph up to blank node renaming (RDFC-1.0), graph labels included."""
     da, db = ox.Dataset(list(a)), ox.Dataset(list(b))
     for d in (da, db):
         d.canonicalize(ox.CanonicalizationAlgorithm.RDFC_1_0)
@@ -139,8 +138,6 @@ class PutTest(DbTestCase):
             self.assertTrue(iso(got.extract(root), ds.extract(root)), root)
 
     def test_a_blank_node_used_twice_is_stored_once_per_use(self):
-        """ex:alice ex:home _:addr ; ex:work _:addr: the database keeps one copy per
-        path."""
         ds = parse(DATA / "05_shared.ttl")
         original = ds.extract(REC["alice"])
         with open_store(self.db) as store:

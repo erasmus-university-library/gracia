@@ -6,13 +6,7 @@ from gracia.store import literal
 
 @predicate(uri.LABEL)
 class LabelPredicate(Predicate):
-    """`gracia:label` of a record: a short text for it, used for its title in the forms.
-    It is not edited: the field is read-only, and it is made from the content every time
-    the record is saved: the values of the properties that have the role
-    `dash:LabelRole` in the shape of its type, in the order of `sh:order`, separated by
-    a space (of a property that has several, the shallowest one, then the first in
-    alphabetical order). No such property, or no value: no label (a form calls such a
-    record "(Unnamed)")."""
+    """`gracia:label`: a short text for a record, made from its label values on save."""
 
     def schema_node(self, record, request, schema_node=None):
         if schema_node is None:

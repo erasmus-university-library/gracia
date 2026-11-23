@@ -22,8 +22,6 @@ STAMP = "2026-01-01T00:00:00.000000Z"
 def record(
     rec_uri: str, refs=(), res=None, stamp=STAMP, created=STAMP, published=True
 ) -> Graph:
-    """One record: its resource uri (its ARK when none is given), what it points at
-    (uris), the time it was modified (what `records.modified_at` takes)."""
     number = rec_uri.rsplit(":", 1)[1]
     kind = rec_uri.split(":")[1]
     res = res or f"ark:/1/{kind}/{number}"
@@ -61,8 +59,6 @@ class EtagCase(DbTestCase):
         self.store.set_type_ids(TYPES)
 
     def put(self, *records: Graph) -> None:
-        """The records in one write (a write has a fixed cost of 0.1 s, so the setUp of
-        a test that makes 45 records does not make 45 of them)."""
         self.store.put(Graph(ox.Dataset(q for graph in records for q in graph)))
 
     def etag(self, rec_uri: str):
@@ -78,8 +74,6 @@ class EtagCase(DbTestCase):
         ]
 
     def assert_totals_are_counts(self, message: str = ""):
-        """`backref_totals` of every record is what counting the references of all the
-        rows gives."""
         found: dict[int, dict[str, list[int]]] = {}
         for target, source_type, published in self.store.con.execute(
             'SELECT unnest("references"), record_type, is_published FROM etags'
@@ -315,10 +309,6 @@ class EtagTest(EtagCase):
 
 
 class TimeOnlyGoesUpTest(EtagCase):
-    """`last_modified_at` of a page never goes down, and is the time of the write
-    whenever its etag changes, also when it loses the record that was the latest (the
-    stamps are in the past: this store has no hooks)."""
-
     def setUp(self):
         super().setUp()
         self.put(
@@ -508,8 +498,6 @@ class WhenTheyAreMadeTest(EtagCase):
         self.assertEqual(self.rows(), before)
 
     def test_many_records_at_once_are_made_in_one_refresh_and_equal_a_rebuild(self):
-        """There is no limit on how many records a write changes: the refresh does them
-        all."""
         self.put(record("rec:org:1"))
         batch = Graph(
             ox.Dataset(
@@ -555,8 +543,6 @@ class WhenTheyAreMadeTest(EtagCase):
 
 
 def created(n: int) -> str:
-    """When work n was created: one minute after the one before, so that a bigger number
-    is newer."""
     return f"2026-03-01T{n // 60:02d}:{n % 60:02d}:00.000000Z"
 
 
@@ -566,9 +552,6 @@ def microseconds(text: str) -> int:
 
 
 class PagingTest(EtagCase):
-    """`Store.referrers`: the records that point at one, a page of them, numbered from
-    the oldest."""
-
     def setUp(self):
         super().setUp()
         self.put(record("rec:person:1"))
@@ -657,8 +640,6 @@ class PagingTest(EtagCase):
         )  # the default
 
     def test_a_new_record_is_first_on_page_one_and_moves_the_others_down_a_place(self):
-        """Page numbers are the ordinary kind and are not stable: every page changes
-        when one is added."""
         self.add(45)
         before = [
             self.numbers(self.store.referrers("rec:person:1", page=n))
@@ -809,9 +790,6 @@ class PagingTest(EtagCase):
 
 
 class RecordsPageTest(EtagCase):
-    """`Store.records_page`: a page of the records of a type, numbered like
-    `referrers`."""
-
     def setUp(self):
         super().setUp()
         self.put(
@@ -904,9 +882,6 @@ class RecordsPageTest(EtagCase):
 
 
 class OracleTest(EtagCase):
-    """Random writes: after every one, the etags that were made are those a rebuild
-    makes."""
-
     def test_random_writes_deletes_and_references_always_equal_a_rebuild(self):
         rng = random.Random(20261112)
         uris = [
@@ -997,10 +972,6 @@ class CommandTest(DbTestCase):
 
 
 class IndexTest(DbTestCase):
-    """No index but the ones that enforce a unique constraint: they make the commit of a
-    large write slow, and the commit holds up every other repository (records.sql,
-    etags.sql)."""
-
     def indexes(self, store) -> list[str]:
         rows = store.con.execute(
             "SELECT index_name FROM duckdb_indexes() WHERE schema_name = ? ORDER BY 1",
@@ -1034,10 +1005,6 @@ class IndexTest(DbTestCase):
 
 
 class DeltaTest(EtagCase):
-    """Many records are made of the one that changed: they are not walked again when
-    what it points at is the same, their etag is moved by the change of its local hash.
-    Every case ends in the same etags as a rebuild makes."""
-
     def setUp(self):
         super().setUp()
         old = store_module.ETAGS_DELTA_ABOVE
@@ -1114,9 +1081,6 @@ class DeltaTest(EtagCase):
     def test_a_hub_that_is_written_with_an_earlier_time_does_not_set_the_pages_back(
         self,
     ):
-        """The store makes the times (`gracia_modified_at.py`), so a record never goes
-        back in time; a write that does anyway (this store has no hooks) is not walked
-        for it, and the latest time of the pages made of it stays where it was."""
         self.put(record("rec:org:1", stamp="2027-06-01T00:00:00.000000Z"))
         self.walked.clear()
         self.put(record("rec:org:1", stamp="2026-03-01T00:00:00.000000Z"))
@@ -1157,8 +1121,6 @@ class DeltaTest(EtagCase):
         self.assert_made_again_equals_a_rebuild()
 
     def test_a_record_made_of_a_changed_one_by_two_ways_changes_once_not_twice(self):
-        """Work 1 reaches org 1 directly and through person 1: XORing the change in
-        twice would cancel it, and the etag would not change."""
         before = self.etag("rec:work:1")
         self.put(record("rec:org:1", stamp="2027-01-01T00:00:00.000000Z"))
         self.assertNotEqual(self.etag("rec:work:1"), before)
@@ -1190,9 +1152,6 @@ class DeltaTest(EtagCase):
 
 
 class DeltaOracleTest(OracleTest):
-    """The random writes again, with the delta used whenever a record is made of
-    another."""
-
     def setUp(self):
         super().setUp()
         old = store_module.ETAGS_DELTA_ABOVE
@@ -1201,8 +1160,6 @@ class DeltaOracleTest(OracleTest):
 
 
 class ResourceUriTest(EtagCase):
-    """A resource uri names one record: the links between resources go through it."""
-
     def test_a_second_record_with_the_same_resource_uri_is_refused(self):
         self.put(record("rec:person:1", res="ark:/1/shared"))
         with self.assertRaisesRegex(

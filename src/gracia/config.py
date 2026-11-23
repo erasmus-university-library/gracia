@@ -7,7 +7,6 @@ DEFAULT_DB = "gracia.db"
 
 
 def read(path: str | Path | None) -> dict[str, str]:
-    """The `gracia.*` settings of a config file (empty when there is no file)."""
     if not path:
         return {}
     path = Path(path)
@@ -45,7 +44,6 @@ def is_remote(target: str | Path) -> bool:
 
 
 def parse_target(target: str) -> tuple[str, int]:
-    """`quack:host:port` as (host, port)."""
     parts = target.split(":")
     if len(parts) != 3 or parts[0] != "quack" or not parts[1] or not parts[2].isdigit():
         raise ValueError(f"invalid target {target!r}: expected quack:host:port")
@@ -53,7 +51,6 @@ def parse_target(target: str) -> tuple[str, int]:
 
 
 def read_secret(path: str | Path, minimum: int = 16) -> str:
-    """A secret from an owner-only file (mode 0600, no access for group or others)."""
     path = Path(path)
     if not path.is_file():
         raise ValueError(f"no such file: {path}")
@@ -70,8 +67,6 @@ def read_secret(path: str | Path, minimum: int = 16) -> str:
 
 
 def read_token(settings: dict[str, str]) -> str:
-    """The token for a remote database: inline, or read from the token file (which must
-    be owner-only). The file is never created here: only `serve-db` creates it."""
     if settings.get("gracia.db.token"):
         return settings["gracia.db.token"]
     path = settings.get("gracia.db.token_file")
@@ -92,8 +87,6 @@ DEFAULT_FILE = "config.ini"
 
 
 def config_file(flag=None, environ=None, cwd=None) -> Path | None:
-    """The config file to read: the flag, else `$GRACIA_CONFIG` (empty: none), else
-    `config.ini` in `cwd` (the current directory) if it exists, else None."""
     import os
 
     environ = os.environ if environ is None else environ
@@ -106,8 +99,6 @@ def config_file(flag=None, environ=None, cwd=None) -> Path | None:
 
 
 def resolve(flag=None, db=None, environ=None, cwd=None) -> dict[str, str]:
-    """The effective settings: the config file (see `config_file`), with the database
-    overridden by `db` (a flag) or else `$GRACIA_DB`, and the default last."""
     import os
 
     environ = os.environ if environ is None else environ

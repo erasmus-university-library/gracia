@@ -63,7 +63,6 @@ class ImportHooksTest(DbTestCase):
 
     @staticmethod
     def normalised(text: str) -> list[str]:
-        """The lines, blank nodes all called the same."""
         return sorted(
             re.sub(r"_:b\d+_\d+(_c\d+)?", "_:b", line) for line in text.splitlines()
         )

@@ -141,8 +141,6 @@ class ValidateTest(unittest.TestCase):
 
 class WithTheStoreTest(DbTestCase):
     def test_validate_what_get_returns(self):
-        """Resources read back from the database keep their blank nodes, so shapes still
-        apply."""
         with open_store(self.db) as store:
             store.put(
                 data(

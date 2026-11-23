@@ -17,9 +17,6 @@ SLUG, LABEL = uri.SLUG, uri.LABEL
 
 
 class SlugSqlTest(unittest.TestCase):
-    """The SQL of the predicate, on the rows of a batch (`flat`) and the slugs there
-    are."""
-
     class Type:
         slug = "person"
 
@@ -34,7 +31,6 @@ class SlugSqlTest(unittest.TestCase):
         )
 
     def taken(self, *slugs: tuple[str, str]) -> None:
-        """Slugs that records of the type have (a slug, the record)."""
         for slug, record in slugs:
             self.con.execute(
                 "INSERT INTO slugs VALUES ('person', ?, ?, false)", [slug, record]
@@ -43,7 +39,6 @@ class SlugSqlTest(unittest.TestCase):
     def slugged(
         self, records: dict[str, tuple[str | None, str | None]]
     ) -> dict[str, str | None]:
-        """The slug each record ends with: records are {uri: (label, stated slug)}."""
         for record, (label, stated) in records.items():
             for p, value in ((LABEL, label), (SLUG, stated)):
                 if value is not None:

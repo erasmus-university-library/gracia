@@ -11,8 +11,6 @@ from gracia.main import make_config
 
 
 def naive_utc(text: str) -> datetime:
-    """A stored `xsd:dateTime` (UTC, with a `Z`) as the naive datetime the `records`
-    columns hold."""
     return datetime.fromisoformat(text.replace("Z", "+00:00")).replace(tzinfo=None)
 
 
@@ -109,10 +107,6 @@ class StampsTest(TimesCase):
 
 
 class ModifiedAtIsNeverGivenTest(TimesCase):
-    """The time of a record is made by the store: a text (an import, a restore) cannot
-    set it, and it only goes up, which `etags.last_modified_at` and the order of the
-    listings rely on."""
-
     def import_person(self, name: str, modified: str, number: int = 7) -> None:
         text = (
             f"@prefix gracia: <https://gracia.pub/ns/> . @prefix xsd: <{XSD}> . "

@@ -8,20 +8,9 @@ from gracia.resources import Repository
 
 
 class UsersPolicy:
-    """Logging in with HTTP Basic against the users of the repository a request reaches.
-
-    A user is a record of type User; its `gracia:memberOf` lists the resource uris of
-    group records, and the name of a group is its principal: members of `admin` are
-    `group:admin`, which the ACLs already know. Users of one repository mean nothing in
-    another. Use it over TLS or on localhost only. Browsers show their own login box
-    when the forbidden view answers 401 with `WWW-Authenticate` (`challenge`)."""
-
     challenge = True
 
     def _login(self, request, context):
-        """(userid, group names) of the caller in the repository of `context`, or None.
-        Checked once per request and repository: a password check is meant to be
-        slow."""
         header = request.headers.get("Authorization", "")
         scheme, _, value = header.partition(" ")
         if scheme.lower() != "basic":

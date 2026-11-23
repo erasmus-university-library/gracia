@@ -2,10 +2,6 @@ import re
 
 
 class NS:
-    """The URIs of one namespace: `ns.label` and `ns["label"]` are both the namespace
-    and the name, as a plain string (not a str subclass: `ns.title` must not be
-    `str.title`). A name that is not a valid attribute is written with the brackets."""
-
     def __init__(self, base: str):
         self.base = base
 
@@ -99,12 +95,10 @@ _RECORD = re.compile(RECORD_PATTERN)
 
 
 def slug_like(text: str) -> bool:
-    """Whether a type could have this as its slug."""
     return bool(SLUG_PATTERN.match(text))
 
 
 def repository_uri() -> str:
-    """The record of the repository: the one record of the type `repository`."""
     return "rec:repository:1"
 
 
@@ -122,11 +116,6 @@ MAX_TYPE_NUMBER = (
 
 
 def record_id(type_number: int, number: int) -> int:
-    """The id of a record in the `etags` table, a 32 bit integer: `type number * 10^7 +
-    record number`, where the type number (0 to 99) is the number of the type record
-    (`rec:type:<n>`) and the record number is 1 to 9,999,999. The database makes the
-    same (`record_id` in `etags.sql`); an id never changes, because a number is never
-    used twice."""
     if not 0 <= type_number <= MAX_TYPE_NUMBER:
         raise ValueError(
             f"a type number has to be between 0 and {MAX_TYPE_NUMBER} to have an id: "
@@ -141,7 +130,6 @@ def record_id(type_number: int, number: int) -> int:
 
 
 def record_uri(slug: str, number: int) -> str:
-    """The URI of a record: `rec:<slug of its type>:<number>`."""
     return f"rec:{slug}:{number}"
 
 
@@ -154,11 +142,6 @@ DEFAULT_ROOT_PREFIX = "ir"
 def default_resource_uri(
     record: str, naan: str = DEFAULT_NAAN, root_prefix: str = DEFAULT_ROOT_PREFIX
 ) -> str:
-    """What the resource of a record is published as when nothing else is said: the ARK
-    `ark:/<naan>/<root prefix>/<type slug>/<number>` (`ark:/99999/ir/person/34` for
-    `rec:person:34`). The record is the internal key, the ARK is the name that can be
-    given out and resolved. A key that is not a record's (the repository's own) gets
-    `<key>#resource`."""
     parsed = parse_record_uri(record)
     if parsed is None:
         return f"{record}#resource"
@@ -166,6 +149,5 @@ def default_resource_uri(
 
 
 def parse_record_uri(key: str) -> tuple[str, int] | None:
-    """(type slug, number) of a record URI, or None when it is not one."""
     found = _RECORD.match(key)
     return (found[1], int(found[2])) if found else None

@@ -6,9 +6,6 @@ from gracia.views.manage import TypeManage
 
 
 class NotesManage(TypeManage):
-    """A second form on the manage page: it posts to the manage view, like every
-    form."""
-
     panes = (*TypeManage.panes, ("notes", "Notes"))
 
     def pane_notes(self, state):
@@ -34,8 +31,6 @@ class NotesManage(TypeManage):
 
 
 def add_notes(config) -> None:
-    """The manage page of a type with the notes pane, in place of the one of gracia (the
-    include of gracia is below the application)."""
     config.add_view(
         NotesManage, attr="manage", context=Type, name="manage", permission="manage"
     )

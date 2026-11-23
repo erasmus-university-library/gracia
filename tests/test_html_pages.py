@@ -20,8 +20,6 @@ PREFIX = (
 def person(
     number: int, name: str | None = None, published: bool = True, extra: str = ""
 ) -> str:
-    """A person record with a label, created `number` minutes after midnight (so a
-    bigger number is newer)."""
     name = name or f"Person {number}"
     when = f"2026-03-01T{number // 60:02d}:{number % 60:02d}:00.000000Z"
     return (

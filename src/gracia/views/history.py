@@ -25,8 +25,6 @@ class HistoryView(View):
         self.record = self.context
 
     def _turtle(self, source: str) -> str:
-        """The text of a version, in Turtle: blank nodes are nested, so the text has no
-        labels and two versions that say the same are the same text."""
         if not source:
             return ""
         graph = Graph(
@@ -73,8 +71,6 @@ class HistoryView(View):
         )
 
     def version(self) -> Response:
-        """One version, as JSON: when, its text and what it changed since the one
-        before."""
         txn = self._txn()
         found = self.store.revision(self.record.uri, txn)
         if found is None:

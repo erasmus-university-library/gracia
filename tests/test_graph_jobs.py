@@ -23,9 +23,6 @@ LINKED = """
 
 
 class GraphJobsCase(JobsCase):
-    """The people of `JobsCase`, and two that know each other: person 14 is made of
-    person 13."""
-
     def make_application(self) -> Application:
         self.cache_dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.cache_dir, True)
@@ -50,7 +47,6 @@ class GraphJobsCase(JobsCase):
         return job_id
 
     def kept(self, rec_uri: str) -> bytes | None:
-        """What the graph cache has for a record, at the etag it has now."""
         record_id = self.store.record_id_of(rec_uri)
         etag = self.application.cache.etags("test_repo", [record_id])[record_id][0]  # ty: ignore[invalid-argument-type, not-subscriptable]
         return self.application.cache._graph_store().get("test_repo", record_id, etag)  # ty: ignore[invalid-argument-type, missing-union-attribute]
@@ -288,8 +284,6 @@ class UpdateCacheTest(GraphJobsCase):
 
 class ProcessActionsJobTest(GraphJobsCase):
     def subscribe(self) -> list:
-        """What the job's process would have subscribed: handlers in the registry it
-        works with."""
         events = []
         context.use(self.application, self.settings)
         context.registry().registerHandler(events.append, (RecordsChanged,))

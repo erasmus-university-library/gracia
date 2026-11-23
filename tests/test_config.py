@@ -94,9 +94,6 @@ class ConfigTest(DbTestCase):
 
 
 class DefaultFileTest(DbTestCase):
-    """Which file is read: `-c`, else `$GRACIA_CONFIG`, else `config.ini` in the
-    directory."""
-
     def test_config_ini_in_the_directory_is_the_default(self):
         self.assertIsNone(config.config_file(None, {}, cwd=self.tmp))  # none there
         (self.tmp / "config.ini").write_text(INI)

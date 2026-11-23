@@ -2,15 +2,6 @@ from zope.interface import Attribute, Interface
 
 
 class IGraciaType(Interface):
-    """A type of record that this application knows, registered as a utility under its
-    class URI and under its slug: `registry.queryUtility(IGraciaType, "user")`, or with
-    the URI of the class, and `registry.getAllUtilitiesRegisteredFor(IGraciaType)` for
-    all of them (the same object is there once for every name,
-    `gracia.interfaces.known_types` gives each once).
-
-    What is here is what the code knows about a type. Which types a repository has, and
-    under which slug, is data in that repository: see `resources.Repository.types`."""
-
     class_uri = Attribute("the rdf class of its resources")
     name = Attribute(
         "the name of the type (None: not described); its records are rec:<slug>:<n>"
@@ -26,9 +17,6 @@ class IGraciaType(Interface):
 
 
 def known_types(registry) -> list:
-    """Every type the application knows (`IGraciaType`), once each, by slug (a type
-    without a slug comes last). `registry.getUtilitiesFor(IGraciaType)` gives the (name,
-    type) pairs: a type is there under the URI of its class and under its slug."""
     unique = {
         id(res_type): res_type
         for _name, res_type in registry.getUtilitiesFor(IGraciaType)
@@ -39,11 +27,6 @@ def known_types(registry) -> list:
 
 
 class IJob(Interface):
-    """A job a person can start from the jobs view of a repository, registered as a
-    utility under its name: `registry.queryUtility(IJob, "validate")`,
-    `registry.getUtilitiesFor(IJob)` for all of them (see `gracia.jobs.job.Job`). It
-    turns the answers of a form into the job of tasks that `gracia.jobs.spec` checks."""
-
     name = Attribute("the name it is started by")
     title = Attribute("what the jobs view calls it")
     description = Attribute("one sentence for the jobs view")
@@ -52,26 +35,14 @@ class IJob(Interface):
 
 
 class IDeformView(Interface):
-    """A deform view (`gracia.views.deform`), registered as a utility under its name: a
-    function `(context, request, values)` that answers `[(value, label), ...]` or HTML.
-    It is also a named Pyramid view of the node it is declared for; `values` are the
-    fields it depends on."""
+    pass
 
 
 class IRepository(Interface):
-    """A repository node of the resource tree (`gracia.resources.Repository`): what an
-    extension is an adapter of."""
+    pass
 
 
 class IExtension(Interface):
-    """An extension of one repository (`gracia.extensions`): an optional part of it,
-    such as the resolver of ARKs. It is registered as a named adapter from
-    `IRepository`, so `registry.queryAdapter(repository, IExtension, "ark")` is the
-    extension as it is in that repository, and `repository.extension("ark")` is the way
-    to ask. The extension decides for itself whether it is on there. It does not touch
-    the data: the base class stores a flag and the settings on the repository resource
-    (as JSON), and the extension is given its settings as a plain dict."""
-
     # what the author of an extension says (class attributes)
     name = Attribute("the name of the extension (set by `@extension(name)`)")
     title = Attribute("what the extensions tab calls it")
@@ -107,59 +78,43 @@ class IExtension(Interface):
     # changing: these write to the repository and may raise
     # `gracia.extensions.ExtensionError`
     def enable():
-        """Turn it on (nothing happens when it is on)."""
+        pass
 
     def disable():
-        """Turn it off, keeping its settings; refused when `can_disable` is false."""
+        pass
 
     def save_settings(data):
-        """Store settings (a dict, as the form gives it) after the schema and its
-        validators have been satisfied."""
+        pass
 
     def export():
-        """The settings as JSON text (the serialized form of the schema)."""
+        pass
 
     def import_json(text):
-        """Store settings from JSON text (what `export` gives), checked like the form
-        is. Returns them as a dict."""
+        pass
 
 
 class ITraversable(Interface):
-    """A node that can be reached below another one (`gracia.traversal`): registered as
-    an adapter of the parent (a repository, say) under the segment that names it, so
-    `factory(parent)` makes it (a class takes the parent in `__init__`)."""
+    pass
 
 
 class IPrefixTraversable(Interface):
-    """Like `ITraversable`, for the segments that start with the name it is registered
-    under (`rec:` for `rec:person:34`): `factory(parent, segment)` makes the node, or
-    raises `KeyError` when the segment is not there."""
+    pass
 
 
 class IPredicate(Interface):
-    """The code for one property (`gracia.predicates`), registered as a utility under
-    the URI of the property. The form of a record is made from its SHACL shape (the
-    record shape with the shape of its content embedded); a predicate is what a property
-    needs that SHACL cannot say. Every part is optional."""
-
     uri = Attribute("the property it is the code for")
 
     def schema_node(record, request, schema_node=None):
-        """The Colander node of its field. `schema_node` is what the shape made (None
-        when the shape's property is not one text value); return it changed (another
-        widget, a validator), another node, or None for no field."""
+        pass
 
     def get(record):
-        """The value of its field for what is stored now. Optional: without it the
-        stored text of the property is shown."""
+        pass
 
     def put(record, text):
-        """Put the value of its field into the dataset of the record. Optional: without
-        it the text is stored as the one value of the property."""
+        pass
 
     def begin(record):
-        """The record was just made: put what every record has of this predicate."""
+        pass
 
     def derive(record):
-        """After the form was applied: store what follows from the rest of the record
-        (the label, copied from the content)."""
+        pass

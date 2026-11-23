@@ -19,8 +19,6 @@ BUILTIN_PACKAGES = ["gracia.extensions"]
 
 
 class ExtensionError(ValueError):
-    """Something an extension, or the rules about it, refuse: `errors` says what."""
-
     def __init__(self, errors):
         self.errors = [errors] if isinstance(errors, str) else list(errors)
         super().__init__("; ".join(self.errors))
@@ -31,8 +29,6 @@ class ExtensionError(ValueError):
 
 
 def _states(repository) -> dict[str, tuple[bool | None, dict]]:
-    """{name: (flag or None, stored settings)}, read once for the repository node (a
-    request)."""
     cached = repository.__dict__.get("_extension_states")
     if cached is None:
         try:
@@ -46,8 +42,6 @@ def _states(repository) -> dict[str, tuple[bool | None, dict]]:
 
 
 def _write(repository, name: str, enabled: bool | None, settings: dict) -> None:
-    """The one place the blank node of an extension is written (below the content of the
-    repository record): the old one is replaced."""
     store = repository.store
     subject, record_graph = repository.content()
     graph = next(
@@ -79,10 +73,6 @@ def _write(repository, name: str, enabled: bool | None, settings: dict) -> None:
 
 @implementer(IExtension)
 class Extension:
-    """The base class of an extension (see `IExtension`): what an extension author
-    overrides is the class attributes and, when the extension is not simply on once it
-    was turned on, the properties `enabled` and `can_disable`."""
-
     name = ""
     title = ""
     description = ""
@@ -125,8 +115,6 @@ class Extension:
         return _states(self.repository).get(self.name, (None, {}))[1]
 
     def schema(self, request=None) -> colander.SchemaNode | None:
-        """A new schema of the settings, bound to this repository (and the request, when
-        there is one): deferred values in it can ask for both."""
         if self.settings_schema is None:
             return None
         return self.settings_schema().bind(
@@ -135,8 +123,6 @@ class Extension:
 
     @property
     def settings(self) -> dict:
-        """The settings with their defaults, read once for as long as what the
-        repository says of its extensions is what was read (a change reads it again)."""
         states = _states(self.repository)
         cache = self.repository.__dict__.setdefault("_extension_settings", {})
         cached = cache.get(self.name)
@@ -213,8 +199,6 @@ class Extension:
 
 
 def settings_form(extension: Extension, request, **options) -> Form:
-    """The Deform form of the settings of an extension (`options`: `formid`, `action`,
-    `buttons`), made from its schema: the one form every extension has."""
     return Form(extension.schema(request), **options)
 
 
@@ -223,7 +207,6 @@ def settings_form(extension: Extension, request, **options) -> Form:
 
 
 def extension(name: str):
-    """Class decorator: the class is the extension `name` (found by `config.scan`)."""
 
     def decorate(cls):
         def callback(scanner, _name, _obj):
@@ -236,7 +219,6 @@ def extension(name: str):
 
 
 def add_gracia_extension(config, name: str, cls: type) -> None:
-    """Config directive: `cls` is the extension `name`, an adapter of a repository."""
 
     def register():
         cls.name = name  # ty: ignore[missing-attribute]
@@ -246,9 +228,6 @@ def add_gracia_extension(config, name: str, cls: type) -> None:
 
 
 class ExtensionPredicate:
-    """The view predicate `enabled_extension="ark"`: the view is there in a repository
-    where the extension is on, and not there (404) in any other."""
-
     def __init__(self, name: str, config):
         self.name = name
 
@@ -268,10 +247,6 @@ class ExtensionPredicate:
 
 
 def include_modules(config, targets: list[str]) -> None:
-    """Call the `includeme(config)` of every module of the packages that were scanned,
-    when the module defines one (an imported one is not called): for what a decorator
-    cannot say. `config.scan` does
-    not do this by itself."""
     for target in targets:
         package = importlib.import_module(target)
         names = [target]
@@ -286,8 +261,6 @@ def include_modules(config, targets: list[str]) -> None:
 
 
 def scan_targets(settings: dict) -> list[str]:
-    """What to scan for extensions: the built-in package, the packages of the entry
-    points and the names in the setting `gracia.extensions`, each once."""
     from importlib.metadata import entry_points
 
     found = list(BUILTIN_PACKAGES)
@@ -304,9 +277,6 @@ def scan_targets(settings: dict) -> list[str]:
 
 
 def read_extension_states(graph, repo_uri: str) -> dict[str, tuple[bool | None, dict]]:
-    """What the content of the repository record says of its extensions: {name: (enabled
-    or None, settings)}. The settings are the stored cstruct; text that is not JSON
-    counts as no settings."""
     content = graph.value(ox.NamedNode(repo_uri), ox.NamedNode(uri.RESOURCE))
     found: dict[str, tuple[bool | None, dict]] = {}
     if content is None:

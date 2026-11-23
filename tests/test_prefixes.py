@@ -4,8 +4,6 @@ from gracia.extensions.ns_prefix import DEFAULT_PREFIXES
 
 
 class PrefixCase(DbTestCase):
-    """A repository `lib` (it has a record to keep the prefixes in)."""
-
     def setUp(self):
         super().setUp()
         code, _, err = self.create_repositories("lib")
@@ -89,8 +87,6 @@ class OutputTest(PrefixCase):
 
 
 class PlainStoreTest(DbTestCase):
-    """A database without a repository record: the defaults, and nothing is kept."""
-
     def test_import_and_export_work_but_a_declared_prefix_is_not_kept(self):
         self.load(DATA / "01_simple.ttl")
         _, out, _ = self.gracia("export", "-f", "turtle")

@@ -48,9 +48,6 @@ def make_content_type(
     class_uri=EX + "Widget",
     schema=None,
 ):
-    """A content type as a package: a descriptor and one schema file. It is put on the
-    path (and taken off again), so that it can be imported, and found by its dotted
-    name."""
     root = Path(tempfile.mkdtemp())
     test.addCleanup(lambda: __import__("shutil").rmtree(root, ignore_errors=True))
     schema = schema or f"{name}-minimal-01.ttl"
@@ -80,8 +77,6 @@ def make_content_type(
 
 
 def content_label(form):
-    """The `label` of the content: the record has a read-only `gracia:label` of its
-    own."""
     return next(f for f in form.fields["label"] if "readonly" not in f.attrs)
 
 
@@ -206,8 +201,6 @@ class DiscoveryTest(WebCase):
 
 
 class RegistryTest(WebCase):
-    """The types in the registry of the application: `IGraciaType` utilities."""
-
     def registry(self, **settings):
         config = make_config({**self.settings, **settings})
         config.commit()
@@ -255,7 +248,6 @@ class RegistryTest(WebCase):
         )  # generic records
 
     def test_every_type_there_is_has_a_schema_that_loads(self):
-        """No type is named here: a content type that is added later is checked too."""
         registry = self.registry()
         for res_type in known_types(registry):
             if res_type.slug is None:
@@ -298,8 +290,6 @@ class RegistryTest(WebCase):
 
 
 class RepositoryTest(WebCase):
-    """Repositories and content types."""
-
     def setUp(self):
         super().setUp()
         self.package = make_content_type(self)
@@ -412,8 +402,6 @@ class RepositoryTest(WebCase):
 
 
 class CounterTest(WebCase):
-    """The counter of the numbers of a type needs nothing: any name works."""
-
     def setUp(self):
         super().setUp()
         self.application.create_repository("test_repo", admin=ADMIN)
@@ -450,7 +438,6 @@ class CounterTest(WebCase):
             self.assertEqual(store.mint_id("gizmo"), 51)
 
     def test_the_counter_moves_inside_the_transaction_of_the_write(self):
-        """A write that fails leaves the counter where it was."""
         with self.application.new_store("test_repo") as store:
             before = store.mint_id("gizmo")
             with self.assertRaises(ValueError):  # an orphan blank node: put refuses it
@@ -484,9 +471,6 @@ class CounterTest(WebCase):
 
 
 class CommandsTest(DbTestCase):
-    """The commands build their own copy of the registry, as the web application
-    does."""
-
     def setUp(self):
         super().setUp()
         self.package = make_content_type(self)

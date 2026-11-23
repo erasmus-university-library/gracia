@@ -1,11 +1,3 @@
-"""The address of a record, and what is said of one that is gone.
-
-Traversal (`Type.__getitem__`) finds a record by its number or by any slug it has had,
-and says nothing of HTTP. Here the answers are made: a record that was deleted is 410,
-and one that was reached by another address than its own is a redirect to the current
-one (301 for what only reads, 308 for what changes something, so that the method and
-the body are kept)."""
-
 from pyramid.events import ContextFound, subscriber
 from pyramid.httpexceptions import HTTPGone, HTTPMovedPermanently, HTTPPermanentRedirect
 from pyramid.location import lineage
@@ -21,8 +13,6 @@ def gone(exc, request):
 
 @subscriber(ContextFound)
 def to_the_current_address(event) -> None:
-    """The slug (or number) of the record in the address is not the one it has now: go
-    to the current one; the rest of the path and the query stay."""
     request = event.request
     path = list(reversed(list(lineage(request.context))))[1:]  # below the root
     traversed = request.traversed

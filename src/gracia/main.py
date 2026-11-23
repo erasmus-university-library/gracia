@@ -35,16 +35,6 @@ def init(
     token: str | None = None,
     cache_dir: str | Path | None = None,
 ) -> Application:
-    """Open the database of a process and put what lives across its requests in
-    `registry`: `database` (see `Database`: `db_file` is the file, always a local one,
-    or, with `quack="quack:host:port"` and its `token`, the owner that has it), `cache`
-    (which watches the file for writes: nothing for `":memory:"`, or None for an owner
-    whose file is not here, then the table of the times of the writes is read at every
-    check; `cache_dir` is where it keeps the graphs of the records, none: they are made
-    again every time) and `indexes` (set when `gracia.index_dir` is). Returns the
-    application for use outside a request, `Application(None, registry)`: a node opens a
-    cursor of its own. A request is given `Application(request.db, registry)`.
-    `shutdown(registry)` closes it all."""
     database = Database(db_file, quack=quack, token=token)
     watched = db_file if db_file not in (None, ":memory:") else None
     registry["database"] = database
@@ -56,9 +46,6 @@ def init(
 
 
 def init_from_settings(registry, settings: dict, target: str) -> Application:
-    """`init` for the database `target` (the setting `gracia.db`) names: a file, or a
-    running owner (`quack:host:port`, with the token of the settings and the file it
-    serves in `gracia.db.file`)."""
     cache_dir = settings.get("gracia.cache_dir") or None
     if gracia_config.is_remote(target):
         return init(
@@ -72,15 +59,12 @@ def init_from_settings(registry, settings: dict, target: str) -> Application:
 
 
 def shutdown(registry) -> None:
-    """Close what `init` opened."""
     registry["cache"].close()
     registry["database"].close()
 
 
 @contextlib.contextmanager
 def opened(db_file: str | Path | None = ":memory:", **kwargs):
-    """`init` in a registry of its own (two applications must not share one), and
-    `shutdown` when the block ends: for a command, a job process or a test."""
     registry = Registry()
     application = init(registry, db_file, **kwargs)
     try:
@@ -90,9 +74,6 @@ def opened(db_file: str | Path | None = ":memory:", **kwargs):
 
 
 def adopt(application: Application, registry) -> None:
-    """Move an application that was opened for a configuration to the registry of that
-    configuration (what `init` put in its own goes with it; what was kept of the
-    repositories is made again)."""
     for name in ("database", "cache", "indexes", "application"):
         registry[name] = application.registry[name]
     application.registry = registry
@@ -112,7 +93,6 @@ def includeme(config: Configurator) -> None:
     config.registry["application_owned"] = owned  # ty: ignore[invalid-assignment]
 
     def db(request):
-        """The cursor of the request, closed when it ends, whatever the answer."""
         connection = request.registry["database"].cursor()
         request.add_finished_callback(lambda request: connection.close())
         return connection

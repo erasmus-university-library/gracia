@@ -26,9 +26,6 @@ WORK = sheet(
 
 
 class TypeImportsCase(WebCase):
-    """A repository with the types Person and Work, their files in temporary
-    directories."""
-
     def setUp(self):
         super().setUp()
         self._tmp = tempfile.TemporaryDirectory()
@@ -131,8 +128,6 @@ class ImportTest(TypeImportsCase):
         self.assertEqual(self.run_work(), "work by relative")
 
     def test_a_repository_can_give_a_type_other_files(self):
-        """The address is the type of *this repository*: another repository whose person
-        type points elsewhere gets that stylesheet."""
         elsewhere = self.root / "person-archive"
         elsewhere.mkdir()
         (elsewhere / "view.xsl").write_text(
@@ -172,9 +167,6 @@ class ImportTest(TypeImportsCase):
 
 
 class OverrideImportTest(TypeImportsCase):
-    """A type imported by address is resolved file by file, so an override applies to
-    it."""
-
     def test_an_overridden_file_is_the_one_imported_and_others_fall_through(self):
         # the type's files live in a package, so that override_asset can name them
         package = self.root / "typefiles"

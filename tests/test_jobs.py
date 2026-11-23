@@ -249,8 +249,6 @@ class RegistryTest(JobsCase):
 
 
 class StageTest(JobsCase):
-    """What the base class does for every stage, with the small stages of the tests."""
-
     def test_a_job_runs_its_stages_over_every_batch_and_ends_done(self):
         job_id = self.make(echo(), {"stage": "Mark"})
         self.assertEqual(
@@ -391,8 +389,6 @@ class StageTest(JobsCase):
 
 
 class FailureTest(JobsCase):
-    """A job that fails says why, and goes on where it was when it is run again."""
-
     def fail(self, **extra):  # ty: ignore[incompatible-method-override]
         self.marker = self.tmp / "ran.txt"
         self.fail_file = self.tmp / "fail"
@@ -520,8 +516,6 @@ class StopTest(JobsCase):
 
 
 class ProgressTest(JobsCase):
-    """The snapshot of a job from its files."""
-
     def files(self, directory, stage, batches, **stats):
         d = directory / stage
         d.mkdir(parents=True, exist_ok=True)
@@ -621,8 +615,6 @@ class ProgressTest(JobsCase):
 
 
 class ExportValidateTest(JobsCase):
-    """The job a person starts: the records of a type against a schema file."""
-
     def validate(self, schema=None, chunk_bytes=CHUNK, **more):
         params = {
             "res_type": "person",
@@ -780,9 +772,6 @@ class ExportValidateTest(JobsCase):
 
 
 class RewriteExportTest(JobsCase):
-    """The jobs of a type besides validating it: write its records again, and export
-    them."""
-
     def test_the_rewrite_job_stores_what_the_hooks_change_and_the_next_one_finds_nothing(  # noqa: E501
         self,
     ):
@@ -898,11 +887,6 @@ class RewriteExportTest(JobsCase):
 
 
 class WriteConflictTest(JobsCase):
-    """The job process and a stop or a start change one row of a job: the second is
-    retried. (Over Quack DuckDB aborts the one that comes second with "Conflict on tuple
-    deletion"; in process two cursors do not conflict, so a connection that fails on
-    demand stands in.)"""
-
     def failing(self, db, times):
         import duckdb
 
@@ -942,8 +926,6 @@ class WriteConflictTest(JobsCase):
         self.assertEqual(self.job(job_id)["message"], "by hand")
 
     def test_the_condition_is_judged_again_on_the_row_as_it_is_then(self):
-        """The first one finished the job meanwhile: the stop finds it is not `queued`
-        any more."""
         from gracia.jobs import db as jobs_db
 
         job_id = self.make(ECHO)

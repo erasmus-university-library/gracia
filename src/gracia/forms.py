@@ -24,10 +24,6 @@ RENDERER = ZPTRendererFactory([str(TEMPLATES), default_dir])
 
 
 class CodeWidget(deform.widget.TextAreaWidget):
-    """A text area that is a syntax highlighting editor (CodeMirror): `mode` is
-    `sparql`, `json` or `xml` (XSLT too). Showing it makes the page load the editor
-    (`static.editor_js`), so only the pages with such a field do."""
-
     def __init__(self, mode: str, rows: int = 4, **kw):
         attributes = {
             "data-editor": mode,
@@ -43,14 +39,10 @@ class CodeWidget(deform.widget.TextAreaWidget):
 
 
 class ReadOnlyWidget(deform.widget.TextInputWidget):
-    """The value of a field that is not edited (`templates/deform/readonly_text.pt`)."""
-
     template = "readonly_text"
 
 
 class TabsWidget(deform.widget.FormWidget):
-    """The widget of a form with tabs (`templates/deform/form_tabs.pt`)."""
-
     template = "form_tabs"
 
     def __init__(self, loose_title: str, **kw):
@@ -58,9 +50,6 @@ class TabsWidget(deform.widget.FormWidget):
         self.loose_title = loose_title
 
     def tabs(self, form) -> list[SimpleNamespace]:
-        """What the template shows: a tab for every mapping field, then one with the
-        other fields (when there are any). The first tab with an error is open, else the
-        first one."""
         found = []
         loose = [c for c in form.children if not isinstance(c.typ, colander.Mapping)]
         for child in form.children:
@@ -83,14 +72,6 @@ class TabsWidget(deform.widget.FormWidget):
 
 
 class Form(deform.Form):
-    """The Deform form of gracia: the label in front of the input (`.form-horizontal`,
-    gracia.css; it stacks by itself where the form is narrow). Every form is made with
-    this one.
-
-    `tabs="Record"` puts the fields on tabs: a tab for every field that is a mapping
-    (titled as the field is), and the fields that are not on one more tab with the title
-    given."""
-
     def __init__(self, schema, tabs: str | None = None, **options):
         options.setdefault("css_class", "deform form-horizontal")
         options.setdefault("renderer", RENDERER)
@@ -114,8 +95,6 @@ def _value(shapes, subject, predicate):
 
 
 def _editable(shapes, prop) -> bool:
-    """Whether a property is one text value: at most one, and not a URI, a blank node or
-    a shape."""
     if _value(shapes, prop, "maxCount") != "1" or _objects(shapes, prop, "node"):
         return False
     kinds = _objects(shapes, prop, "nodeKind")
@@ -126,18 +105,14 @@ def _editable(shapes, prop) -> bool:
 
 
 def property_title(shapes: Graph, prop, path: str) -> str:
-    """The `sh:name` of a property shape, else its path."""
     return _value(shapes, prop, "name") or path
 
 
 def is_iri(shapes: Graph, prop) -> bool:
-    """Whether a property shape says its values are URIs (`sh:nodeKind sh:IRI`), not
-    literals."""
     return ox.NamedNode(SH_NS.IRI) in _objects(shapes, prop, "nodeKind")
 
 
 def shape_description(shapes: Graph, shape) -> str:
-    """The `sh:description` of a node shape or of a property shape, or an empty text."""
     return _value(shapes, shape, "description") or ""
 
 
@@ -146,9 +121,6 @@ def local_name(path: str) -> str:
 
 
 def properties(shapes: Graph, shape) -> list[tuple[str, ox.NamedNode | ox.BlankNode]]:
-    """The properties of a node shape as (path, property shape), in `sh:order` and then
-    by path. A property whose path is not one plain URI (a property path) is left
-    out."""
     found = []
     for prop in _objects(shapes, shape, "property"):
         path = _objects(shapes, prop, "path")
@@ -160,13 +132,11 @@ def properties(shapes: Graph, shape) -> list[tuple[str, ox.NamedNode | ox.BlankN
 
 
 def nested_shape(shapes: Graph, prop):
-    """The shape a property embeds (`sh:node`), or None."""
     shapes = _objects(shapes, prop, "node")
     return shapes[0] if shapes else None
 
 
 def leaf_node(shapes: Graph, prop, path: str) -> colander.SchemaNode | None:
-    """The text field a property shape makes, or None when it is not one text value."""
     if not _editable(shapes, prop):
         return None
     minimum = _value(shapes, prop, "minLength")
@@ -197,8 +167,6 @@ def leaf_node(shapes: Graph, prop, path: str) -> colander.SchemaNode | None:
 def fields_from_shape(
     shapes: Graph, shape, hidden=frozenset()
 ) -> list[colander.SchemaNode]:
-    """The text fields of a node shape, in `sh:order`. Properties in `hidden` get no
-    field."""
     nodes = []
     for path, prop in properties(shapes, shape):
         if path not in hidden and (node := leaf_node(shapes, prop, path)) is not None:
@@ -214,7 +182,6 @@ def schema_from_shape(shapes: Graph, shape) -> colander.Schema:
 
 
 def required_paths(shapes: Graph, shape) -> set[str]:
-    """The predicates a shape requires (`sh:minCount` of 1 or more) at the top level."""
     required = set()
     for prop in _objects(shapes, shape, "property"):
         path = _objects(shapes, prop, "path")
@@ -239,8 +206,6 @@ def required_paths(shapes: Graph, shape) -> set[str]:
 
 
 def json_default(value):
-    """What `json.dumps` cannot write itself: dates and times as ISO text, decimals and
-    UUIDs and paths as text, sets as sorted lists, and `colander.null` as null."""
     if value is colander.null:
         return None
     if isinstance(value, datetime.datetime | datetime.date | datetime.time):
@@ -253,13 +218,10 @@ def json_default(value):
 
 
 def to_json(value, *, indent: int | None = None) -> str:
-    """JSON text of a cstruct or an appstruct (keys in the order they have)."""
     return json.dumps(value, default=json_default, indent=indent, ensure_ascii=False)
 
 
 def nulls_to_none(cstruct):
-    """A cstruct with `colander.null` as `None`, which is what JSON has (so it can be
-    stored)."""
     if cstruct is colander.null:
         return None
     if isinstance(cstruct, dict):
@@ -270,8 +232,6 @@ def nulls_to_none(cstruct):
 
 
 def none_to_nulls(data):
-    """The other way, for what was read from JSON, before it goes to
-    `schema.deserialize`."""
     if data is None:
         return colander.null
     if isinstance(data, dict):

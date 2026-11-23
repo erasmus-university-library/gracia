@@ -19,9 +19,6 @@ ORIGIN = {"Origin": "http://localhost:80"}  # what the browser says of the test 
 
 
 class People(HeaderPolicy):
-    """`admin` is an administrator, `ed` and `ed2` are editors, `guest` is in no
-    group."""
-
     def permits(self, request, context, permission):
         from pyramid.authorization import ACLHelper, Authenticated, Everyone
 
@@ -41,8 +38,6 @@ def as_user(name: str) -> dict:
 
 
 class Closed(Job):
-    """A job that nobody but administrators may start (no groups)."""
-
     title = "Closed"
     description = "Only for administrators."
     groups = ()
@@ -337,8 +332,6 @@ class ListAndStopTest(JobsViewCase):
         ]
 
     def progress(self, job_id, export=(2, 1, 4), validate=(0, 0, 4)):
-        """What the job process would have written: (done, running, total) batches per
-        stage."""
 
         def stage(name, state, batches):
             done, running, total = batches
@@ -623,8 +616,6 @@ class DownloadAndLogTest(JobsViewCase):
             )
 
     def test_while_the_job_runs_only_whole_lines_of_the_log_are_given(self):
-        """A record can be written in two pieces: the half that is there waits for the
-        next read."""
         job_id = self.start("ed").json["id"]  # running
         directory = self.jobs_dir / job_id
         directory.mkdir(parents=True, exist_ok=True)
@@ -767,9 +758,6 @@ class FormTest(JobsViewCase):
 
 
 class EndToEndTest(ProcessCase):
-    """The page starts a validate job that runs in a process of its own and reports on
-    it."""
-
     def test_the_export_and_rewrite_jobs_of_a_type_run_from_the_view_and_the_export_downloads(  # noqa: E501
         self,
     ):

@@ -80,8 +80,6 @@ class SearchCase(BatchCase):
         return self.indexes.stats("main")[0]["documents"]
 
     def docs_of(self, *numbers: int) -> tuple[list[Change], dict[str, dict]]:
-        """The changes and the docs the worker would have for the stored records
-        `rec:person:<n>`."""
         changes = [
             Change(
                 self.store.record_id_of(f"rec:person:{n}"),
@@ -400,9 +398,6 @@ class StatsRowTest(ManageCase):
 
 
 class ExtensionCase(ManageCase):
-    """A repository `archive` with the person type, search on, and a Search extension to
-    ask."""
-
     def setUp(self):
         super().setUp()
         import tempfile
@@ -429,9 +424,6 @@ class ExtensionCase(ManageCase):
 
 
 class SearchExtensionTest(ExtensionCase):
-    """The Search extension: on by default with the definition the repository ships
-    with."""
-
     def test_it_is_on_in_a_repository_that_never_said_and_ships_with_the_default_definition(  # noqa: E501
         self,
     ):
@@ -565,8 +557,6 @@ class SearchExtensionTest(ExtensionCase):
         self.assertTrue(self.application["archive"].extension("search").enabled)
 
     def records_of_types(self) -> int:
-        """The records of the repository other than the person (its types and the rest):
-        they are indexed too, since the index is for every record."""
         with self.application.new_store("archive") as store:
             return sum(
                 n
@@ -583,9 +573,6 @@ class SearchExtensionTest(ExtensionCase):
 
 
 class SearchPageTest(ManageCase):
-    """The repository for a browser: a search box, and what the index finds that the
-    caller may see."""
-
     HTML: ClassVar[dict] = {"Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8"}
 
     def setUp(self):
@@ -838,9 +825,6 @@ class FieldStatsTest(SearchCase):
 
 
 class SearchTabTest(ManageCase):
-    """The Search tab of the manage page: the fields the docs offer against the
-    settings, with Add and Remove."""
-
     URL = "/archive/manage?tab=search"
 
     def setUp(self):
@@ -965,13 +949,7 @@ class SearchTabTest(ManageCase):
 
 
 class RestartTest(ExtensionCase):
-    """A server that starts again must find the index it made as it was: the definition
-    it reads from the database is the one the index was built for, so the index is not
-    stale."""
-
     def new_process(self):
-        """What a restart gives: a repository node read again from the database, and an
-        `Indexes` that has never seen the directory."""
         node = self.application["archive"]
         self.addCleanup(node.close)
         return node, Indexes(self.index_dir)

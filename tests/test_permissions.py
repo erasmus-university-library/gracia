@@ -9,9 +9,6 @@ from gracia.main import make_config
 
 
 class PrincipalsPolicy:
-    """The caller has the principals the `X-Principals` header lists (comma
-    separated)."""
-
     challenge = False  # a refusal is a plain 403
 
     def authenticated_userid(self, request):
@@ -82,9 +79,6 @@ class EditorsTest(PermissionsCase):
 
 
 class SpecialPermissionsTest(PermissionsCase):
-    """`super_edit` is for users, `manage` for groups, and both can be granted on their
-    own."""
-
     def acls(self, **extra):
         acls = dict(resources.TYPE_ACLS)
         for cls, entries in extra.items():
@@ -193,8 +187,6 @@ class NeverPublicTest(PermissionsCase):
         self.assertEqual(admin, [1, 2, 3, 4, 5])
 
     def test_a_record_cannot_open_itself_up(self):
-        """Whatever a record of a private type says about itself, its own ACL stays
-        closed."""
         with self.application.new_store("test_repo") as store:
             data = store.get("rec:user:1")
             public = ox.Quad(
@@ -215,9 +207,6 @@ class NeverPublicTest(PermissionsCase):
 
 
 class ManagersTest(PermissionsCase):
-    """Managers do what editors do, and also add and change users. Groups stay with
-    admins."""
-
     def test_managers_edit_and_add_like_editors(self):
         for path in ("/test_repo/person/1/edit", "/test_repo/person/add"):
             self.assertTrue(self.can(path, "group:manager"), path)
@@ -264,9 +253,6 @@ class ManagersTest(PermissionsCase):
 
 
 class TheClosedNodesDoNotAnswerForUnknownThingsTest(PermissionsCase):
-    """404 for what is not there and 403 for what is would list the users to the
-    public."""
-
     def status(self, path, *principals):  # ty: ignore[incompatible-method-override]
         return (
             self.client()

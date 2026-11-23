@@ -9,10 +9,6 @@ from gracia.utils import passwords
 
 
 class UserRecord(Record):
-    """A user: the credentials are never in the form; a new password can be set, and the
-    user id stays unique. A new user needs a password. Users are changed with
-    `super_edit`, which the editors do not have."""
-
     edit_permission = add_permission = "super_edit"
     supplies = frozenset({uri.CREDENTIALS})  # the hash is made from the password
     source_editable = False  # a user is made with a password and a check of its id

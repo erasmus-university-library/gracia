@@ -15,7 +15,7 @@ _RDF = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
 
 
 class ParseError(ValueError):
-    """A text that is not valid in the serialization it was said to be in."""
+    pass
 
 
 VIOLATION = "Violation"
@@ -38,20 +38,16 @@ class Report:
     violations: tuple[Violation, ...] = ()
 
     def by_resource(self) -> dict[str, list[Violation]]:
-        """The violations per focus node."""
         grouped: dict[str, list[Violation]] = {}
         for violation in self.violations:
             grouped.setdefault(violation.focus_node, []).append(violation)
         return grouped
 
     def errors(self) -> tuple[Violation, ...]:
-        """Only the violations of severity "Violation" (not warnings or infos)."""
         return tuple(v for v in self.violations if v.severity == VIOLATION)
 
 
 class ValidationError(ValueError):
-    """Raised when data must conform and does not; carries the report."""
-
     def __init__(self, report: Report):
         self.report = report
         first = report.violations[0]
@@ -96,8 +92,7 @@ OUTPUT_FORMATS = (*_FORMATS, JSON_TRIPLES)
 
 
 class RdfError(RuntimeError):
-    """The input is not valid RDF in the given format, or the format is not
-    supported."""
+    pass
 
 
 def guess_format(path: str | Path) -> str:
@@ -131,7 +126,6 @@ def _term_text(term) -> tuple[str, str]:
 
 
 def _row_of(quad: ox.Quad) -> Row:
-    """One quad as a staging row (see the module docstring)."""
     s, s_type = _term_text(quad.subject)
     lang = dtype = None
     if isinstance(quad.object, ox.Literal):
@@ -174,10 +168,6 @@ def streaming_parse(
     fmt: str | None = None,
     prefixes: dict[str, str] | None = None,
 ) -> Iterator[Row]:
-    """Parse an RDF file (or bytes, with an explicit format) into staging rows, one at a
-    time: the file is never held in memory (`Graph.parse` and `Graph.of_rows` are the
-    in-memory ones). When a dict is passed as `prefixes` it is filled with the prefixes
-    the file declares, once the iteration is complete."""
     if isinstance(source, bytes):
         if fmt is None:
             raise RdfError("a format is required to parse bytes")
@@ -203,9 +193,6 @@ def streaming_serialize(
     output: str | Path | None = None,
     prefixes: dict[str, str] | None = None,
 ) -> str | None:
-    """Serialize staging-shaped rows one at a time (`Graph.serialize` is the in-memory
-    one). Returns the text, or None when `output` is a path. Rows carry no graph name:
-    everything goes to the default graph."""
     rdf_fmt = rdf_format(fmt)
     with_graph = rdf_fmt.supports_datasets
     quads = (_quad_of(row, with_graph) for row in rows)
@@ -225,7 +212,6 @@ def _term(term):
 
 
 def serialize_bytes(data, **kwargs) -> bytes:
-    """`pyoxigraph.serialize` to memory: without an output it gives bytes."""
     out = ox.serialize(data, **kwargs)
     if out is None:
         raise ValueError("serialize_bytes takes no output")
@@ -238,9 +224,6 @@ class Graph:
 
     @classmethod
     def parse(cls, text: str, fmt: str) -> "Graph":
-        """The text as a graph (everything in the default graph); `ParseError` when it
-        is not valid `fmt` (`OUTPUT_FORMATS` names them: turtle, ntriples, rdfxml,
-        jsonld, ...)."""
         try:
             quads = list(ox.parse(text.encode("utf-8"), format=rdf_format(fmt)))
         except (SyntaxError, ValueError) as err:
@@ -256,11 +239,9 @@ class Graph:
 
     @classmethod
     def of_rows(cls, rows: Iterable["Row"]) -> "Graph":
-        """A new graph from rows (what the store returns)."""
         return cls(ox.Dataset(_quad_of(row, True) for row in rows))
 
     def rows(self) -> Iterator["Row"]:
-        """The quads as rows (for the store's staging table)."""
         return (_row_of(quad) for quad in self.dataset)
 
     # ---- it is a dataset
@@ -295,7 +276,6 @@ class Graph:
     # -------------------------------------------------------------------------
 
     def objects(self, subject, predicate) -> list:
-        """The objects of `subject predicate ?o`, in any graph."""
         subject, predicate = _term(subject), _term(predicate)
         return [
             q.object
@@ -304,12 +284,10 @@ class Graph:
         ]
 
     def value(self, subject, predicate):
-        """The first object of `subject predicate ?o`, or None."""
         found = self.objects(subject, predicate)
         return found[0] if found else None
 
     def subjects(self) -> list[ox.NamedNode]:
-        """The resources: the distinct uri subjects, in the order first seen."""
         seen: dict[ox.NamedNode, None] = {}
         for quad in self.dataset:
             if isinstance(quad.subject, ox.NamedNode):
@@ -341,22 +319,15 @@ class Graph:
         return found
 
     def extract(self, uri) -> "Graph":
-        """The resource `uri`: its quads and those of the blank nodes below it. Empty
-        when there is no such subject."""
         return Graph(ox.Dataset(self._resource(_term(uri))))
 
     def orphaned_nodes(self) -> "Graph":
-        """The quads that belong to no resource: blank nodes that no uri subject
-        reaches."""
         covered: set[ox.Quad] = set()
         for root in self.subjects():
             covered |= self._resource(root)
         return Graph(ox.Dataset(q for q in self.dataset if q not in covered))
 
     def walk_list(self, head) -> list:
-        """The items of the rdf list that starts at `head` (rdf:first / rdf:rest cells,
-        as the store returns them), in order. A broken or cyclic list ends where it
-        breaks."""
         first, rest, nil = (ox.NamedNode(_RDF + n) for n in ("first", "rest", "nil"))
         items, seen = [], set()
         while head != nil and head not in seen:
@@ -373,15 +344,11 @@ class Graph:
     # ------------------------------------------------------------------------
 
     def graph_name_of(self, subject):
-        """The graph name of the first quad of `subject`, or None when it has none."""
         return next(
             (q.graph_name for q in self.dataset.quads_for_subject(_term(subject))), None
         )
 
     def replace(self, subject, predicate, new, graph=None) -> None:
-        """Make `new` the one value of `subject predicate ?o` (a term; None: no value).
-        It is written in `graph`, else in the graph the subject is in, else in the
-        default graph."""
         subject, predicate = _term(subject), _term(predicate)
         if graph is None:
             graph = self.graph_name_of(subject) or ox.DefaultGraph()
@@ -395,9 +362,6 @@ class Graph:
             self.dataset.add(ox.Quad(subject, predicate, new, graph))
 
     def add_value(self, subject, predicate, term, graph=None) -> None:
-        """One more value of `subject predicate ?o`, in `graph`, else in the graph the
-        subject is in, else in the default graph. (`add` is the dataset's, and takes a
-        quad.)"""
         subject = _term(subject)
         if graph is None:
             graph = self.graph_name_of(subject) or ox.DefaultGraph()
@@ -407,13 +371,10 @@ class Graph:
     # --------------------------------------------------------------------
 
     def without(self, predicates) -> "Graph":
-        """A new graph without the quads whose predicate is one of `predicates`."""
         hidden = {_term(p) for p in predicates}
         return Graph(ox.Dataset(q for q in self.dataset if q.predicate not in hidden))
 
     def remap(self, old, new) -> "Graph":
-        """A new graph with the uri `old` replaced by `new`, as subject and as
-        object."""
         old, new = _term(old), _term(new)
 
         def swap(term):
@@ -427,9 +388,6 @@ class Graph:
         )
 
     def patch(self, before, after) -> None:
-        """Take out the quads that are in `before` and not in `after`, and put in those
-        that are in `after` and not in `before`: what was done to a copy, done to
-        this."""
         before, after = set(before), set(after)
         for quad in before - after:
             self.dataset.discard(quad)
@@ -445,13 +403,6 @@ class Graph:
         prefixes: dict[str, str] | None = None,
         xslt_params: dict[str, str] | None = None,
     ) -> str:
-        """The graph as text (the graph names are left out). The same triples give the
-        same text: the resources come before blank nodes, the type of each first (a
-        serializer writes a typed node when the type comes first), then by property and
-        value. Turtle and rdf/xml declare only the `prefixes` that the text uses (they
-        would declare all of them); rdf/xml is then nested by the stylesheet (blank
-        nodes inside what points to them; `xslt_params` are its parameters), and json-ld
-        indented."""
         # the triple formats refuse a graph name, so a quad that has one is written
         # without it
         quads = sorted(map(_flat, self.dataset), key=_order)
@@ -474,24 +425,6 @@ class Graph:
         shapes: "Graph | ox.Dataset | str | Path",
         shape: "str | ox.NamedNode | None" = None,
     ) -> Report:
-        """Validate this graph against a SHACL shapes graph (a file, Turtle text, a
-        graph or a dataset), with pyrudof.
-
-            report = graph.validate("shapes.ttl") report = graph.validate(shapes,
-            shape=PERSON_SHAPE)   # force a shape on every resource report.conforms
-            report.by_resource()            # {resource uri: [Violation, ...]}
-
-        Only this graph is validated: a shape that checks something outside it (sh:class
-        on a reference to a resource that is not in the graph) cannot see that resource.
-
-        Graph labels are ignored: the quads are validated as one graph. Shapes find
-        their resources through their own targets (sh:targetClass and so on), so a
-        resource that no shape targets, for instance one without an rdf:type, is not
-        checked. With `shape`, that shape is also targeted at every resource (uri
-        subject) in the dataset, whatever it is typed as.
-
-        The cost is mostly per call (about 20 ms), so validate resources in batches.
-        """
         import pyrudof  # about 30 ms to load: only when something is validated
 
         shapes_graph = _shapes_graph(shapes)
@@ -539,18 +472,11 @@ class Graph:
 
     @staticmethod
     def validate_select(query: str, prefixes: dict[str, str]) -> None:
-        """Raise `ValueError` with the reason when `query` is not one that `select`
-        runs: it has to be one SELECT that fetches nothing from outside (no `SERVICE`),
-        and may use `prefixes` without declaring them. The answer is remembered for the
-        text and the prefixes."""
         problem = _select_problem(query, tuple(sorted(prefixes.items())))
         if problem is not None:
             raise ValueError(problem)
 
     def select(self, query: str, prefixes: dict[str, str]) -> ox.QuerySolutions:
-        """Run a SELECT on this graph, in any graph name, and nothing else (the quads go
-        into a new in-memory store as they are). `ValueError` when it is not a query
-        that can be run (see `validate_select`)."""
         self.validate_select(query, prefixes)
         store = ox.Store()
         store.extend(self.dataset)
@@ -611,8 +537,6 @@ def _only_used_xml_prefixes(text: str) -> str:
 
 
 def _missing_prefixes(text: str, known: tuple) -> list[str]:
-    """The prefixes a query uses that neither the repository nor the query itself
-    defines."""
     declared = {name for name, _ in known} | set(
         re.findall(r"(?i)\bPREFIX\s+([^\s:]*):", text)
     )
@@ -625,8 +549,6 @@ def _missing_prefixes(text: str, known: tuple) -> list[str]:
 
 @functools.lru_cache(maxsize=512)
 def _select_problem(text: str, prefixes: tuple) -> str | None:
-    """Why a text cannot be run (None when it can), remembered for the text and the
-    prefixes: a type has one query, and every record that is saved asks."""
     if re.search(r"\bSERVICE\b", text, re.IGNORECASE):
         return "A query cannot use SERVICE"
     try:
@@ -647,9 +569,6 @@ def _select_problem(text: str, prefixes: tuple) -> str | None:
 
 
 def _shapes_graph(shapes: "Graph | ox.Dataset | str | Path") -> Graph:
-    """A shapes graph, a new one (it is added to). A Path (or a str naming an existing
-    file) is read, the format guessed from the extension; any other str is taken as
-    Turtle text."""
     if isinstance(shapes, Graph | ox.Dataset):
         return Graph(ox.Dataset(shapes))
     if isinstance(shapes, Path) or ("\n" not in shapes and Path(shapes).exists()):

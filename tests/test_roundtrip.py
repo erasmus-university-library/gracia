@@ -27,8 +27,6 @@ class RoundTripTest(DbTestCase):
         self.assertEqual(canonical(expected), canonical(parse_json(self.export_json())))
 
     def test_large_file_streams(self):
-        """150k triples: more than the json route could read in one object (16 MB
-        limit)."""
         big = self.tmp / "big.nt"
         with big.open("w", encoding="utf-8") as f:
             for i in range(150_000):

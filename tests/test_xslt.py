@@ -28,8 +28,6 @@ def collections(rdfxml: str) -> list[ET.Element]:
 
 class NestedRdfXmlTest(DbTestCase):
     def nested(self, uri: str | None = None) -> str:
-        """The database (or one resource) as nested RDF/XML, the way `gracia export`
-        does it."""
         with open_store(self.db) as store:
             flat = streaming_serialize(
                 self.rows(store, uri),
@@ -44,7 +42,6 @@ class NestedRdfXmlTest(DbTestCase):
         return xslt.nest(flat)  # ty: ignore[invalid-argument-type]
 
     def test_same_graph_for_every_data_file(self):
-        """The nested RDF/XML, parsed again, is the same graph as the database holds."""
         for path in RDF_FILES:
             with self.subTest(file=path.name):
                 self.db.unlink(missing_ok=True)
@@ -69,8 +66,6 @@ class NestedRdfXmlTest(DbTestCase):
         self.assertEqual(len(order[0]), 2)
 
     def test_lists_with_literals_stay_explicit(self):
-        """RDF/XML collections hold node elements only, so literal lists keep
-        first/rest."""
         self.load(DATA / "03_lists.ttl")
         root = ET.fromstring(self.nested())
         tags = next(e for e in root.iter("{http://example.org/}tags"))
@@ -85,7 +80,6 @@ class NestedRdfXmlTest(DbTestCase):
         self.assertIn("XMLSchema#integer", rdfxml)
 
     def test_shared_bnode_uses_node_id(self):
-        """A bnode referenced twice is written once and referenced by rdf:nodeID."""
         flat = flat_rdfxml_from_file(DATA / "04_complex.ttl")  # _:shared is used twice
         refs = [
             e
@@ -155,8 +149,6 @@ class PrefixesInXsltTest(DbTestCase):
 
 
 class RecordUriParamTest(unittest.TestCase):
-    """`record_uri`: the resource that the document is about is the first element."""
-
     FLAT = (
         '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" '
         'xmlns:ex="http://ex/">'

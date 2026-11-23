@@ -84,7 +84,6 @@ _known: dict[str, Resource] = {}  # asset spec -> resource: what widgets can nam
 
 
 def _deform_specs() -> list[str]:
-    """Every file Deform's own widgets can ask for, from its resource registry."""
     found: list[str] = []
     for versions in deform.Form.default_resource_registry.registry.values():
         for res_types in versions.values():
@@ -116,11 +115,6 @@ _known["deform:static/scripts/deform.js"] = Resource(
 
 
 def _resource(spec: str) -> Resource:
-    """The fanstatic resource of the asset spec a widget names: Deform's files are made
-    above; a file of another package must be in a library that was declared
-    (`add_library`, or the `fanstatic.libraries` entry point) with a `Resource` for it,
-    before the first request. Nothing is made on the fly: the libraries are numbered
-    once, and only what is declared is published."""
     if spec in _known:
         return _known[spec]
     path = assets.resolve(spec).resolve()
@@ -145,11 +139,6 @@ def _resource(spec: str) -> Resource:
 
 
 def add_library(config, new: Library) -> None:
-    """Config directive `config.add_gracia_library(library)`: publish a fanstatic
-    library (and the resources declared in it) below `/_static/`. A package that brings
-    scripts or styles, such as a type with its own widget, does this in its `includeme`.
-    It has to happen before the first request: fanstatic numbers its libraries then,
-    once."""
 
     def register():
         if _registry.get(new.name) is new:
@@ -165,8 +154,6 @@ def add_library(config, new: Library) -> None:
 
 
 def need_form(form) -> None:
-    """Need what the widgets of a Deform form need (`form.get_widget_resources()`): each
-    file once, after the files it depends on, whatever page the form is on."""
     found = form.get_widget_resources()
     for spec in (*found["js"], *found["css"]):
         _resource(spec).need()
@@ -176,13 +163,10 @@ def need_form(form) -> None:
 
 
 def url(name: str) -> str:
-    """The versioned URL of a file of the `gracia` library (an icon, say)."""
     return fanstatic.get_needed().library_url(library) + "/" + name
 
 
 def tween_factory(handler, registry):
-    """Serve the libraries below `/_static/`, and put what a page needs in the `<head>`
-    of its HTML (only HTML: JSON and the rest pass untouched)."""
     settings = registry.settings
     options = {
         "versioning": True,

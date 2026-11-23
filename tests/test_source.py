@@ -150,9 +150,6 @@ CLOSED = """@prefix sh: <http://www.w3.org/ns/shacl#> .
 
 
 class ClosedShapeTest(SourceCase):
-    """A property that no shape describes is a mistake, where a shape is closed
-    (`sh:closed`)."""
-
     def errors(self, response) -> list[str]:
         return [
             html.unescape(m)

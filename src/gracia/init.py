@@ -37,11 +37,6 @@ def _turtle_text(text: str) -> str:
 def extension_turtle(
     subject: str, name: str, settings: dict | None = None, enabled: bool | None = None
 ) -> str:
-    """The Turtle that says something of an extension on the content of the repository
-    record (`subject` is a Turtle term for it: `_:content` in the initial data, a
-    placeholder when the quads are moved to the real node): its name, whether it is
-    enabled (when that is said) and its settings as JSON text (a cstruct, see
-    gracia.forms)."""
 
     lines = [f"gracia:extension_name {_turtle_text(name)}"]
     if enabled is not None:
@@ -63,10 +58,6 @@ def extension_turtle(
 def user_turtle(
     record: str, userid: str, password: str, groups=(), resource_uri: str = ""
 ) -> str:
-    """The Turtle of a user record: `userid` with a salted hash of `password`, in
-    `groups` (the resource uris of the group records: the content of a record points at
-    resources, never at records). Both are checked here, so nothing can break the
-    Turtle."""
     validate_userid(userid)
     validate_password(password)
     member = "".join(f" ;\n        gracia:memberOf <{group}>" for group in groups)
@@ -94,11 +85,6 @@ _CLASS_URI = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:[^\s<>\"{}|\\^`]+$")
 
 
 def type_turtle(record: str, content_type, resource_uri: str = "") -> str:
-    """The Turtle of a type record for a content type (anything with `name`, `slug`,
-    `class_uri`, `assets`, `schema` and perhaps `doc`, see gracia.types). Its resource
-    uri is the class of the type (`class_uri`), which is how the types list of the
-    repository, and the `rdf:type` of a record, point at it. Everything that goes into
-    the Turtle is checked here, so a descriptor cannot break it."""
     for label, text, pattern in (
         ("name", content_type.name, _TYPE_NAME),
         ("slug", content_type.slug, uri.SLUG_PATTERN),
@@ -136,10 +122,6 @@ def initial_dataset(
     content_types=(),
     ark: tuple[str, str] = (uri.DEFAULT_NAAN, uri.DEFAULT_ROOT_PREFIX),
 ) -> Graph:
-    """The RDF a new repository starts with. `mint(type)` gives the next number for a
-    type; `admin` is (userid, password) of the first user, who joins the group `admin`;
-    `content_types` (see gracia.types) are types besides the three it cannot work
-    without."""
     if admin:
         validate_userid(admin[0])
         validate_password(admin[1])

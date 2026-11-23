@@ -8,8 +8,6 @@ _ROOT_PREFIX = re.compile(r"^[A-Za-z0-9]{1,32}$")
 
 
 def validate_ark(naan: str, root_prefix: str) -> tuple[str, str]:
-    """The two settings that make the ARKs of a repository: the authority number
-    (letters and digits) and the first part of the name (letters and digits)."""
     if not isinstance(naan, str) or not _NAAN.match(naan):
         raise ValueError(f"invalid ARK authority number: {naan!r} (letters and digits)")
     if not isinstance(root_prefix, str) or not _ROOT_PREFIX.match(root_prefix):

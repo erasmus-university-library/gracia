@@ -221,7 +221,6 @@ class CountsTest(ManageCase):
 
 
 def type_cards(page: str) -> dict[str, str]:
-    """The text of each card of the Types tab, by the slug of its type."""
     pane = page[page.index('id="tab-types"') : page.index('id="tab-settings"')]
     return {
         must_search(r'id="type-([^"]+)"', c)[1]: c
@@ -231,7 +230,6 @@ def type_cards(page: str) -> dict[str, str]:
 
 
 def predicate_cards(page: str) -> dict[str, str]:
-    """The text of each card of the Predicates tab, by the URI of its property."""
     pane = page[page.index('id="tab-predicates"') :]
     chunks = pane.split('<div class="predicate ')[1:]
     return {
@@ -271,7 +269,7 @@ class PredicatesTabTest(ManageCase):
         label = self.cards()[uri.LABEL]
         self.assertIn("gracia.predicates.gracia_label.LabelPredicate", label)
         self.assertIn(
-            "a short text for it, used for its title in the forms", label
+            "a short text for a record, made from its label values on save", label
         )  # docstring
         self.assertIn("schema_node", label)
         self.assertIn("on_write", label)
@@ -284,9 +282,6 @@ class PredicatesTabTest(ManageCase):
 
 
 class JobsTabTest(ManageCase):
-    """The Jobs tab of the manage page of the repository: the jobs about the repository
-    as a whole."""
-
     def pane(self) -> str:
         _, page = self.tabs("/test_repo/manage?tab=jobs")
         return must_search(r'id="tab-jobs".*', page, re.S)[0]
@@ -344,9 +339,6 @@ class JobsTabTest(ManageCase):
 
 
 class StatsTabTest(ManageCase):
-    """The Stats tab: the types, the caches and what waits for the worker, and the
-    buttons of the jobs that do something about the last two."""
-
     def setUp(self):
         super().setUp()
         import tempfile
@@ -517,9 +509,6 @@ class StatsTabTest(ManageCase):
     def test_the_tab_has_a_dialog_of_its_own_for_the_jobs_it_starts_and_a_refresh_link(
         self,
     ):
-        """A dialog inside the Jobs tab cannot be seen from this one, so the jobs
-        started here are followed by a panel of this tab (no table: the Jobs tab has
-        that), and the page can be made again."""
         pane = self.pane()
         dialog = must_search(
             r'<div class="job-panel"[^>]*data-compact="true"[^>]*>', pane
@@ -569,8 +558,6 @@ def test_sizes_and_times_are_text():
 
 
 class LogoTest(ManageCase):
-    """The logo of a page goes to the repository the page is in."""
-
     @staticmethod
     def logo(page: str) -> str:
         return must_search(r'<a class="gracia-logo[^"]*" href="([^"]*)"', page)[1]

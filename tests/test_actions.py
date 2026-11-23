@@ -23,7 +23,6 @@ STAMP2 = "2026-06-01T00:00:00.000000Z"
 
 class QueueCase(EtagCase):
     def queue(self, after: int = 0) -> list[tuple]:
-        """(transaction, record, action) of the rows after transaction `after`."""
         return self.store.con.execute(
             "SELECT transaction_id, record_uri(record_id), action FROM actions_queue "
             f"WHERE transaction_id > {after} ORDER BY 1, 2"
@@ -31,8 +30,6 @@ class QueueCase(EtagCase):
 
 
 class WrittenTest(QueueCase):
-    """What the triggers and the refresh queue."""
-
     def test_a_new_record_is_an_insert_and_a_changed_one_an_update(self):
         self.put(record("rec:org:1"), record("rec:org:2"))
         self.assertEqual(
@@ -49,8 +46,6 @@ class WrittenTest(QueueCase):
         self.assertEqual(self.queue(2), [(3, "rec:org:1", "insert")])
 
     def test_a_replace_is_one_row_for_the_record_and_the_transaction(self):
-        """The store replaces a record by deleting it and inserting it: two statements,
-        one `update`."""
         self.put(record("rec:org:1"))
         self.put(record("rec:org:1", refs=["rec:org:9"], stamp=STAMP2))
         self.assertEqual(
@@ -191,9 +186,6 @@ class TakeTest(QueueCase):
 
 
 class SizeTest(QueueCase):
-    """Batches are measured in bytes: the sizes are in the tables, and the queue is read
-    by them."""
-
     def setUp(self):
         super().setUp()
         self.put(
@@ -430,9 +422,6 @@ class ByteBatchTest(BatchCase):
 
 
 class ManualTest(BatchCase):
-    """`process_pending`: what a test, a script or a job calls instead of waiting for
-    the worker."""
-
     def test_it_handles_everything_that_is_queued_and_says_how_many_records(self):
         self.put(record("rec:org:1"), record("rec:work:1", refs=["rec:org:1"]))
         self.assertEqual(process_pending(self.app, self.registry), 2)
@@ -639,9 +628,6 @@ class WorkerTest(BatchCase):
 
 
 class LineTest(BatchCase):
-    """Several repositories: a turn is one batch of one of them, the others wait their
-    turn."""
-
     def setUp(self):
         super().setUp()
         self.other = open_store(self.db, repo="other", create=True)

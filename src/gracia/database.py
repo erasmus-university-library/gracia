@@ -11,14 +11,10 @@ from gracia import config
 
 
 def literal(value: str) -> str:
-    """SQL string literal."""
     return "'" + value.replace("'", "''") + "'"
 
 
 def sql_value(value) -> str:
-    """A Python value as a SQL literal: None, booleans, numbers, text, and anything else
-    as the text of the value (dates and times, uuids), which DuckDB casts where a column
-    wants them."""
     if value is None:
         return "NULL"
     if isinstance(value, bool):
@@ -31,8 +27,6 @@ def sql_value(value) -> str:
 
 
 def bind(sql: str, params) -> str:
-    """Replace the `?` placeholders in `sql` by SQL literals (a remote call takes no
-    parameters). There must be no other `?` in the statement."""
     parts = sql.split("?")
     if len(parts) != len(params) + 1:
         raise ValueError("the number of parameters does not match the placeholders")
@@ -43,23 +37,6 @@ def bind(sql: str, params) -> str:
 
 
 class RemoteConnection:
-    """A connection to a database that another process owns (Quack), for `Store` and
-    `JobsDb`.
-
-    Attached to a local DuckDB, the remote catalog does not behave like a local one: the
-    current schema is not applied to unqualified names, statements that read and write
-    it together are planned locally with the wrong defaults, and several streaming scans
-    in one query are refused. So every statement is sent to the owner and runs in its
-    session with `quack_query_by_name` (where `USE`, transactions and macros behave as
-    in a plain DuckDB). That call takes no parameters, so the `?` of a statement are
-    replaced by literals (`bind`). The local connection is kept (`.local`) for what only
-    works there: appenders and the temp tables that feed them.
-
-    `connect()` makes a new local connection with its own attachment. Every `Store`
-    needs one: all cursors of one attachment share a single session on the owner, so two
-    stores would overwrite each other's current schema and interrupt each other's
-    queries."""
-
     def __init__(self, local, catalog: str, connect):
         self.local = local  # the attached catalog's alias is `catalog`
         self.catalog = catalog
@@ -90,12 +67,6 @@ class RemoteConnection:
 
 
 class Database:
-    """The database of a process, shared by all its requests (`registry["database"]`):
-    the DuckDB connection that cursors come from, or the address of the owner that has
-    it (`gracia serve-db`), and the repositories that are known to be there. A request
-    works on a cursor of its own (`cursor`), which a `Store` scopes to the schema of a
-    repository."""
-
     def __init__(
         self,
         db_file: str | Path | None = ":memory:",
@@ -103,10 +74,6 @@ class Database:
         quack: str | None = None,
         token: str | None = None,
     ):
-        """`db_file` is the database file, always a local one. It is opened here, or,
-        with `quack="quack:host:port"` (and its `token`), left to the running `gracia
-        serve-db` that owns it, so that many processes can write: they share it
-        through the owner."""
         self.remote = quack is not None
         self._catalog = None  # the attached catalog, when remote
         if quack is not None:
@@ -124,8 +91,6 @@ class Database:
         self.known: set[str] = set()
 
     def connect(self) -> duckdb.DuckDBPyConnection:
-        """A new local connection attached to the owner (its own session there). Each
-        `Store` gets its own (see `store.RemoteConnection`)."""
         con = duckdb.connect()
         try:
             con.execute("INSTALL quack; LOAD quack")
@@ -147,17 +112,12 @@ class Database:
             self._con.close()
 
     def cursor(self):
-        """A new connection to run SQL on, for one request or one store: a cursor of the
-        file connection, or, over Quack, a `RemoteConnection` (a connection of its own,
-        one session on the owner, whose statements run there). `execute(sql, params)`
-        takes `?` placeholders in both cases. The caller closes it."""
         if self.remote:
             return RemoteConnection(self.connect(), self._catalog, self.connect)  # ty: ignore[invalid-argument-type]
         with self._lock:
             return self._con.cursor()  # ty: ignore[missing-union-attribute]
 
     def list_repositories(self) -> list[str]:
-        """The ids of all repositories: the schemas that hold the gracia tables."""
         cursor = self.cursor()
         try:
             rows = cursor.execute(
@@ -173,8 +133,6 @@ class Database:
         return repo_id in self.list_repositories()
 
     def knows(self, repo_id: str) -> bool:
-        """Whether a repository is there; the database is asked only for an id that was
-        not seen before."""
         if repo_id not in self.known:
             if not self.has_repository(repo_id):
                 return False
@@ -196,14 +154,10 @@ DEFAULT_PORT = 9494
 
 
 def owner_file(db: str | Path) -> Path:
-    """`<db>.owner`: written while `serve-db` runs, two lines: its address and its token
-    file. It is a hint for clients, who check it by connecting; a crash can leave it
-    behind."""
     return Path(f"{db}.owner")
 
 
 def read_owner(db: str | Path) -> tuple[str, str] | None:
-    """(address, token file) from the owner file of `db`, or None when there is none."""
     try:
         uri, token_file = owner_file(db).read_text(encoding="utf-8").splitlines()[:2]
     except (OSError, ValueError):
@@ -212,8 +166,6 @@ def read_owner(db: str | Path) -> tuple[str, str] | None:
 
 
 def read_or_create_token(path: Path) -> str:
-    """The token in `path`; a new random one is written there (mode 0600) when the file
-    is missing. A file that group or others can read is refused."""
     if path.exists():
         if path.stat().st_mode & (stat.S_IRWXG | stat.S_IRWXO):
             raise ValueError(
@@ -240,11 +192,6 @@ def serve_db(
     stop: threading.Event | None = None,
     ready=None,
 ) -> None:
-    """Open `db` read-write and serve it over Quack until `stop` is set (or forever).
-
-    `ready(uri, token_file)` is called once the server is listening. On the way out the
-    server is stopped, the database checkpointed and the file closed, so it can be
-    opened again at once."""
     if str(db) == ":memory:":
         raise ValueError("an in-memory database cannot be served: give a file")
     if host not in LOCAL_HOSTS:

@@ -53,7 +53,6 @@ class RemoteApplicationTest(DbTestCase):
             self.assertEqual(store.records_of_type("repository"), ["rec:repository:1"])
 
     def test_the_repository_lands_in_its_own_schema(self):
-        """Over Quack an unqualified table silently lands in the owner's main schema."""
         self.app.create_repository("test_repo")
         con = self.app.database.connect()
         tables = con.execute(

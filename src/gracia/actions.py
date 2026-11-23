@@ -33,19 +33,6 @@ class Change:
 
 
 class RecordsChanged:
-    """The event of a batch (subscribe with `config.add_subscriber(handler,
-    RecordsChanged)`).
-
-    `repository` says where: the node of the worker for this batch, with its store and
-    what it has read. It is the handler's while the handler runs, and the worker closes
-    it after (`application` and `repo` are its parent and its name). `changes` is the
-    list of `Change`; `graphs` has,
-    for every record of the changes that is there, an `ox.Dataset` of it and of
-    everything it is made of, by record uri (a delete has none). The datasets are the
-    handler's to use, they are not kept. `docs` has the doc of each of those records
-    that could be made (`DocStore`), by record uri; empty when there is no doc cache, or
-    the stylesheets could not be compiled (logged)."""
-
     def __init__(
         self,
         repository,
@@ -68,8 +55,6 @@ class RecordsChanged:
 
 
 def _notify(registry, event: RecordsChanged) -> None:
-    """`registry.notify`, with the registry in place for whoever asks Pyramid for the
-    current one (there is no request on a worker thread)."""
     manager.push({"registry": registry, "request": None})
     try:
         registry.notify(event)
@@ -78,9 +63,6 @@ def _notify(registry, event: RecordsChanged) -> None:
 
 
 def lock_dir_for(settings: dict) -> Path | None:
-    """Where the lock files of the queues go: `gracia.cache_dir`, else next to the
-    database file (`gracia.db.file`, or `gracia.db` when that is a file); None when
-    there is no file (a memory database: one process, nothing to keep apart)."""
     if settings.get("gracia.cache_dir"):
         return Path(settings["gracia.cache_dir"])
     target = settings.get("gracia.db") or os.environ.get("GRACIA_DB", "gracia.db")
@@ -92,10 +74,6 @@ def lock_dir_for(settings: dict) -> Path | None:
 
 @contextmanager
 def repository_lock(lock_dir, repo: str, wait: bool = False):
-    """Yield whether this process holds the lock of the queue of `repo`: one process at
-    a time handles it (`flock`: the system lets go of it when the process dies, however
-    it dies). With `wait` it waits for the lock instead of giving up. No `lock_dir`:
-    there is one process, it is held."""
     if lock_dir is None:
         yield True
         return
@@ -124,9 +102,6 @@ def process_pending(
     batch: int = BATCH,
     max_bytes: int | None = BATCH_BYTES,
 ) -> int:
-    """Handle the queue of `repo` (every repository when none is named) now, batch after
-    batch until it is empty, on this thread and without the lock: the manual way, for a
-    test, a script or a job. Returns how many records were handled."""
     total = 0
     for name in [repo] if repo else application.list_repositories():
         while changes := process_batch(application, registry, name, batch, max_bytes):
@@ -135,12 +110,6 @@ def process_pending(
 
 
 def deliver(application, registry, repo: str, entries) -> list[Change]:
-    """Hand records that changed to what follows the data: for each `(record id, record
-    uri, action, etag, N-Triples of the record and what it is made of)`, a dataset (a
-    delete, or a record that has no text, has none), the RDF/XML of it in the graph
-    cache when there is one (and the graph of a record that is gone taken out), and one
-    `RecordsChanged` event for all of them. Returns the changes. What is queued is not
-    touched: the caller takes it off when this has returned."""
     cache = application.cache
     changes, graphs, made, gone = [], {}, [], []
     for record_id, record, action, etag, text in entries:
@@ -179,10 +148,6 @@ def deliver(application, registry, repo: str, entries) -> list[Change]:
 
 
 def _make_docs(repository, changes, graphs, etags) -> dict[str, dict]:
-    """The docs of the records of a batch (one run of the doc stylesheet over their
-    graphs) and the ones that could be made, in the doc cache. A cache is what a
-    stylesheet that does not work must not stop: it is logged, and the batch goes on
-    without docs (`Cache.doc` makes one when it is asked for)."""
     cache = repository.__parent__.cache
     if not cache.keeps_docs:
         return {}
@@ -212,10 +177,6 @@ def process_batch(
     limit: int = BATCH,
     max_bytes: int | None = BATCH_BYTES,
 ) -> list[Change]:
-    """Handle the next rows of the queue of a repository (see the module): at most
-    `limit` rows, and records until the sources of what they are made of are `max_bytes`
-    (None: no limit). Returns the changes that were handled: none when the queue is
-    empty."""
     with application.new_store(repo) as store:
         # a write outside the store has not made its etags: they are what is read
         store.catch_up_etags()
@@ -235,18 +196,6 @@ def process_batch(
 
 
 class Worker:
-    """The thread that handles the queues of all the repositories of an application.
-
-    The repositories that may have something to do stand in a line. A turn takes the
-    first, handles **one batch** of its queue, and puts it at the back of the line if
-    that batch was not empty, so a repository with a large backlog does not keep the
-    others waiting, and one that is empty leaves the line. A repository joins the line
-    when it was written (its time in `repositories_last_modified_at` moved, which
-    `Cache.moments` reads when the files of the database changed: not for the rows the
-    worker takes off itself, nor for the progress of a job), and at the start, when
-    every repository joins. A repository that failed waits out its own pause (up to a
-    minute, doubling) and the others go on."""
-
     def __init__(
         self,
         application,
@@ -257,10 +206,6 @@ class Worker:
         batch: int = BATCH,
         batch_bytes: int | None = BATCH_BYTES,
     ):
-        """`lock_dir` is where the lock files are made, one per repository: a repository
-        is handled by one process at a time (None: there is one process, no lock).
-        `batch` is the most rows of the queue that go in one event, `batch_bytes` the
-        most bytes of sources, `poll` how many seconds pass between looks."""
         self.application, self.registry, self.batch, self.poll = (
             application,
             registry,
@@ -300,8 +245,6 @@ class Worker:
             self._thread.start()
 
     def ensure_running(self) -> None:
-        """Start the thread again if it died (a worker that was stopped stays
-        stopped)."""
         if not self._stopped and not self.alive:
             self.start()
 
@@ -313,7 +256,6 @@ class Worker:
             thread.join(timeout)
 
     def wake(self) -> None:
-        """Look at the queues now (something was written in this process)."""
         self._wake.set()
 
     def _run(self) -> None:
@@ -330,9 +272,6 @@ class Worker:
                 self._wake.clear()
 
     def status(self, repo: str) -> dict:
-        """What the worker is doing about `repo`: whether the thread runs, whether the
-        repository is in line, how many times in a row it failed and in how many seconds
-        it is tried again."""
         retry = self._retry.get(repo)
         return {
             "running": self.alive,
@@ -344,8 +283,6 @@ class Worker:
         }
 
     def _pause(self) -> float:
-        """How long to wait when there is nothing to do now: a poll, or less when a
-        repository that failed is to be tried again before that."""
         pause = self.poll
         now = time.monotonic()
         for repo in self._line:
@@ -357,8 +294,6 @@ class Worker:
     # ---------------------------------------------------------------------------
 
     def _notice(self) -> None:
-        """Let the repositories that were written join the line (all of them the first
-        time)."""
         written = self.application.cache.written()
         changed = [r for r, t in written.items() if self._written.get(r) != t]
         self._written = written
@@ -370,9 +305,6 @@ class Worker:
                 self._line.append(repo)
 
     def turn(self) -> bool:
-        """Look at what was written, then give the repositories in the line a turn, the
-        first one that has something to do being handled for one batch. Returns whether
-        a batch was handled."""
         self._notice()
         for _ in range(len(self._line)):
             repo = self._line.popleft()
@@ -409,8 +341,6 @@ class Worker:
         return False
 
     def drain(self, repo: str) -> int:
-        """Handle batches of the queue of `repo` until it is empty, without a lock or a
-        line. Returns how many records."""
         total = 0
         while not self._stopped:
             done = process_batch(

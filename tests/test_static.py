@@ -96,9 +96,6 @@ class HeadTest(JobsViewCase):
 
 
 class WidgetsTest(JobsCase):
-    """What a widget of a form needs is added to the page: once, with what it depends
-    on."""
-
     def needed(self, form) -> list[str]:
         needed = fanstatic.init_needed()
         try:

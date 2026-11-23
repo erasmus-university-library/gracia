@@ -25,9 +25,6 @@ REGIONS = (
 
 
 class TimezoneWidget(deform.widget.SelectWidget):
-    """A drop-down of the common time zone names, by region; the first choice is none
-    (UTC)."""
-
     def __init__(self, **kw):
         names = sorted(
             n
@@ -49,7 +46,6 @@ class TimezoneWidget(deform.widget.SelectWidget):
 
 
 def valid_zone(node, value) -> None:
-    """Nothing (UTC), or one of the names of the drop-down."""
     if value and not (
         value.split("/", 1)[0] in REGIONS
         and "/" in value
@@ -60,9 +56,7 @@ def valid_zone(node, value) -> None:
 
 @predicate(uri.TIMEZONE)
 class TimezonePredicate(Predicate):
-    """`gracia:timezone` of the repository: the zone times are shown in
-    (`Europe/Amsterdam`), or nothing for UTC. The database holds UTC only; this is for
-    showing (`created_at`, `modified_at`)."""
+    """`gracia:timezone`: the zone times are shown in, or none for UTC."""
 
     def schema_node(self, record, request, schema_node=None):
         if schema_node is None:

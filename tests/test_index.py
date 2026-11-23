@@ -54,8 +54,6 @@ class IndexCase(EditCase):
         return self.application.new_store("test_repo")
 
     def rename(self, number: int, name: str) -> None:
-        """Save one of the people again with another name (the others are not
-        touched)."""
         header, *records = re.split(r"(?=<rec:person:\d+> a gracia:Record)", PEOPLE)
         text = header + next(
             r for r in records if r.startswith(f"<rec:person:{number}>")

@@ -9,8 +9,6 @@ from gracia.utils import xslt
 
 
 class Page(HTMLParser):
-    """Collects what the tests care about from the generated page."""
-
     def __init__(self, html: str):
         super().__init__()
         self.tags: list[str] = []
@@ -33,7 +31,6 @@ class Page(HTMLParser):
 
 
 def html_for(path, **params: str) -> str:
-    """The graph of an RDF file as an HTML page (shared bnodes stay shared)."""
     return xslt.render("html-table", flat_rdfxml_from_file(path), params or None)
 
 
@@ -77,8 +74,6 @@ class HtmlTableTest(DbTestCase):
         self.assertEqual(page.tags.count("li"), 2)
 
     def test_shared_blank_node_links_to_its_section(self):
-        """Raw json-triples with a bnode used twice: written once, linked from both
-        uses."""
         html = html_for(DATA / "04_complex.ttl")
         page = Page(html)
         targets = [link for link in page.links if link.startswith("#b-")]

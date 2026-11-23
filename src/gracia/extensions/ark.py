@@ -66,10 +66,6 @@ class ArkExtension(Extension):
     request_method=("GET", "HEAD"),
 )
 def resolve_ark(request):
-    """`/<repo>/ark:/99999/ir/person/34` goes to the record whose resource it names. An
-    ARK in the form the repository makes is read as it is; any other (the
-    `gracia:resource_uri` of a record that says its own) is looked up. A record the
-    caller may not see is not found."""
     repository = request.context
     settings = repository.extension("ark").settings
     parts = tuple(request.subpath)

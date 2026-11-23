@@ -59,7 +59,6 @@ class IndexDefinition:
         )
 
     def hash(self) -> str:
-        """Of the definition: what an index is made for."""
         return hashlib.sha256(self.as_json().encode()).hexdigest()[:16]
 
     def schema(self) -> tantivy.Schema:
@@ -118,9 +117,6 @@ REQUIRED_FIELDS = ("record_id", "record", "type", "published")
 
 
 def definitions_for(repository) -> list[IndexDefinition]:
-    """The indexes of a repository (the node): what its Search extension says (see
-    `gracia.extensions.search`), none when it is off. Without the extension in the
-    registry (a bare one, in a test) it is the index of every record."""
     try:
         return repository.extension("search").definitions()
     except KeyError:
@@ -132,18 +128,6 @@ def definitions_for(repository) -> list[IndexDefinition]:
 
 
 def compare(offered: list[dict], definition: IndexDefinition | None) -> list[dict]:
-    """The fields the docs can have (`offered`: `DocStore.schema`) against the fields of
-    a definition: a row for each, the offered ones first in their order, then what only
-    the definition has. A row is the field (`name`, `type`, `stored`, `indexed`, `fast`,
-    `tokenizer`: the definition's when it has the field, else the offered one), `types`
-    (the types whose docs have it), `required`, and a `state`:
-
-    * `indexed`    the definition has it as the docs offer it
-    * `different`  the definition has it otherwise (`differences` names what), so it is
-      as the definition says
-    * `available`  only the docs have it: it is not in the index
-    * `orphan`     only the definition has it: no doc stylesheet makes it
-    """
     have = {f.name: f.as_dict() for f in definition.fields} if definition else {}
     rows, seen = [], set()
     for field in offered:
@@ -193,8 +177,6 @@ def _datetime(value) -> datetime:
 
 
 def check_document(definition: IndexDefinition, document: dict) -> list[str]:
-    """What is wrong with a doc for this schema, one text each (none: it is right). A
-    field the schema does not have is not wrong: it is left out (`_for_tantivy`)."""
     if "error" in document:
         return [f"the stylesheet could not make it: {document['error']}"]
     problems = []
@@ -229,8 +211,6 @@ def check_document(definition: IndexDefinition, document: dict) -> list[str]:
 
 
 def _for_tantivy(definition: IndexDefinition, document: dict) -> dict:
-    """The doc as Tantivy takes it: only the fields of the schema, and dates are
-    datetimes."""
     dates = {f.name for f in definition.fields if f.type == "date"}
     names = {f.name for f in definition.fields}
     return {
@@ -251,8 +231,6 @@ def _for_tantivy(definition: IndexDefinition, document: dict) -> dict:
 
 
 class Indexes:
-    """The indexes in a directory, `<directory>/<repository>/<name>`."""
-
     def __init__(self, directory):
         self.directory = Path(directory)
 
@@ -263,7 +241,6 @@ class Indexes:
         return self.directory / repo / f"{definition.name}.json"
 
     def status(self, repo: str, definition: IndexDefinition) -> str:
-        """`missing` (not made yet), `ok`, or `stale` (made for another definition)."""
         if not self.path(repo, definition).exists():
             return "missing"
         try:
@@ -273,8 +250,6 @@ class Indexes:
         return "ok" if stored == definition.hash() else "stale"
 
     def open(self, repo: str, definition: IndexDefinition) -> tantivy.Index | None:
-        """The index, made when it is not there; None when it is stale (see the
-        module)."""
         state = self.status(repo, definition)
         if state == "stale":
             return None
@@ -292,7 +267,6 @@ class Indexes:
         return tantivy.Index(definition.schema(), path=str(path), reuse=True)
 
     def reset(self, repo: str, definition: IndexDefinition) -> None:
-        """Take an index away (the next write makes it again, empty)."""
         shutil.rmtree(self.path(repo, definition), ignore_errors=True)
         self._meta(repo, definition).unlink(missing_ok=True)
 
@@ -300,8 +274,6 @@ class Indexes:
     def _prepare(
         definition: IndexDefinition, docs
     ) -> tuple[list[dict], dict[str, list[str]]]:
-        """The docs as Tantivy takes them, and the problems by record: the docs that are
-        not right are left out."""
         made, problems = [], {}
         for doc in docs:
             found = check_document(definition, doc)
@@ -313,9 +285,6 @@ class Indexes:
 
     @staticmethod
     def _write(index: tantivy.Index, deleted, made: list[dict]) -> None:
-        """Delete the records `deleted` (ids) and add the documents, with one commit. A
-        record is deleted and then added again, so it is the same for one that changed
-        and one that is new."""
         writer = index.writer(heap_size=HEAP, num_threads=1)
         for record_id in deleted:
             writer.delete_documents_by_term("record_id", record_id)
@@ -326,10 +295,6 @@ class Indexes:
     def update(
         self, repo: str, definition: IndexDefinition, changes, docs: dict[str, dict]
     ) -> dict:
-        """Put the changes of a batch in the index with one commit. `changes` are
-        `gracia.actions.Change`s, `docs` the docs by record uri (a record of the changes
-        that is not deleted and has no doc is left as it is). Returns what was done:
-        `{"indexed": n, "deleted": n, "problems": {record: [text]}}`."""
         if not changes:
             return {"indexed": 0, "deleted": 0, "problems": {}, "state": "ok"}
         index = self.open(repo, definition)
@@ -376,8 +341,6 @@ class Indexes:
     def build_batch(
         self, repo: str, definition: IndexDefinition, token: str, docs
     ) -> dict:
-        """Add the docs of a batch to the index that is being made. One writer at a time
-        on a directory: the caller sees to that."""
         path = self.building(repo, definition, token)
         path.mkdir(parents=True, exist_ok=True)
         index = tantivy.Index(definition.schema(), path=str(path), reuse=True)
@@ -388,9 +351,6 @@ class Indexes:
         return {"indexed": len(made), "problems": problems}
 
     def swap(self, repo: str, definition: IndexDefinition, token: str) -> None:
-        """The index that was made takes the place of the one that answers (and is the
-        one it is made for: the hash is written). Other indexes that were being made of
-        this one are taken away."""
         live, building = (
             self.path(repo, definition),
             self.building(repo, definition, token),
@@ -417,8 +377,6 @@ class Indexes:
     def stored_definition(
         self, repo: str, definition: IndexDefinition
     ) -> IndexDefinition | None:
-        """The definition the index on disk was made for (its `<name>.json`), None when
-        there is no such index or its file cannot be read."""
         try:
             fields = json.loads(self._meta(repo, definition).read_text())["definition"][
                 "fields"
@@ -432,12 +390,6 @@ class Indexes:
     def find(
         self, repo: str, definition: IndexDefinition, text: str, limit: int = 20
     ) -> tuple[int, list[dict]]:
-        """Search an index: `(how many records match, the best `limit` of them)`, each
-        as the stored fields of its document and a `score`. A query that is not well
-        formed is read as well as it can be (the rest is left out). An index that is
-        stale (made for other fields than the definition has) keeps answering what it
-        had, with the fields it was made for. `LookupError` when the index is not there,
-        or is stale and does not say what it was made for."""
         state = self.status(repo, definition)
         if state == "missing":
             raise LookupError(f"the index {definition.name} is missing")
@@ -468,10 +420,6 @@ class Indexes:
     def field_stats(
         self, repo: str, definition: IndexDefinition
     ) -> dict[str, int | None]:
-        """How many documents of an index have a value, for each field of the
-        definition. Tantivy can count only the fast fields (a query for the existence of
-        a value needs the column), so a field that is not one is None; so is every field
-        of an index that is not there or is not the one for this definition."""
         if self.status(repo, definition) != "ok":
             return {f.name: None for f in definition.fields}
         index = tantivy.Index.open(str(self.path(repo, definition)))
@@ -490,9 +438,6 @@ class Indexes:
         return found
 
     def stats(self, repo: str, definitions=None) -> list[dict]:
-        """One row for each of the `definitions` (the index of every record when there
-        are none given): its name, the state, the documents it holds and the space it
-        takes."""
         rows = []
         for definition in definitions if definitions is not None else [RECORDS]:
             state, path = self.status(repo, definition), self.path(repo, definition)
@@ -515,8 +460,6 @@ class Indexes:
 
 
 def on_records_changed(event) -> None:
-    """The subscriber of `gracia.actions.RecordsChanged`: the batch goes into every
-    index of the repository."""
     indexes = event.application.indexes
     if indexes is None:
         return

@@ -195,10 +195,6 @@ class MeanwhileTest(SearchJobCase):
 
 
 class FromTheSettingsTest(GraphJobsCase):
-    """A job process knows the directory of the indexes from the settings it was started
-    with, and from nothing else: the application it makes has none until the
-    configuration is made."""
-
     def test_the_job_finds_the_directory_of_the_indexes_in_the_settings(self):
         import shutil
         import tempfile
@@ -228,9 +224,6 @@ class FromTheSettingsTest(GraphJobsCase):
     def test_a_worker_process_that_has_not_made_the_configuration_yet_finds_the_indexes(
         self,
     ):
-        """The batches of a job run in worker processes, each of which starts without
-        the configuration (the plan, which makes it, ran in another): the stage has to
-        make it before it asks for the indexes."""
         import shutil
         import tempfile
         from pathlib import Path

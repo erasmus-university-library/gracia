@@ -168,8 +168,6 @@ class ApplicationTest(unittest.TestCase):
             self.assertEqual(len(b.get(REC["book"])), 0)
 
     def test_cursors_and_forks_use_the_repository_schema(self):
-        """A cursor does not inherit the schema: the streaming export and forks must
-        select it."""
         self.app.create_repository("test_repo")
         with self.app.new_store("test_repo") as store:
             store.put(dataset("book"))
@@ -201,7 +199,6 @@ class ApplicationTest(unittest.TestCase):
 
 class ConcurrentWritersTest(unittest.TestCase):
     def test_writers_adding_the_same_new_term_all_succeed(self):
-        """They race for the same dictionary entry; the loser repeats its load."""
         with opened(":memory:") as app:
             app.create_repository("test_repo")
             with app.new_store(
@@ -241,8 +238,6 @@ class ApplicationOnDiskTest(DbTestCase):
                 self.assertEqual(len(store.get(REC["book"])), 1)
 
     def test_a_repository_may_be_named_like_the_database_file(self):
-        """The catalog of gracia.db is `gracia`: a schema of that name must not be
-        ambiguous."""
         path = self.tmp / "gracia.db"
         with opened(path) as app:
             app.create_repository("gracia")

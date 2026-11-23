@@ -17,11 +17,6 @@ RENDERER = "gracia-deform"  # no dot: a dot makes Pyramid look for a file extens
 
 
 def deform_view(name: str, *, form, at: str | None = None, permission: str = "view"):
-    """Decorator: the function `(context, request, values, form, field)` is the deform
-    view `name`, served at `/<repo>/deform/<name>` (`serve`, below), of the form that
-    `form(context, request)` makes. `context` is the repository, or the node below it
-    called `at` (`at="jobs"`), and `permission` is asked of that node. What it answers
-    is above."""
 
     def decorate(function):
         function.deform_form = (
@@ -40,26 +35,17 @@ def deform_view(name: str, *, form, at: str | None = None, permission: str = "vi
 
 
 def call(function, context, request, values, form=None, field=None):
-    """Call a deform view the way the view does: with the form it was declared for, made
-    fresh unless the caller has the form already (a widget, while the form is rendered),
-    and the target field (None for a view of the whole form)."""
     form = form or function.deform_form(context, request)
     return function(context, request, values, form, field)
 
 
 def render_posted(form, controls) -> str:
-    """The form filled with what the browser posted (`controls`: the name and value
-    pairs), as it would be shown again, but without validating (so without errors)."""
     cstruct = form.widget.deserialize(form, peppercorn.parse(controls))
     form.cstruct = cstruct
     return form.widget.serialize(form, cstruct)
 
 
 def render_fields(form, controls, names=None) -> str:
-    """Some fields of the form (all by default) as rows with their labels and errors,
-    filled with what the browser posted, without validating, and without the `<form>`,
-    the fieldset and the hidden inputs: to swap one row of a page's own form
-    (`names=[field.name]`)."""
     cstruct = form.widget.deserialize(form, peppercorn.parse(controls))
     form.cstruct = cstruct
     posted = cstruct if isinstance(cstruct, dict) else {}
@@ -73,7 +59,6 @@ def render_fields(form, controls, names=None) -> str:
 
 
 def add_gracia_deform_view(config, name: str, function) -> None:
-    """Config directive: `function` is the deform view called `name`."""
 
     def register():
         directlyProvides(function, IDeformView)
@@ -83,9 +68,6 @@ def add_gracia_deform_view(config, name: str, function) -> None:
 
 
 class DeformViewRenderer:
-    """The answer of a deform view: `<option>` elements for a list, a string as it is,
-    the form rendered with what was posted."""
-
     def __init__(self, info):
         pass
 
@@ -111,9 +93,6 @@ def _source(request, name: str):
 
 
 class DependentSelectWidget(SelectWidget):
-    """A select whose options come from a deform view and follow another field of the
-    form."""
-
     def __init__(self, *, view: str, depends_on: str, context, request, **kw):
         super().__init__(values=(), **kw)
         self.source, self.depends_on = view, depends_on
@@ -161,8 +140,6 @@ class DependentSelectWidget(SelectWidget):
 
 
 def dependent_select(view: str, *, depends_on: str):
-    """The widget for a field, to give to `SchemaNode(widget=...)`: it needs `context`
-    (the node the source is a view of) and `request` when the schema is bound."""
 
     @colander.deferred
     def widget(node, kw):
@@ -177,8 +154,6 @@ def dependent_select(view: str, *, depends_on: str):
 
 
 def options_validator(field: str, view: str, *, depends_on: str):
-    """A validator for the schema (the mapping) that holds both fields: the value of
-    `field` must be one of what the view offers for the value of `depends_on`."""
 
     @colander.deferred
     def validator(node, kw):

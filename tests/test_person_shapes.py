@@ -11,7 +11,6 @@ SHAPES = "gracia.types:person/shacl/"
 
 
 def person(**props) -> ox.Dataset:
-    """A foaf:Person with the given properties: text for a string, `<...>` for a URI."""
     lines = [
         "@prefix foaf: <http://xmlns.com/foaf/0.1/> .",
         "<urn:p:1> a foaf:Person ;",

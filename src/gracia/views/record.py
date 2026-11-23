@@ -27,8 +27,6 @@ _N = ox.NamedNode
 
 
 class SourceError(ValueError):
-    """What is wrong with a text of a record: `errors` says what, one text each."""
-
     def __init__(self, errors):
         self.errors = [errors] if isinstance(errors, str) else list(errors)
         super().__init__("; ".join(self.errors))
@@ -152,7 +150,6 @@ class RecordView(View):
         )
 
     def commit_form(self, data: dict) -> None:
-        """Store what the form said (the number of a new record is made here)."""
         if self.new:
             self.record.begin(self.store.mint_id(self.res_type.slug))
         self.record.apply(data)
@@ -162,8 +159,6 @@ class RecordView(View):
     # ----------------------------------------------------------------------
 
     def source_page(self):
-        """The text of the record in place of the form; saved when it is posted with
-        Save."""
         request = self.request
         prefix_map = self.repository.prefix_map()
         errors: list[str] = []
@@ -209,14 +204,9 @@ class RecordView(View):
         return name if name in FORMATS else DEFAULT_FORMAT
 
     def subject(self) -> str:
-        """What the record is called in its text: its address, or a placeholder for the
-        number a new one has not got yet."""
         return self.res_type.placeholder if self.new else self.record.uri
 
     def check_source(self, graph) -> None:
-        """`SourceError` unless the text is this record, of this type, and follows the
-        shape of the record. The hooks run first, so that what they make (the label, the
-        ARK) is there."""
         if not self.new:
             graph = self.record.with_hidden_kept(graph)  # what is never shown is kept
         problems = self.record.structure_problems(graph, self.subject())
@@ -231,7 +221,6 @@ class RecordView(View):
             raise SourceError(problems)
 
     def commit_source(self, graph) -> None:
-        """Store what the text said (it has been checked)."""
         record, slug = self.record, self.res_type.slug
         if self.new:
             number = self.store.mint_id(slug)  # only now that the text is right

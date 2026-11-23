@@ -10,9 +10,6 @@ from gracia.cache import Cache, GraphStore, rdfxml
 
 
 class CacheCase(EtagCase):
-    """Work 1 -> person 1 -> org 1, work 2 -> org 1, person 2 alone; the cache is on the
-    same file."""
-
     def setUp(self):
         super().setUp()
         self.put(
@@ -29,9 +26,6 @@ class CacheCase(EtagCase):
         return self.store.record_id_of(rec_uri)
 
     def queries(self, cache: Cache | None = None) -> list[str]:
-        """Count what the cache asks the database from here on: the repository stores it
-        opens (`new_store`) and the cursors it is given (`cursor`: a store has one, and
-        the table of the times is read on one)."""
         asked = []
 
         def counting(name, real):
@@ -298,8 +292,6 @@ class GraphStoreTest(CacheCase):
         self.assertIn(b'nodeID="b', xml)
 
     def test_the_graphs_of_two_records_merge_without_duplicates(self):
-        """Work 1 and person 1 both hold person 1 (and org 1): put together, each is
-        there once."""
         graphs = [
             ox.Dataset(
                 ox.parse(

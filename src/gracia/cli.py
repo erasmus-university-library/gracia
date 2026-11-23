@@ -36,10 +36,6 @@ _probe_error = ""  # why the last owner discovery failed, for the lock-error hin
 def _discover_owner(
     settings: dict[str, str], port: int = DEFAULT_PORT
 ) -> dict[str, str]:
-    """When the database is a file and an owner serves it, use the owner: opening the
-    file would hit its lock. The owner says where it listens in `<db>.owner` (else the
-    default local port is tried when a `<db>.token` is next to the file); connecting
-    confirms it. Without an owner nothing changes."""
     global _probe_error
     target = settings["gracia.db"]
     if config.is_remote(target) or target == ":memory:":
@@ -70,8 +66,6 @@ def _discover_owner(
 
 
 def _config_path(args) -> str | None:
-    """The config file in use, as an absolute path: what a job's process is started
-    with, so that it reads the same file whatever directory it ends up in."""
     found = config.config_file(args.config)
     return str(found.resolve()) if found else None
 
@@ -81,8 +75,6 @@ def _settings(args) -> dict[str, str]:
 
 
 def _open_application(args, create: bool = False) -> Application:
-    """The application on the database the settings name: a file, or a running
-    `serve-db`. Only `import` (`create`) and the repository commands make a file."""
     settings = _settings(args)
     target = settings["gracia.db"]
     if (
@@ -97,7 +89,6 @@ def _open_application(args, create: bool = False) -> Application:
 
 @contextlib.contextmanager
 def _application(args, create: bool = False):
-    """`_open_application`, shut down when the block ends."""
     application = _open_application(args, create)
     try:
         yield application
@@ -106,8 +97,6 @@ def _application(args, create: bool = False):
 
 
 class _OwnedStore(Store):
-    """A store that shuts down the application it came from."""
-
     application: Application
 
     def close(self) -> None:
@@ -116,10 +105,6 @@ class _OwnedStore(Store):
 
 
 def _store(args, create: bool = False) -> Store:
-    """Open the database. Only `import` creates one; other commands refuse a missing
-    file (DuckDB would otherwise silently create an empty database). A `quack:` database
-    is served by a running `gracia serve-db`: the repository must exist there
-    already."""
     application = _open_application(args, create)
     try:
         if config.is_remote(_settings(args)["gracia.db"]):
@@ -141,9 +126,6 @@ def _store(args, create: bool = False) -> Store:
 
 @contextlib.contextmanager
 def _ns_prefix(args, store: Store):
-    """The `ns_prefix` extension of the repository the store is on (the prefixes are its
-    settings, in the repository record): without a record, the defaults, and nothing can
-    be written."""
     from gracia.extensions.ns_prefix import NsPrefixExtension
     from gracia.main import make_config
 
@@ -174,10 +156,6 @@ def _save_prefixes(ns_prefix, prefixes: dict[str, str]) -> None:
 
 @contextlib.contextmanager
 def _hooks(args, store):
-    """The repository (-r) for an import, with `store` as its store, or None when it
-    has no repository record to know its types from (a plain triple store). Once
-    configured, the store runs the SQL of the predicates of the types on what it
-    stores."""
     try:
         with _repository(args) as node:
             node.use_store(store)
@@ -241,7 +219,6 @@ def cmd_import(args) -> int:
 def _prefixes(
     args, store: Store, values: list[str] | None, used_only: bool = False
 ) -> dict[str, str]:
-    """The prefixes of the repository, overridden by --prefix NAME=URI options."""
     with _ns_prefix(args, store) as extension:
         prefixes = _prefix_dict(extension)
     if used_only:
@@ -297,7 +274,6 @@ def cmd_export(args) -> int:
 
 
 def cmd_transform(args) -> int:
-    """Run a stylesheet over an XML document (a file, or stdin): no database needed."""
     params = {}
     for value in args.param or []:
         name, sep, text = value.partition("=")
@@ -320,8 +296,6 @@ def cmd_transform(args) -> int:
 
 
 def cmd_prefixes(args) -> int:
-    """List, set or remove prefixes: the settings of the `ns_prefix` extension of the
-    repository."""
     from gracia.extensions import ExtensionError
 
     with _store(args) as store, _ns_prefix(args, store) as extension:
@@ -368,9 +342,6 @@ def cmd_sort(args) -> int:
 
 
 def cmd_etags_rebuild(args) -> int:
-    """Make the etags of every record again (the repository -r): what a write keeps up
-    to date as it goes, for a repository that has none yet or whose data was changed
-    behind the store's back."""
     with _store(args) as store, _hooks(args, store) as node:
         if node is not None:
             node.sync_roles()  # the numbers of its types: what the ids are made of
@@ -391,8 +362,6 @@ def cmd_repo_list(args) -> int:
 
 
 def _admin_credentials(args, repo: str) -> tuple[str, str]:
-    """The first user of a new repository: from the flags, else asked for on the
-    terminal (the password is not echoed, and asked twice)."""
     asking = sys.stdin.isatty()
     userid = args.admin
     if userid is None:
@@ -438,8 +407,6 @@ def cmd_repo_create(args) -> int:
 
 
 def cmd_assets_list(args) -> int:
-    """The files the types of the repositories use (all of them, or those named), each
-    once, with the checksum that is part of the ETag of the records."""
     from gracia.main import make_config
 
     with _application(args) as application:
@@ -471,8 +438,6 @@ def cmd_assets_list(args) -> int:
 
 @contextlib.contextmanager
 def _jobs(args):
-    """The application, the jobs tables, the jobs directory and the settings, for a
-    `jobs` command (and `run`): found the way every command finds the database."""
     from gracia.jobs import jobs_dir
     from gracia.jobs.db import JobsDb
 
@@ -487,7 +452,6 @@ def _when(moment) -> str:
 
 
 def cmd_run(args) -> int:
-    """What a job's process runs (started by the server or by `gracia jobs start`)."""
     from gracia.jobs import runner
     from gracia.main import make_config
 
@@ -506,7 +470,6 @@ def cmd_run(args) -> int:
 
 
 def _current_stage(job: dict) -> dict | None:
-    """The stage a job is in: the first that is not done (the last when all are)."""
     stages = (job.get("progress") or {}).get("stages") or []
     return next(
         (s for s in stages if s["state"] != "done"), stages[-1] if stages else None
@@ -615,9 +578,6 @@ def cmd_jobs_show(args) -> int:
 
 
 def cmd_jobs_log(args) -> int:
-    """The log of a job: `luigi.log` (logging, from the process and its workers) or
-    `job.log` (its raw output); `--follow` goes on printing what is added until it is
-    interrupted."""
     import time
 
     from gracia.jobs import procs
@@ -686,8 +646,6 @@ def cmd_jobs_create(args) -> int:
 
 
 def cmd_jobs_validate(args) -> int:
-    """Validate the records of a type against a schema file (a candidate revision,
-    say)."""
     from gracia.jobs.validate import ValidateJob
 
     params = {"res_type": args.res_type, "size": args.size, "schema": args.schema}
@@ -750,10 +708,6 @@ def cmd_jobs_clean(args) -> int:
 
 @contextlib.contextmanager
 def _registry(args, application=None):
-    """The application, the settings and a copy of the registry of the application (the
-    types it knows, with the record classes and the rest), made the way the web
-    application makes its own: the commands that deal with types ask it, as the web
-    application does."""
     from gracia.main import make_config
 
     settings = {k: v for k, v in _settings(args).items() if k.startswith("gracia.")}
@@ -769,7 +723,6 @@ def _registry(args, application=None):
 
 
 def cmd_types_available(args) -> int:
-    """The content types there are (the ones that can be added to a repository)."""
     with _registry(args) as (_app, registry, _cfg):
         for res_type in types.content_types(registry).values():
             print(
@@ -780,8 +733,6 @@ def cmd_types_available(args) -> int:
 
 
 def cmd_types_list(args) -> int:
-    """The types of the repository (-r): its slug, the record of the type, its name and
-    class."""
     with _application(args) as application:
         if not application.has_repository(args.repo):
             raise NoSuchRepository(args.repo)
@@ -799,8 +750,6 @@ def cmd_types_list(args) -> int:
 
 @contextlib.contextmanager
 def _repository(args):
-    """The repository node (-r), with the registry of the application made the way the
-    web application makes its own (that is where the extensions are)."""
     from gracia.main import make_config
 
     settings = {k: v for k, v in _settings(args).items() if k.startswith("gracia.")}
@@ -826,7 +775,6 @@ def _extension(node, name: str):
 
 
 def cmd_extensions_list(args) -> int:
-    """The extensions there are and whether each is on in the repository (-r)."""
     with _repository(args) as node:
         for extension in node.extensions():
             state = "enabled" if extension.enabled else "disabled"
@@ -854,7 +802,6 @@ def cmd_extensions_disable(args) -> int:
 
 
 def cmd_extensions_export(args) -> int:
-    """The settings of an extension as JSON, the text the Extensions tab shows."""
     with _repository(args) as node:
         text = _extension(node, args.name).export()
     _write(text, args.output)
@@ -862,8 +809,6 @@ def cmd_extensions_export(args) -> int:
 
 
 def cmd_extensions_import(args) -> int:
-    """Set the settings of an extension from JSON (a file, or stdin), checked like the
-    form does."""
     text = (
         sys.stdin.read()
         if args.file in (None, "-")
@@ -876,8 +821,6 @@ def cmd_extensions_import(args) -> int:
 
 
 def cmd_types_add(args) -> int:
-    """Add content types (by slug or package) to the repository (-r); the ones it has
-    are kept."""
     with _application(args) as application:
         if not application.has_repository(args.repo):
             raise NoSuchRepository(args.repo)

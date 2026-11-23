@@ -12,8 +12,6 @@ from gracia.views import render
 
 @view_config(context=Resolved, request_method=("GET", "HEAD"))
 def resolve(request):
-    """A record key (`/<repo>/rec:person:23`) goes to the record it names
-    (`/<repo>/person/23`), when the caller may see it: else it is not found."""
     record = request.context.record
     if not request.has_permission("view", record):
         raise HTTPNotFound()
@@ -21,8 +19,6 @@ def resolve(request):
 
 
 def prefers_html(request) -> bool:
-    """Whether the caller asked for HTML and likes it better than JSON (a browser does;
-    a program that sends no `Accept`, or `*/*`, gets JSON)."""
     if not request.headers.get("Accept"):
         return False
     offers = request.accept.acceptable_offers(
@@ -33,8 +29,6 @@ def prefers_html(request) -> bool:
 
 @view_config(context=Repository, request_method="GET")
 def repository(request):
-    """The figures of the repository as JSON, and for a browser the page with the search
-    box."""
     if prefers_html(request):
         return search_page(request)
     return Response(
@@ -45,10 +39,6 @@ def repository(request):
 
 
 def search_page(request):
-    """The repository for a browser: a search box and, with `?q=`, what the search index
-    finds (a first, simple look at it). Only what the caller may see: the records of
-    types they may view, and not the ones that are not published unless they may edit
-    that type. The same page is JSON for a program (above)."""
     repository, query = request.context, request.params.get("q", "").strip()
     message, hits, total = "", [], 0
     indexes = request.root.indexes
@@ -152,8 +142,6 @@ def api(request):
 
 @view_config(context=Repository, name="api", request_method="GET", accept="text/html")
 def api_browser(request):
-    """The same document as a record for a browser: what the caller may do here, and a
-    button to try the operations that read."""
     document = api_document(request)
     operations = [
         {"path": path, "method": method.upper(), **found}
