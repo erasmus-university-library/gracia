@@ -147,7 +147,7 @@ class RecordShapeTest(PredicateCase):
                 "modified_at",
             ],
         )
-        tabs = re.findall(r'data-bs-toggle="tab"[^>]*>([^<]+)', self.page().text)
+        tabs = re.findall(r'class="tab-title">([^<]+)', self.page().text)
         self.assertEqual(
             tabs, ["Person", "Record"]
         )  # the content is a tab, loose fields another

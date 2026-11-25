@@ -139,6 +139,49 @@ def change_sequence(
     return field.widget.serialize(field, items)
 
 
+# The name of a URI as people read it: the namespace is taken off and the words are
+# split (https://schema.org/CollegeOrUniversity: College or university). Shapes do not
+# describe the classes and other things they list, so this is the label of a choice.
+def uri_label(value: str) -> str:
+    split = re.sub(
+        r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])", " ", local_name(value)
+    )
+    words = split.split()
+    text = " ".join(w if w.isupper() and len(w) > 1 else w.lower() for w in words)
+    return text[:1].upper() + text[1:]
+
+
+# A select of URIs, each named by what is left of it when the namespace is taken off. It
+# is the widget of every property whose shape lists IRIs (sh:in), such as the rdf:type
+# that a resource has, of the classes its shape allows: there is no predicate for any.
+class URISelectWidget(deform.widget.SelectWidget):
+    def __init__(self, uris, labels: dict[str, str] | None = None, **kw):
+        labels = labels or {}
+        kw.setdefault(
+            "values",
+            [("", "- choose -"), *((u, labels.get(u) or uri_label(u)) for u in uris)],
+        )
+        super().__init__(**kw)
+
+
+# What a shape says of the things in a choice of URIs, when it describes them (an
+# rdfs:label and an icon, as a shape has them): the name and the icon of each.
+def describe(shapes: Graph, uris) -> dict[str, dict]:
+    found = {}
+    for value in uris:
+        node = ox.NamedNode(value)
+        labels = [
+            o.value
+            for o in shapes.objects(node, ox.NamedNode(RDFS_LABEL))
+            if isinstance(o, ox.Literal)
+        ]
+        found[value] = {
+            "label": labels[0] if labels else uri_label(value),
+            "icon": icon(shapes, node),
+        }
+    return found
+
+
 class ReadOnlyWidget(deform.widget.TextInputWidget):
     template = "readonly_text"
 
@@ -199,29 +242,43 @@ class TabsWidget(deform.widget.FormWidget):
         super().__init__(**kw)
         self.loose_title = loose_title
 
-    def tabs(self, form) -> list[SimpleNamespace]:
+    # The tab of a mapping that has a choice of classes (the rdf:type of a resource) is
+    # named and iconed by the class that is chosen: what the shape says of it.
+    def _choice(self, child, cstruct):
+        for sub in child.children:
+            said = getattr(sub.schema, "tab_choice", None)
+            values = cstruct.get(child.name) if isinstance(cstruct, dict) else None
+            chosen = values.get(sub.name) if isinstance(values, dict) else None
+            if said and chosen in said:
+                return said[chosen]
+        return None
+
+    def tabs(self, form, cstruct=None) -> list[SimpleNamespace]:
         static.bootstrap_icons_css.need()  # the icon of the Save button
         found = []
         loose = [c for c in form.children if not isinstance(c.typ, colander.Mapping)]
         for child in form.children:
             if isinstance(child.typ, colander.Mapping):
-                found.append((child.title, child, [child], child.error))
+                chosen = self._choice(child, cstruct)
+                title = chosen["label"] if chosen else child.title
+                icon = (chosen or {}).get("icon") or getattr(child.schema, "icon", None)
+                found.append((title, child, [child], child.error, icon))
         if loose:
-            found.append((self.loose_title, None, loose, any(c.error for c in loose)))
+            found.append(
+                (self.loose_title, None, loose, any(c.error for c in loose), None)
+            )
         first = next((i for i, tab in enumerate(found) if tab[3]), 0)
-        if any(getattr(getattr(t[1], "schema", None), "icon", None) for t in found):
-            static.bootstrap_icons_css.need()
         return [
             SimpleNamespace(
                 id=f"{form.formid}-tab-{i}",
-                icon=getattr(getattr(mapping, "schema", None), "icon", None),
+                icon=icon,
                 title=title,
                 mapping=mapping,
                 fields=fields,
                 error=bool(error),
                 active=i == first,
             )
-            for i, (title, mapping, fields, error) in enumerate(found)
+            for i, (title, mapping, fields, error, icon) in enumerate(found)
         ]
 
 
@@ -259,7 +316,11 @@ def _editable(shapes, prop, many: bool = False) -> bool:
     if ox.NamedNode(SH_NS.BlankNode) in kinds:
         return False
     # an IRI is typed as text, when the shape says it is meant to be (dash:URIEditor)
-    return ox.NamedNode(SH_NS.IRI) not in kinds or has_editor(shapes, prop, DASH_URI)
+    return (
+        ox.NamedNode(SH_NS.IRI) not in kinds
+        or has_editor(shapes, prop, DASH_URI)
+        or bool(_objects(shapes, prop, "in"))  # a choice of IRIs (the types)
+    )
 
 
 def single_literal(shapes, prop) -> bool:
@@ -335,6 +396,8 @@ def nested_shape(shapes: Graph, prop):
 SH_OR, SH_PROPERTY, SH_PATH = (SH_NS["or"], SH_NS.property, SH_NS.path)
 SH_HAS_VALUE = SH_NS.hasValue
 RDF_NS = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+RDFS_LABEL = "http://www.w3.org/2000/01/rdf-schema#label"
+RDF_TYPE = RDF_NS + "type"
 IRI_TEXT = r"[A-Za-z][A-Za-z0-9+.-]*:[^\s<>\"{}|\\^`]+\Z"  # what can be an IRI here
 LANG_STRING = ox.NamedNode(RDF_NS + "langString")
 
@@ -405,7 +468,7 @@ def leaf_node(
         o.value
         for head in _objects(shapes, prop, "in")
         for o in _list_items(shapes, head)
-        if isinstance(o, ox.Literal)
+        if isinstance(o, ox.Literal | ox.NamedNode)
     ]
     if choices:
         validators.append(colander.OneOf(choices))
@@ -421,7 +484,14 @@ def leaf_node(
     area = wants_text_area(shapes, prop)
     if area:
         text.widget = deform.widget.TextAreaWidget(rows=4, cols=None)
-    if choices:  # sh:in: a choice of the values, none to begin with
+    if choices and is_iri(shapes, prop):  # a choice of URIs (the classes of a type)
+        said = describe(shapes, choices)
+        labels = {u: d["label"] for u, d in said.items()}
+        text.widget = URISelectWidget(choices, labels)
+        if path == RDF_TYPE:  # the tab of the form is named and iconed by the choice
+            text.tab_choice = said
+            text.widget.attributes = {"data-follow-tab": json.dumps(said)}
+    elif choices:  # sh:in: a choice of the values, none to begin with
         text.widget = deform.widget.SelectWidget(
             values=[("", "- choose -"), *((c, c) for c in choices)]
         )

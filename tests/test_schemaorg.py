@@ -10,6 +10,7 @@ from gracia.graph import Graph
 from gracia.utils import assets
 
 SCHEMA = "https://schema.org/"
+RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
 SCHEMAORG = {
     "collection": "https://schema.org/Collection",
     "organization": "https://schema.org/Organization",
@@ -112,7 +113,12 @@ class TypesTest(unittest.TestCase):
                     ]
                     numbers = [float(n.value) for _path, n in found]  # an order each
                     self.assertEqual(numbers, sorted(set(numbers)), shape)  # in order
-                first = [path for path, _prop in forms.properties(data, node)]
+                # (the type of a resource that can have several is before the name)
+                first = [
+                    path
+                    for path, _prop in forms.properties(data, node)
+                    if path != RDF_TYPE
+                ]
                 self.assertEqual(first[0], SCHEMA + "name")
 
 

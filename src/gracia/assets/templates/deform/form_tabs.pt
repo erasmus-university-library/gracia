@@ -8,7 +8,7 @@
               action action|field.action or None;
               method field.method;
               buttons field.buttons;
-              tabs python:field.widget.tabs(field)"
+              tabs python:field.widget.tabs(field, cstruct)"
   tal:attributes="class css_class; action action"
   id="${formid}"
   novalidate="novalidate"
@@ -34,7 +34,7 @@
                 data-bs-toggle="tab" data-bs-target="#${tab.id}" role="tab"
                 id="${tab.id}-tab" aria-controls="${tab.id}"
                 aria-selected="${'true' if tab.active else 'false'}"><i tal:condition="tab.icon"
-                   class="bi bi-${tab.icon} me-1" aria-hidden="true"></i>${tab.title}<span
+                   class="bi bi-${tab.icon} me-1" aria-hidden="true"></i><span class="tab-title">${tab.title}</span><span
                 tal:condition="tab.error" class="text-danger" title="This tab has an error"> ●</span></button>
       </li>
     </ul>

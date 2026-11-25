@@ -380,7 +380,7 @@ class EditViewTest(EditCase):
 
     def test_the_form_has_a_tab_for_the_person_and_one_for_the_record(self):
         response = self.client().get("/test_repo/person/1/edit", headers=self.admin)
-        tabs = re.findall(r'data-bs-toggle="tab"[^>]*>([^<]+)', response.text)
+        tabs = re.findall(r'class="tab-title">([^<]+)', response.text)
         self.assertEqual(tabs, ["Person", "Record"])
 
     def test_a_record_key_goes_to_the_address_of_the_record(self):

@@ -664,6 +664,10 @@ class Record(Node):
                         path,
                         request.resource_url(target, "sequence") if request else None,
                     )
+                if node is not None and path == uri.RDF_TYPE:
+                    node.initial = (
+                        self.type.class_uri
+                    )  # the class of the type, to begin
                 if node is not None and path in made and not getattr(node, "bag", 0):
                     forms.made_of(
                         node,

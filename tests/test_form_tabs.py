@@ -38,7 +38,7 @@ class TabsTest(unittest.TestCase):
     def test_the_mapping_is_the_first_tab_and_the_loose_fields_are_the_record_tab(self):
         html = self.form().render({})
         self.assertEqual(
-            re.findall(r'data-bs-toggle="tab"[^>]*>([^<]+)', html), ["Person", "Record"]
+            re.findall(r'class="tab-title">([^<]+)', html), ["Person", "Record"]
         )
         self.assertIn('name="name"', pane(html, 0))
         self.assertNotIn('name="subject"', pane(html, 0))

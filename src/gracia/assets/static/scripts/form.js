@@ -37,6 +37,29 @@
     }
   });
 
+  // The tab that has a choice of classes (the rdf:type of a resource) is named and iconed
+  // by the class that is chosen: the select says what each class is called and has as an
+  // icon (data-follow-tab), the tab has a .tab-title and may have an icon.
+  document.addEventListener("change", (event) => {
+    const select = event.target;
+    if (!select.matches || !select.matches("select[data-follow-tab]")) return;
+    const said = JSON.parse(select.dataset.followTab)[select.value];
+    const pane = select.closest(".tab-pane");
+    const tab = pane && document.getElementById(pane.id + "-tab");
+    if (!said || !tab) return;
+    const title = tab.querySelector(".tab-title");
+    if (title) title.textContent = said.label;
+    if (said.icon) {
+      let icon = tab.querySelector("i.bi");
+      if (!icon) {
+        icon = document.createElement("i");
+        icon.setAttribute("aria-hidden", "true");
+        tab.prepend(icon);
+      }
+      icon.className = "bi bi-" + said.icon + " me-1";
+    }
+  });
+
   const busy = (button, on) => {
     button.disabled = on;
     button.toggleAttribute("aria-busy", on);

@@ -169,6 +169,11 @@ class PersonBagTest(ConfiguredCase):
         )
         self.assertIn("form.js", page)
 
+    def test_a_type_that_has_one_class_has_no_choice_for_the_tab_to_follow(self):
+        page = self.web.get(ADD, headers=AUTH).text
+        self.assertNotIn("data-follow-tab", page)
+        self.assertIn('class="tab-title">Person</span>', page)
+
     def test_the_caret_of_the_language_menu_is_not_a_stop_of_the_tab_key(self):
         page = self.web.get(ADD, headers=AUTH).text
         self.assertRegex(page, r'<button[^>]*dropdown-toggle-split[^>]*tabindex="-1"')

@@ -125,6 +125,32 @@ def _record_shapes() -> tuple[ox.Quad, ...]:
     return tuple(ox.parse(text, format=ox.RdfFormat.TURTLE))
 
 
+# an rdf list of [ sh:class <c> ] for each of the classes, added to the data
+_RDF = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+
+
+def _class_alternatives(data: Graph, sh, classes: list[str]) -> ox.BlankNode:
+    first, rest, nil = (
+        ox.NamedNode(_RDF + "first"),
+        ox.NamedNode(_RDF + "rest"),
+        ox.NamedNode(_RDF + "nil"),
+    )
+    home = ox.DefaultGraph()
+    head = previous = None
+    for class_uri in classes:
+        item, cell = ox.BlankNode(), ox.BlankNode()
+        data.add(ox.Quad(item, sh("class"), ox.NamedNode(class_uri), home))
+        data.add(ox.Quad(cell, first, item, home))
+        if previous is None:
+            head = cell
+        else:
+            data.add(ox.Quad(previous, rest, cell, home))
+        previous = cell
+    assert previous is not None and head is not None
+    data.add(ox.Quad(previous, rest, nil, home))
+    return head
+
+
 def record_shape(
     content=None, class_uri: str | None = None
 ) -> tuple[Graph, ox.NamedNode]:
@@ -140,9 +166,32 @@ def record_shape(
                 data.add(quad)
             data.add(ox.Quad(prop, sh("node"), content_node, ox.DefaultGraph()))
         if class_uri is not None:
-            data.add(
-                ox.Quad(prop, sh("class"), ox.NamedNode(class_uri), ox.DefaultGraph())
-            )
+            # the content has the class of the type or, when its shape names more
+            # (sh:targetClass: the subclasses it can have, one to a resource), one of
+            # those
+            classes = [class_uri]
+            if content is not None:
+                content_data, content_node = content
+                classes += [
+                    o.value
+                    for o in content_data.objects(content_node, sh("targetClass"))
+                    if isinstance(o, ox.NamedNode) and o.value != class_uri
+                ]
+            if len(classes) == 1:
+                data.add(
+                    ox.Quad(
+                        prop, sh("class"), ox.NamedNode(class_uri), ox.DefaultGraph()
+                    )
+                )
+            else:
+                data.add(
+                    ox.Quad(
+                        prop,
+                        sh("or"),
+                        _class_alternatives(data, sh, classes),
+                        ox.DefaultGraph(),
+                    )
+                )
     return data, node
 
 

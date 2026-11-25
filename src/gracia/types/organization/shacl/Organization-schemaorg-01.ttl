@@ -4,7 +4,25 @@
 @prefix dash:   <http://datashapes.org/dash#> .
 @prefix xsd:    <http://www.w3.org/2001/XMLSchema#> .
 @prefix rdf:    <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:   <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix ex:     <http://example.org/shapes#> .
+
+# ============================================================================
+# The classes of an organization, as people see them: the name of a choice and of the tab
+# of the form, and its icon (a Bootstrap icon)
+# ============================================================================
+schema:Organization rdfs:label "Organization" ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "building" .
+schema:EducationalOrganization rdfs:label "Educational organization" ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "easel" .
+schema:CollegeOrUniversity rdfs:label "College or university" ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "mortarboard" .
+schema:ResearchOrganization rdfs:label "Research organization" ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "lightbulb" .
+schema:Corporation rdfs:label "Corporation" ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "briefcase" .
+schema:FundingScheme rdfs:label "Funding scheme" ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "cash-coin" .
 
 # ============================================================================
 # 1. Organization Shape
@@ -12,7 +30,31 @@
 ex:OrganizationShape a sh:NodeShape ;
     dash:propertyRole dash:IconRole ; sh:defaultValue "building" ;
     sh:name "Organization" ;
-    sh:targetClass schema:Organization ;
+    # the classes a resource of this type can have: one of them (the form has a choice)
+    sh:targetClass schema:Organization ,
+                   schema:EducationalOrganization ,
+                   schema:CollegeOrUniversity ,
+                   schema:ResearchOrganization ,
+                   schema:Corporation ,
+                   schema:FundingScheme ;
+
+    # What kind of organization it is: one rdf:type, of the classes above. The labels in the
+    # form are made of the names of the classes.
+    sh:property [
+        sh:path rdf:type ;
+        sh:name "type" ;
+        sh:order 0 ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:in ( schema:Organization
+                schema:EducationalOrganization
+                schema:CollegeOrUniversity
+                schema:ResearchOrganization
+                schema:Corporation
+                schema:FundingScheme ) ;
+        sh:message "An organization has one rdf:type: Organization, EducationalOrganization, CollegeOrUniversity, ResearchOrganization, Corporation or FundingScheme."
+    ] ;
 
     # Primary display name (required)
     sh:property [
@@ -147,38 +189,38 @@ ex:PropertyValueShape a sh:NodeShape ;
 
     # the kinds of identifier, and what the value of each looks like (the other kinds, a
     # local one and one of some other source, can be anything)
-    sh:message "The value is not in the form of its kind: ORCID 0000-0002-1825-0097, ISNI 16 digits, OpenAlex A5023888391, Scopus 6 to 12 digits, ResearcherId A-1234-2008" ;
+    sh:message "The value is not in the form of its kind: ROR 05gq02987, OpenAlex I114027177, Scopus 6 to 12 digits, Wikidata Q1065, GRID grid.4989.c" ;
     sh:or (
-        [ sh:property [ sh:path schema:propertyID ; sh:hasValue "ORCID" ] ;
-          sh:property [ sh:path schema:value ; sh:pattern "^\\d{4}-\\d{4}-\\d{4}-\\d{3}[\\dX]$" ;
-            sh:message "An ORCID iD is four groups of four digits, like 0000-0002-1825-0097." ] ;
-          sh:property [ sh:path schema:url ; sh:pattern "^https://orcid\\.org/" ;
-            sh:message "An ORCID URL starts with https://orcid.org/" ;
-            gracia:propertyTemplate ( "https://orcid.org/{}" schema:value ) ] ]
-        [ sh:property [ sh:path schema:propertyID ; sh:hasValue "ISNI" ] ;
-          sh:property [ sh:path schema:value ; sh:pattern "^\\d{15}[\\dX]$" ;
-            sh:message "An ISNI is 16 digits (the last may be X), like 0000000121032683." ] ;
-          sh:property [ sh:path schema:url ; sh:pattern "^https://isni\\.org/" ;
-            sh:message "An ISNI URL starts with https://isni.org/isni/" ;
-            gracia:propertyTemplate ( "https://isni.org/isni/{}" schema:value ) ] ]
+        [ sh:property [ sh:path schema:propertyID ; sh:hasValue "ROR" ] ;
+          sh:property [ sh:path schema:value ; sh:pattern "^0[a-hj-km-np-tv-z0-9]{6}[0-9]{2}$" ;
+            sh:message "A ROR id is nine characters that start with 0, like 05gq02987." ] ;
+          sh:property [ sh:path schema:url ; sh:pattern "^https://ror\\.org/" ;
+            sh:message "A ROR URL starts with https://ror.org/" ;
+            gracia:propertyTemplate ( "https://ror.org/{}" schema:value ) ] ]
         [ sh:property [ sh:path schema:propertyID ; sh:hasValue "OpenAlex" ] ;
           sh:property [ sh:path schema:value ; sh:pattern "^[A-Za-z]\\d+$" ;
-            sh:message "An OpenAlex id is a letter and digits, like A5023888391." ] ;
+            sh:message "An OpenAlex id is a letter and digits, like I114027177." ] ;
           sh:property [ sh:path schema:url ; sh:pattern "^https://openalex\\.org/" ;
             sh:message "An OpenAlex URL starts with https://openalex.org/" ;
             gracia:propertyTemplate ( "https://openalex.org/{}" schema:value ) ] ]
         [ sh:property [ sh:path schema:propertyID ; sh:hasValue "Scopus" ] ;
           sh:property [ sh:path schema:value ; sh:pattern "^\\d{6,12}$" ;
-            sh:message "A Scopus id is 6 to 12 digits, like 57189222659." ] ;
+            sh:message "A Scopus affiliation id is 6 to 12 digits, like 60030347." ] ;
           sh:property [ sh:path schema:url ; sh:pattern "^https://www\\.scopus\\.com/" ;
-            sh:message "A Scopus URL starts with https://www.scopus.com/authid/detail.uri?authorId=" ;
-            gracia:propertyTemplate ( "https://www.scopus.com/authid/detail.uri?authorId={}" schema:value ) ] ]
-        [ sh:property [ sh:path schema:propertyID ; sh:hasValue "ResearcherId" ] ;
-          sh:property [ sh:path schema:value ; sh:pattern "^[A-Za-z]{1,3}-\\d{4}-\\d{4}$" ;
-            sh:message "A ResearcherId is like A-1234-2008." ] ;
-          sh:property [ sh:path schema:url ; sh:pattern "^https://www\\.webofscience\\.com/" ;
-            sh:message "A ResearcherId URL starts with https://www.webofscience.com/wos/author/rid/" ;
-            gracia:propertyTemplate ( "https://www.webofscience.com/wos/author/rid/{}" schema:value ) ] ]
+            sh:message "A Scopus URL starts with https://www.scopus.com/affil/profile.uri?afid=" ;
+            gracia:propertyTemplate ( "https://www.scopus.com/affil/profile.uri?afid={}" schema:value ) ] ]
+        [ sh:property [ sh:path schema:propertyID ; sh:hasValue "Wikidata" ] ;
+          sh:property [ sh:path schema:value ; sh:pattern "^Q\\d+$" ;
+            sh:message "A Wikidata id is a Q and digits, like Q1065." ] ;
+          sh:property [ sh:path schema:url ; sh:pattern "^https://www\\.wikidata\\.org/" ;
+            sh:message "A Wikidata URL starts with https://www.wikidata.org/wiki/" ;
+            gracia:propertyTemplate ( "https://www.wikidata.org/wiki/{}" schema:value ) ] ]
+        [ sh:property [ sh:path schema:propertyID ; sh:hasValue "GRID" ] ;
+          sh:property [ sh:path schema:value ; sh:pattern "^grid\\.\\d{4,6}\\.[0-9a-f]{1,2}$" ;
+            sh:message "A GRID id is like grid.4989.c." ] ;
+          sh:property [ sh:path schema:url ; sh:pattern "^https://grid\\.ac/" ;
+            sh:message "A GRID URL starts with https://grid.ac/institutes/" ;
+            gracia:propertyTemplate ( "https://grid.ac/institutes/{}" schema:value ) ] ]
         [ sh:property [ sh:path schema:propertyID ; sh:in ( "Local" "External" ) ] ]
     ) ;
 
@@ -188,7 +230,8 @@ ex:PropertyValueShape a sh:NodeShape ;
         sh:order 1 ;
         sh:minCount 1 ;
         sh:maxCount 1 ;
-        sh:datatype xsd:string
+        sh:datatype xsd:string ;
+        sh:in ( "ROR" "Local" "External" "OpenAlex" "Scopus" "Wikidata" "GRID" )
     ] ;
     sh:property [
         sh:path schema:value ;
