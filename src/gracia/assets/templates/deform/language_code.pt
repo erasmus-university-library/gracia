@@ -1,0 +1,20 @@
+<!-- gracia.forms.LanguageCodeWidget: a language code with a menu of languages (language.js
+     puts the language that is clicked in the code); an addon (the + or x of a BagWidget)
+     is at the end of the group -->
+<div class="input-group language-text" tal:define="addon addon|''">
+  <span tal:replace="structure text.strip()"/>
+  <button type="button" class="btn btn-outline-secondary dropdown-toggle dropdown-toggle-split"
+          data-bs-toggle="dropdown" aria-expanded="false" title="Languages" tabindex="-1">
+    <span class="visually-hidden">Choose a language</span>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li tal:repeat="language languages">
+      <button type="button" class="dropdown-item" data-language="${language[0]}">
+        <strong>${language[0]}</strong> <span class="text-muted">${language[1]}</span>
+      </button>
+    </li>
+    <li><hr class="dropdown-divider"/></li>
+    <li><button type="button" class="dropdown-item text-muted" data-language="">no language</button></li>
+  </ul>
+  <span tal:replace="structure addon"/>
+</div>

@@ -16,4 +16,9 @@ gracia:RepositoryShape a sh:NodeShape ;
         sh:path gracia:timezone ; sh:name "Time zone" ;
         sh:description "The time zone that times are shown in (Europe/Amsterdam). Empty: UTC. Everything is stored in UTC" ;
         sh:order 2 ; sh:datatype xsd:string ; sh:maxCount 1
+    ] ,
+    [
+        sh:path gracia:locale ; sh:name "Date format" ;
+        sh:description "How dates are shown and typed in the forms (15-03-2024 or 03/15/2024). Empty: ISO 8601 (2024-03-15). They are stored as ISO dates" ;
+        sh:order 3 ; sh:datatype xsd:string ; sh:maxCount 1
     ] .

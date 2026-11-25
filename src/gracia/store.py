@@ -1390,6 +1390,18 @@ class Store:
         ).fetchall()
         return {u: (label or "", slug) for u, label, slug in rows}
 
+    def resource_records(self, uris) -> dict[str, tuple[str, str, str | None]]:
+        """The record of each resource uri that is the resource uri of one (a reference
+        is by the resource uri of a record): its label, its uri and its slug."""
+        values = sorted(set(uri_list(uris) or []))
+        if not values:
+            return {}
+        rows = self.con.execute(
+            f"SELECT res_uri, label, record_uri(record_id), slug FROM {self.records} "
+            f"WHERE res_uri IN (SELECT unnest({sql_list(values)}))"
+        ).fetchall()
+        return {u: (label or "", record, slug) for u, label, record, slug in rows}
+
     def page_uris(self, rec_uri: str) -> list[str]:
         record_id = self.record_id_of(rec_uri)
         if record_id is None:

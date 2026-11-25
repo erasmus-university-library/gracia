@@ -4,7 +4,63 @@
 @prefix dash:   <http://datashapes.org/dash#> .
 @prefix xsd:    <http://www.w3.org/2001/XMLSchema#> .
 @prefix rdf:    <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:   <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix ex:     <http://example.org/shapes#> .
+@prefix role:   <http://example.org/vocab/role/> .
+
+# ============================================================================
+# The classes of a work, as people see them: the name of a choice and of the tab of the
+# form, and its icon (a Bootstrap icon)
+# ============================================================================
+schema:Thesis rdfs:label "Thesis" ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "mortarboard" .
+schema:ScholarlyArticle rdfs:label "Scholarly article" ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "journal-text" .
+schema:Article rdfs:label "Article" ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "newspaper" .
+schema:Book rdfs:label "Book" ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "book" .
+schema:Report rdfs:label "Report" ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "file-earmark-text" .
+schema:Dataset rdfs:label "Dataset" ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "database" .
+schema:SoftwareSourceCode rdfs:label "Software source code" ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "code-slash" .
+schema:Chapter rdfs:label "Chapter" ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "journal-bookmark" .
+
+# ============================================================================
+# The roles of a contributor, as people see them: the name and the icon of a choice. What a
+# role points at (a person or an organization) is said by the shape of the contributor
+# below, and the roles that only some works may have by the shape of the work.
+# ============================================================================
+role:Contributor rdfs:label "Contributor" ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "people" .
+role:ThesisSupervisor rdfs:label "Thesis supervisor" ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "person-workspace" .
+role:CoSupervisor rdfs:label "Co-supervisor" ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "person-badge" .
+role:ThesisAdvisor rdfs:label "Thesis advisor" ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "person-lines-fill" .
+role:ExternalReviewer rdfs:label "External reviewer" ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "person-check" .
+role:Expert rdfs:label "Expert" ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "award" .
+role:Editor rdfs:label "Editor" ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "pencil-square" .
+role:Funder rdfs:label "Funder" ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "cash-coin" .
+role:Sponsor rdfs:label "Sponsor" ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "gift" .
+role:DegreeGrantor rdfs:label "Degree grantor" ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "mortarboard" .
+
+# ============================================================================
+# The groups of properties that the form shows in a box of their own (sh:group)
+# ============================================================================
+ex:HostReferenceGroup a sh:PropertyGroup ;
+    rdfs:label "Host Reference" ;
+    sh:order 1 .
 
 # ============================================================================
 # 1. Scholarly Work / Publication Shape (excludes Series, Collections & Files)
@@ -22,44 +78,24 @@ ex:CreativeWorkShape a sh:NodeShape ;
                    schema:Dataset ,
                    schema:SoftwareSourceCode ;
 
-    # Must carry at least one valid publication rdf:type
+    # What kind of work it is: one rdf:type, of the classes below (the form has a choice;
+    # schema:CreativeWork, the class of the type, is not one: it has to be said what it is)
     sh:property [
         sh:path rdf:type ;
-        sh:qualifiedValueShape [
-            sh:in (
-                schema:CreativeWork
-                schema:Thesis
+        sh:name "type" ;
+        sh:order 0 ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:in ( schema:Thesis
                 schema:ScholarlyArticle
                 schema:Article
-                schema:Report
                 schema:Book
-                schema:Chapter
+                schema:Report
                 schema:Dataset
                 schema:SoftwareSourceCode
-            )
-        ] ;
-        sh:qualifiedMinCount 1 ;
-        sh:message "Work must have a valid publication rdf:type (e.g. Thesis, ScholarlyArticle, Book, CreativeWork)."
-    ] ;
-
-    # Explicitly forbid container and file types on this shape
-    sh:property [
-        sh:path rdf:type ;
-        sh:qualifiedValueShape [
-            sh:in (
-                schema:Collection
-                schema:CreativeWorkSeries
-                schema:Periodical
-                schema:BookSeries
-                schema:Newspaper
-                schema:PublicationVolume
-                schema:PublicationIssue
-                schema:MediaObject
-                schema:DigitalDocument
-            )
-        ] ;
-        sh:qualifiedMaxCount 0 ;
-        sh:message "Container and media types (Collection, Series, Periodical, Volume, Issue, MediaObject) are excluded from CreativeWorkShape."
+                schema:Chapter ) ;
+        sh:message "A work has one rdf:type: Thesis, ScholarlyArticle, Article, Book, Report, Dataset, SoftwareSourceCode or Chapter."
     ] ;
 
     # Primary title (required)
@@ -85,21 +121,11 @@ ex:CreativeWorkShape a sh:NodeShape ;
         )
     ] ;
 
-    # Abstract & general description (plain or language-tagged strings)
+    # Abstract (plain or language-tagged strings, in a text area; one for each language)
     sh:property [
         sh:path schema:abstract ;
         sh:name "abstract" ;
-        sh:order 3 ;
-        sh:or (
-            [ sh:datatype xsd:string ]
-            [ sh:datatype rdf:langString ]
-        )
-    ] ;
-    sh:property [
-        sh:path schema:description ;
-        sh:name "description" ;
         dash:editor dash:TextAreaEditor ;
-        sh:maxCount 1 ;
         sh:order 4 ;
         sh:or (
             [ sh:datatype xsd:string ]
@@ -111,37 +137,38 @@ ex:CreativeWorkShape a sh:NodeShape ;
     sh:property [
         sh:path schema:additionalType ;
         sh:name "additional type" ;
-        sh:order 5 ;
+        sh:order 6 ;
         sh:nodeKind sh:IRI
     ] ;
 
-    # Authors (at least one Person or Organization)
+    # Authors: a non-empty rdf:list of Person IRIs (schema.org has no lists, but without one
+    # the order of the authors is lost); the form fills it in as a list of URIs
     sh:property [
         sh:path schema:author ;
         sh:name "author" ;
-        sh:order 6 ;
+        sh:order 7 ;
         sh:minCount 1 ;
-        sh:or (
-            [ sh:node ex:PersonShape ]
-            [ sh:node ex:OrganizationShape ]
-        ) ;
-        sh:message "A work must have at least one schema:author (Person or Organization)."
+        sh:maxCount 1 ;
+        dash:editor gracia:URIListEditor ;
+        sh:node ex:PersonUriListShape ;
+        sh:not [ sh:hasValue rdf:nil ] ;
+        sh:message "schema:author must be a non-empty RDF list of schema:Person IRIs."
     ] ;
 
-    # Supervisors, advisors, or editors
+    # Contributors: each in a role (schema:Role: a blank node that has the role, and the
+    # person or organization it is for as its own schema:contributor)
     sh:property [
         sh:path schema:contributor ;
         sh:name "contributor" ;
-        sh:order 7 ;
-        sh:or (
-            [ sh:node ex:PersonShape ]
-            [ sh:node ex:OrganizationShape ]
-        )
+        sh:order 8 ;
+        sh:nodeKind sh:BlankNode ;
+        sh:node ex:ContributorRoleShape ;
+        sh:message "schema:contributor on a work must be a blank node of the shape schema:Role."
     ] ;
     sh:property [
         sh:path schema:editor ;
         sh:name "editor" ;
-        sh:order 8 ;
+        sh:order 9 ;
         sh:or (
             [ sh:node ex:PersonShape ]
             [ sh:node ex:OrganizationShape ]
@@ -152,7 +179,8 @@ ex:CreativeWorkShape a sh:NodeShape ;
     sh:property [
         sh:path schema:publisher ;
         sh:name "publisher" ;
-        sh:order 9 ;
+        sh:order 10 ;
+        dash:editor dash:URIEditor ;
         sh:node ex:OrganizationShape
     ] ;
 
@@ -160,7 +188,7 @@ ex:CreativeWorkShape a sh:NodeShape ;
     sh:property [
         sh:path schema:datePublished ;
         sh:name "date published" ;
-        sh:order 10 ;
+        sh:order 3 ;
         sh:maxCount 1 ;
         sh:or (
             [ sh:datatype xsd:date ]
@@ -174,13 +202,15 @@ ex:CreativeWorkShape a sh:NodeShape ;
     sh:property [
         sh:path schema:inLanguage ;
         sh:name "in language" ;
-        sh:order 11 ;
+        dash:editor gracia:LanguageEditor ;
+        sh:maxCount 1 ;
+        sh:order 12 ;
         sh:datatype xsd:string
     ] ;
     sh:property [
         sh:path schema:keywords ;
         sh:name "keywords" ;
-        sh:order 12 ;
+        sh:order 13 ;
         sh:or (
             [ sh:datatype xsd:string ]
             [ sh:datatype rdf:langString ]
@@ -191,38 +221,52 @@ ex:CreativeWorkShape a sh:NodeShape ;
     sh:property [
         sh:path schema:inSupportOf ;
         sh:name "in support of" ;
-        sh:order 17 ;
+        sh:order 19 ;
         sh:maxCount 1 ;
         sh:datatype xsd:string
     ] ;
 
-    # Article / Chapter pagination & Book ISBN
+    # The host reference: the container it was published in (isPartOf, above), and in it the
+    # volume and issue (a journal) and the pages (an article or a chapter): one box in the
+    # form, the group `Host Reference` (sh:group)
+    sh:property [
+        sh:path schema:volumeNumber ;
+        sh:name "volume" ;
+        sh:group ex:HostReferenceGroup ;
+        sh:order 15 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string
+    ] ;
+    sh:property [
+        sh:path schema:issueNumber ;
+        sh:name "issue" ;
+        sh:group ex:HostReferenceGroup ;
+        sh:order 16 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string
+    ] ;
     sh:property [
         sh:path schema:pageStart ;
         sh:name "page start" ;
-        sh:order 14 ;
+        sh:group ex:HostReferenceGroup ;
+        sh:order 17 ;
         sh:maxCount 1 ;
         sh:datatype xsd:string
     ] ;
     sh:property [
         sh:path schema:pageEnd ;
         sh:name "page end" ;
-        sh:order 15 ;
+        sh:group ex:HostReferenceGroup ;
+        sh:order 18 ;
         sh:maxCount 1 ;
         sh:datatype xsd:string
     ] ;
-    sh:property [
-        sh:path schema:isbn ;
-        sh:name "ISBN" ;
-        sh:order 16 ;
-        sh:datatype xsd:string
-    ] ;
 
-    # Structured identifiers (DOI, Handle, internal repo ID, etc.)
+    # Structured identifiers (DOI, ISBN, Handle, OpenAlex, Scopus, a local one, one of another source)
     sh:property [
         sh:path schema:identifier ;
         sh:name "identifier" ;
-        sh:order 18 ;
+        sh:order 20 ;
         sh:node ex:PropertyValueShape
     ] ;
 
@@ -230,7 +274,7 @@ ex:CreativeWorkShape a sh:NodeShape ;
     sh:property [
         sh:path schema:sameAs ;
         sh:name "same as" ;
-        sh:order 19 ;
+        sh:order 21 ;
         sh:nodeKind sh:IRI
     ] ;
 
@@ -238,14 +282,14 @@ ex:CreativeWorkShape a sh:NodeShape ;
     sh:property [
         sh:path schema:url ;
         sh:name "URL" ;
-        sh:order 20 ;
+        sh:order 22 ;
         sh:maxCount 1 ;
         sh:nodeKind sh:IRI
     ] ;
     sh:property [
         sh:path schema:license ;
         sh:name "license" ;
-        sh:order 21 ;
+        sh:order 23 ;
         sh:nodeKind sh:IRI
     ] ;
 
@@ -253,7 +297,9 @@ ex:CreativeWorkShape a sh:NodeShape ;
     sh:property [
         sh:path schema:isPartOf ;
         sh:name "is part of" ;
-        sh:order 13 ;
+        sh:group ex:HostReferenceGroup ;
+        sh:order 14 ;
+        dash:editor dash:URIEditor ;
         sh:or (
             [ sh:node ex:CollectionShape ]
             [ sh:node ex:CreativeWorkSeriesShape ]
@@ -267,9 +313,127 @@ ex:CreativeWorkShape a sh:NodeShape ;
     sh:property [
         sh:path schema:encoding ;
         sh:name "encoding" ;
-        sh:order 22 ;
+        sh:order 24 ;
         sh:node ex:MediaObjectShape
     ] .
+
+# ============================================================================
+# 1a. What only a thesis has. A rule is "the work is of the class, or it has none of these"
+# (sh:or). It is a shape of its own that has the same works as the work has (their classes), so
+# that what is wrong is said in its own words. The form leaves what a rule is about out of the
+# menu or the form of the other works, and a record that has it as another work is refused
+# here.
+# ============================================================================
+ex:ThesisRolesShape a sh:NodeShape ;
+    sh:name "Roles of a thesis" ;
+    sh:targetClass schema:Thesis , schema:ScholarlyArticle , schema:Article , schema:Book ,
+                   schema:Report , schema:Dataset , schema:SoftwareSourceCode , schema:Chapter ;
+    sh:or (
+        [ sh:property [ sh:path rdf:type ; sh:hasValue schema:Thesis ] ]
+        [ sh:property [ sh:path ( schema:contributor schema:roleName ) ;
+                        sh:not [ sh:in ( role:ThesisSupervisor role:CoSupervisor
+                                         role:ThesisAdvisor role:DegreeGrantor ) ] ] ]
+    ) ;
+    sh:message "The roles Thesis supervisor, Co-supervisor, Thesis advisor and Degree grantor are only for a thesis." .
+
+ex:ThesisFieldsShape a sh:NodeShape ;
+    sh:name "Fields of a thesis" ;
+    sh:targetClass schema:Thesis , schema:ScholarlyArticle , schema:Article , schema:Book ,
+                   schema:Report , schema:Dataset , schema:SoftwareSourceCode , schema:Chapter ;
+    sh:or (
+        [ sh:property [ sh:path rdf:type ; sh:hasValue schema:Thesis ] ]
+        [ sh:property [ sh:path schema:inSupportOf ; sh:maxCount 0 ] ]
+    ) ;
+    sh:message "In support of is only for a thesis." .
+
+# ============================================================================
+# 1b. A list of Person IRIs (an rdf:list: rdf:nil, or an item and the rest of the list)
+# ============================================================================
+ex:PersonUriListShape a sh:NodeShape ;
+    sh:name "List of person URIs" ;
+    sh:or (
+        # the end of the list
+        [ sh:nodeKind sh:IRI ; sh:hasValue rdf:nil ]
+        # an item: rdf:first is a Person IRI, rdf:rest is a list
+        [
+            sh:nodeKind sh:BlankNodeOrIRI ;
+            sh:property [
+                sh:path rdf:first ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:nodeKind sh:IRI ;
+                sh:node ex:PersonShape ;
+                sh:message "Each item in the author list must be a Person IRI."
+            ] ;
+            sh:property [
+                sh:path rdf:rest ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node ex:PersonUriListShape ;
+                sh:message "rdf:rest must be an RDF list."
+            ]
+        ]
+    ) .
+
+# ============================================================================
+# 1c. A contributor in a role (schema:Role): the role, and the person or organization
+# ============================================================================
+ex:ContributorRoleShape a sh:NodeShape ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "people" ;
+    gracia:headerTemplate ( "{}" schema:contributor ) ;
+    gracia:headerAddOnTemplate ( "{}" schema:roleName ) ;
+    sh:name "Contributor role" ;
+    sh:class schema:Role ;
+
+    sh:property [
+        sh:path schema:roleName ;
+        sh:name "role" ;
+        sh:order 1 ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:defaultValue role:Contributor ;
+        sh:in ( role:Contributor
+                role:ThesisSupervisor
+                role:CoSupervisor
+                role:ThesisAdvisor
+                role:ExternalReviewer
+                role:Expert
+                role:Editor
+                role:Funder
+                role:Sponsor
+                role:DegreeGrantor ) ;
+        sh:message "schema:Role must have a valid schema:roleName."
+    ] ;
+
+    # The inner schema:contributor is the IRI of the person or organization it is for
+    sh:property [
+        sh:path schema:contributor ;
+        sh:name "contributor" ;
+        sh:order 2 ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:nodeKind sh:IRI ;
+        dash:editor dash:URIEditor ;
+        sh:message "The inner schema:contributor of a schema:Role must be the IRI of a person or an organization."
+    ] ;
+
+    # Which of the two it is follows the role: a funder, a sponsor and a degree grantor are
+    # organizations, the roles of people are people, and a contributor, with no more said, is
+    # either. The form looks for the one or the other by the role that is chosen (a new node
+    # has the role Contributor, sh:defaultValue).
+    sh:or (
+        [ sh:property [ sh:path schema:roleName ; sh:hasValue role:Contributor ] ;
+          sh:property [ sh:path schema:contributor ;
+                        sh:or ( [ sh:node ex:PersonShape ] [ sh:node ex:OrganizationShape ] ) ] ]
+        [ sh:property [ sh:path schema:roleName ;
+                        sh:in ( role:ThesisSupervisor role:CoSupervisor role:ThesisAdvisor
+                                role:ExternalReviewer role:Expert role:Editor ) ] ;
+          sh:property [ sh:path schema:contributor ; sh:node ex:PersonShape ] ]
+        [ sh:property [ sh:path schema:roleName ;
+                        sh:in ( role:Funder role:Sponsor role:DegreeGrantor ) ] ;
+          sh:property [ sh:path schema:contributor ; sh:node ex:OrganizationShape ] ]
+    ) .
 
 # ============================================================================
 # 2. PublicationVolume Shape (supports both Blank Nodes and Named IRIs)
@@ -447,38 +611,38 @@ ex:PropertyValueShape a sh:NodeShape ;
 
     # the kinds of identifier, and what the value of each looks like (the other kinds, a
     # local one and one of some other source, can be anything)
-    sh:message "The value is not in the form of its kind: ORCID 0000-0002-1825-0097, ISNI 16 digits, OpenAlex A5023888391, Scopus 6 to 12 digits, ResearcherId A-1234-2008" ;
+    sh:message "The value is not in the form of its kind: DOI 10.1000/xyz123, ISBN 10 or 13 digits, Handle 20.500.1234/5678, OpenAlex W2741809807, Scopus 2-s2.0-85012345678" ;
     sh:or (
-        [ sh:property [ sh:path schema:propertyID ; sh:hasValue "ORCID" ] ;
-          sh:property [ sh:path schema:value ; sh:pattern "^\\d{4}-\\d{4}-\\d{4}-\\d{3}[\\dX]$" ;
-            sh:message "An ORCID iD is four groups of four digits, like 0000-0002-1825-0097." ] ;
-          sh:property [ sh:path schema:url ; sh:pattern "^https://orcid\\.org/" ;
-            sh:message "An ORCID URL starts with https://orcid.org/" ;
-            gracia:propertyTemplate ( "https://orcid.org/{}" schema:value ) ] ]
-        [ sh:property [ sh:path schema:propertyID ; sh:hasValue "ISNI" ] ;
-          sh:property [ sh:path schema:value ; sh:pattern "^\\d{15}[\\dX]$" ;
-            sh:message "An ISNI is 16 digits (the last may be X), like 0000000121032683." ] ;
-          sh:property [ sh:path schema:url ; sh:pattern "^https://isni\\.org/" ;
-            sh:message "An ISNI URL starts with https://isni.org/isni/" ;
-            gracia:propertyTemplate ( "https://isni.org/isni/{}" schema:value ) ] ]
+        [ sh:property [ sh:path schema:propertyID ; sh:hasValue "DOI" ] ;
+          sh:property [ sh:path schema:value ; sh:pattern "^10\\.\\d{4,9}/\\S+$" ;
+            sh:message "A DOI starts with 10. and a registrant number, a slash and a name, like 10.1000/xyz123." ] ;
+          sh:property [ sh:path schema:url ; sh:pattern "^https://doi\\.org/" ;
+            sh:message "A DOI URL starts with https://doi.org/" ;
+            gracia:propertyTemplate ( "https://doi.org/{}" schema:value ) ] ]
+        [ sh:property [ sh:path schema:propertyID ; sh:hasValue "ISBN" ] ;
+          sh:property [ sh:path schema:value ; sh:pattern "^(?:\\d-?){9}[\\dXx]$|^97[89](?:-?\\d){10}$" ;
+            sh:message "An ISBN is 10 digits (the last may be X) or 13 digits that start with 978 or 979, with or without hyphens, like 978-3-16-148410-0." ] ;
+          sh:property [ sh:path schema:url ; sh:pattern "^urn:isbn:" ;
+            sh:message "An ISBN URL starts with urn:isbn:" ;
+            gracia:propertyTemplate ( "urn:isbn:{}" schema:value ) ] ]
+        [ sh:property [ sh:path schema:propertyID ; sh:hasValue "Handle" ] ;
+          sh:property [ sh:path schema:value ; sh:pattern "^\\d+(?:\\.\\d+)*/\\S+$" ;
+            sh:message "A Handle is a prefix of digits and dots, a slash and a name, like 20.500.1234/5678." ] ;
+          sh:property [ sh:path schema:url ; sh:pattern "^https://hdl\\.handle\\.net/" ;
+            sh:message "A Handle URL starts with https://hdl.handle.net/" ;
+            gracia:propertyTemplate ( "https://hdl.handle.net/{}" schema:value ) ] ]
         [ sh:property [ sh:path schema:propertyID ; sh:hasValue "OpenAlex" ] ;
-          sh:property [ sh:path schema:value ; sh:pattern "^[A-Za-z]\\d+$" ;
-            sh:message "An OpenAlex id is a letter and digits, like A5023888391." ] ;
+          sh:property [ sh:path schema:value ; sh:pattern "^W\\d+$" ;
+            sh:message "An OpenAlex work id is a W and digits, like W2741809807." ] ;
           sh:property [ sh:path schema:url ; sh:pattern "^https://openalex\\.org/" ;
             sh:message "An OpenAlex URL starts with https://openalex.org/" ;
             gracia:propertyTemplate ( "https://openalex.org/{}" schema:value ) ] ]
         [ sh:property [ sh:path schema:propertyID ; sh:hasValue "Scopus" ] ;
-          sh:property [ sh:path schema:value ; sh:pattern "^\\d{6,12}$" ;
-            sh:message "A Scopus id is 6 to 12 digits, like 57189222659." ] ;
+          sh:property [ sh:path schema:value ; sh:pattern "^2-s2\\.0-\\d{6,12}$" ;
+            sh:message "A Scopus EID is 2-s2.0- and 6 to 12 digits, like 2-s2.0-85012345678." ] ;
           sh:property [ sh:path schema:url ; sh:pattern "^https://www\\.scopus\\.com/" ;
-            sh:message "A Scopus URL starts with https://www.scopus.com/authid/detail.uri?authorId=" ;
-            gracia:propertyTemplate ( "https://www.scopus.com/authid/detail.uri?authorId={}" schema:value ) ] ]
-        [ sh:property [ sh:path schema:propertyID ; sh:hasValue "ResearcherId" ] ;
-          sh:property [ sh:path schema:value ; sh:pattern "^[A-Za-z]{1,3}-\\d{4}-\\d{4}$" ;
-            sh:message "A ResearcherId is like A-1234-2008." ] ;
-          sh:property [ sh:path schema:url ; sh:pattern "^https://www\\.webofscience\\.com/" ;
-            sh:message "A ResearcherId URL starts with https://www.webofscience.com/wos/author/rid/" ;
-            gracia:propertyTemplate ( "https://www.webofscience.com/wos/author/rid/{}" schema:value ) ] ]
+            sh:message "A Scopus URL starts with https://www.scopus.com/record/display.uri?eid=" ;
+            gracia:propertyTemplate ( "https://www.scopus.com/record/display.uri?eid={}" schema:value ) ] ]
         [ sh:property [ sh:path schema:propertyID ; sh:in ( "Local" "External" ) ] ]
     ) ;
 
@@ -490,7 +654,7 @@ ex:PropertyValueShape a sh:NodeShape ;
         sh:minCount 1 ;
         sh:maxCount 1 ;
         sh:datatype xsd:string ;
-        sh:in ( "ORCID" "ISNI" "OpenAlex" "Scopus" "ResearcherId" "Local" "External" ) ;
+        sh:in ( "DOI" "ISBN" "Handle" "OpenAlex" "Scopus" "Local" "External" ) ;
         sh:message "A PropertyValue identifier must have exactly one schema:propertyID string."
     ] ;
 

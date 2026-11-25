@@ -27,9 +27,18 @@ def write_text(
     text: str | None,
     as_uri: bool = False,
     language: str | None = None,
+    datatype: str | None = None,
 ) -> None:
     term = (
-        (_N(text) if as_uri else ox.Literal(text, language=language or None))
+        (
+            _N(text)
+            if as_uri
+            else ox.Literal(
+                text,
+                language=language or None,
+                datatype=_N(datatype) if datatype else None,
+            )
+        )
         if text
         else None
     )

@@ -17,6 +17,7 @@ gracia -r test types add person organization series collection work
 
 awk -v n="$COUNT" '
 function pick(list, size) { return list[int(rand() * size) + 1] }
+function day(year) { return sprintf("%04d-%02d-%02d", year, 1 + int(rand() * 12), 1 + int(rand() * 28)) }
 function ark(type, number) { return "<ark:/99999/ir/" type "/" number ">" }
 function node(type, number) {
   printf "<rec:%s:%d> a gracia:Record ;\n  gracia:resource_uri %s ;\n", type, number, ark(type, number)
@@ -29,7 +30,7 @@ BEGIN {
   split("Algorithms Compilers Databases Networks Graphics Security Languages Logic Systems Robotics", topic, " ")
   split("Early Modern Applied Formal Practical Concise Open Distributed Annotated Complete", adjective, " ")
   split("Computation Notation Reasoning Memory Search Types Proofs Machines Patterns Data", noun, " ")
-  split("CreativeWork,Book CreativeWork,ScholarlyArticle CreativeWork,Thesis CreativeWork,Report CreativeWork,Article", work_type, " ")
+  split("Book ScholarlyArticle Thesis Report Article", work_type, " ")
   split("en nl de fr", language, " ")
   print "@prefix gracia: <https://gracia.pub/ns/> ."
   print "@prefix schema: <https://schema.org/> ."
@@ -59,10 +60,12 @@ BEGIN {
   for (i = 1; i <= series; i++) {
     node("series", i)
     if (i % 2 == 0)
-      printf "  gracia:resource [ a schema:CreativeWorkSeries, schema:Periodical ; schema:name \"Journal of %s %d\"", pick(topic, 10), i
+      printf "  gracia:resource [ a schema:Periodical ; schema:name \"Journal of %s %d\"", pick(topic, 10), i
     else
-      printf "  gracia:resource [ a schema:CreativeWorkSeries ; schema:name \"Lecture Notes in %s %d\"", pick(topic, 10), i
-    printf " ; schema:issn \"%04d-%04d\" ; schema:publisher %s ; schema:inLanguage \"en\" ] .\n", 1000 + i % 9000, int(rand() * 10000), ark("organization", int(rand() * orgs) + 1)
+      printf "  gracia:resource [ a schema:BookSeries ; schema:name \"Lecture Notes in %s %d\"", pick(topic, 10), i
+    issn = sprintf("%04d-%04d", 1000 + i % 9000, int(rand() * 10000))
+    printf " ; schema:identifier [ a schema:PropertyValue ; schema:propertyID \"ISSN\" ; schema:value \"%s\" ; schema:url <urn:issn:%s> ]", issn, issn
+    printf " ; schema:publisher %s ; schema:inLanguage \"en\" ] .\n", ark("organization", int(rand() * orgs) + 1)
   }
 
   for (i = 1; i <= collections; i++) {
@@ -74,18 +77,21 @@ BEGIN {
 
   for (i = 1; i <= works; i++) {
     node("work", i)
-    if (i % 4 == 0) {  # an article: in an issue, of a volume, of a journal
+    if (i % 4 == 0) {  # an article: of a volume and an issue of a journal
       journal = 2 * (int(rand() * int(series / 2)) + 1)
-      year = 1950 + int(rand() * 76); first = 1 + int(rand() * 300)
-      printf "  gracia:resource [ a schema:CreativeWork, schema:ScholarlyArticle ; schema:name \"%s %s of %s %d\" ; schema:author %s", pick(adjective, 10), pick(noun, 10), pick(topic, 10), i, ark("person", int(rand() * n) + 1)
-      printf " ; schema:pageStart \"%d\" ; schema:pageEnd \"%d\" ; schema:datePublished \"%d\"^^xsd:gYear ; schema:inLanguage \"en\"", first, first + 5 + int(rand() * 20), year
-      printf " ; schema:isPartOf [ a schema:PublicationIssue ; schema:issueNumber \"%d\" ; schema:datePublished \"%d\"^^xsd:gYear ; schema:isPartOf [ a schema:PublicationVolume ; schema:volumeNumber \"%d\" ; schema:isPartOf %s ] ] ] .\n", 1 + int(rand() * 12), year, year - 1949, ark("series", journal)
+      year = 1950 + int(rand() * 76); issued = day(year); first = 1 + int(rand() * 300)
+      printf "  gracia:resource [ a schema:ScholarlyArticle ; schema:name \"%s %s of %s %d\" ; schema:author ( %s )", pick(adjective, 10), pick(noun, 10), pick(topic, 10), i, ark("person", int(rand() * n) + 1)
+      printf " ; schema:pageStart \"%d\" ; schema:pageEnd \"%d\" ; schema:datePublished \"%s\"^^xsd:date ; schema:inLanguage \"en\"", first, first + 5 + int(rand() * 20), issued
+      printf " ; schema:volumeNumber \"%d\" ; schema:issueNumber \"%d\" ; schema:isPartOf %s ] .\n", year - 1949, 1 + int(rand() * 12), ark("series", journal)
       continue
     }
-    split(pick(work_type, 5), t, ",")
-    printf "  gracia:resource [ a schema:%s, schema:%s ; schema:name \"%s %s of %s %d\" ; schema:author %s", t[1], t[2], pick(adjective, 10), pick(noun, 10), pick(topic, 10), i, ark("person", int(rand() * n) + 1)
-    if (i % 3 == 0) printf ", %s", ark("person", int(rand() * n) + 1)
-    printf " ; schema:publisher %s ; schema:isPartOf %s ; schema:datePublished \"%d\"^^xsd:gYear ; schema:inLanguage \"%s\" ; schema:keywords \"%s, %s\"", ark("organization", int(rand() * orgs) + 1), (i % 2 ? ark("series", int(rand() * series) + 1) : ark("collection", int(rand() * collections) + 1)), 1950 + int(rand() * 76), pick(language, 4), tolower(pick(topic, 10)), tolower(pick(noun, 10))
+    printf "  gracia:resource [ a schema:%s ; schema:name \"%s %s of %s %d\" ; schema:author ( %s", pick(work_type, 5), pick(adjective, 10), pick(noun, 10), pick(topic, 10), i, ark("person", int(rand() * n) + 1)
+    if (i % 3 == 0) printf " %s", ark("person", int(rand() * n) + 1)
+    printf " )"
+    # now and then a contributor in a role: a person who advised it, an organization that paid
+    if (i % 5 == 0) printf " ; schema:contributor [ a schema:Role ; schema:roleName <http://example.org/vocab/role/Expert> ; schema:contributor %s ]", ark("person", int(rand() * n) + 1)
+    if (i % 7 == 0) printf " ; schema:contributor [ a schema:Role ; schema:roleName <http://example.org/vocab/role/Funder> ; schema:contributor %s ]", ark("organization", int(rand() * orgs) + 1)
+    printf " ; schema:publisher %s ; schema:isPartOf %s ; schema:datePublished \"%s\"^^xsd:date ; schema:inLanguage \"%s\" ; schema:keywords \"%s, %s\"", ark("organization", int(rand() * orgs) + 1), (i % 2 ? ark("series", int(rand() * series) + 1) : ark("collection", int(rand() * collections) + 1)), day(1950 + int(rand() * 76)), pick(language, 4), tolower(pick(topic, 10)), tolower(pick(noun, 10))
     print " ] ."
   }
 }' > "$TMP/content.ttl"

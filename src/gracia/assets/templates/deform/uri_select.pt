@@ -1,0 +1,38 @@
+<!-- gracia.forms.URISelectWidget: a choice of URIs as a Bootstrap dropdown. The hidden input is what is
+     posted (and has the attributes of the widget, such as the data-follow-tab of the rdf:type);
+     uri_select.js puts the item that is clicked in it, and in the button, and says `change`. The
+     button looks like a select (form-select) and has the keys of a dropdown: arrows, Enter, Escape. -->
+<div class="uri-select dropdown"
+     tal:define="name name|field.name;
+                 oid oid|field.oid;
+                 error_class error_class|field.widget.error_class;
+                 describedby describedby|('error-' + oid);
+                 labels dict((v, d) for v, d in values);
+                 chosen cstruct if isinstance(cstruct, str) and cstruct in labels else '';
+                 icons field.widget.icons">
+  <input type="hidden" name="${name}" value="${chosen}" class="uri-select-value"
+         tal:attributes="data-label labels.get(chosen) if chosen else None;
+                         attributes|field.widget.attributes|{};"/>
+  <button type="button" id="${oid}" data-bs-toggle="dropdown" aria-expanded="false" aria-haspopup="listbox"
+          tal:attributes="class string:form-select uri-select-toggle text-start ${'is-invalid' if field.error else ''};
+                          aria-invalid 'true' if field.error else None;
+                          aria-describedby describedby if field.error else None">
+    <i tal:condition="icons.get(chosen)" class="bi bi-${icons.get(chosen)} me-2" aria-hidden="true"></i><span class="uri-select-label">${labels.get(chosen, chosen)}</span>
+  </button>
+  <ul class="dropdown-menu w-100 uri-select-list" role="listbox" aria-labelledby="${oid}">
+    <li tal:repeat="item values">
+      <button type="button" role="option"
+              tal:attributes="class string:dropdown-item d-flex align-items-center ${'text-muted' if not item[0] else ''};
+                              data-value item[0];
+                              data-label item[1];
+                              data-icon icons.get(item[0], '');
+                              data-only-for field.widget.only_for_json(item[0]);
+                              data-only-for-named field.widget.only_for_named(item[0]);
+                              aria-selected 'true' if item[0] == chosen else 'false'">
+        <i tal:condition="icons.get(item[0])" class="bi bi-${icons.get(item[0])} me-2" aria-hidden="true"></i>${item[1]}<i
+           class="bi bi-check2 ms-auto uri-select-check" aria-hidden="true"
+           tal:attributes="hidden None if item[0] == chosen else 'hidden'"></i>
+      </button>
+    </li>
+  </ul>
+</div>

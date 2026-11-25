@@ -1,0 +1,30 @@
+<!-- gracia.forms.ReferenceWidget: a reference to another resource, as a group: the text input
+     shows the label of the resource and looks for records (reference.js, a typeahead that asks
+     `data-lookup` for the resources of the rdf types in `data-classes`); the hidden input has the
+     uri of the one that is chosen, which is what is posted. A menu of what was found is under the
+     group. The button is Edit when a resource is chosen (its form in a dialog, at `data-edit-url`)
+     and New when none is (the form of a new record, of the types in `data-new`). The + or x of a
+     bag or a list is a part of the group (`addon`). -->
+<div class="reference input-group flex-nowrap" tal:define="addon addon|''"
+     tal:attributes="class 'reference input-group flex-nowrap is-set' if uri else 'reference input-group flex-nowrap';
+                     data-lookup url;
+                     data-classes classes;
+                     data-follow follow or None;
+                     data-edit-url edit;
+                     data-new new">
+  <span class="reference-icon" data-default-icon="${default_icon}"><i class="bi bi-${icon}" aria-hidden="true"></i></span>
+  <input type="hidden" name="${field.name}" value="${uri}" class="reference-value"
+         tal:attributes="data-label label if uri else None"/>
+  <input type="text" id="${field.oid}" value="${label}" title="${record}"
+         autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false"
+         aria-controls="${field.oid}-list" placeholder="Search"
+         tal:attributes="class string:form-control reference-input ${'is-invalid' if field.error else ''};
+                         aria-invalid 'true' if field.error else None;
+                         aria-describedby describedby if field.error else None;
+                         attributes|{};"/>
+  <button type="button" class="btn btn-outline-secondary reference-open"
+          tal:attributes="hidden None if can_open else 'hidden'"
+          aria-haspopup="dialog"><i class="bi bi-${'pencil' if uri else 'stars'} me-1" aria-hidden="true"></i><span class="reference-open-text">${'Edit' if uri else 'New'}</span></button>
+  <ul class="dropdown-menu reference-list" id="${field.oid}-list" role="listbox"></ul>
+  <span tal:replace="structure addon"/>
+</div>

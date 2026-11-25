@@ -1,6 +1,7 @@
 import hashlib
 import json
 import logging
+import re
 import shutil
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -15,6 +16,7 @@ log = logging.getLogger("gracia.search")
 
 FIELD_TYPES = ("integer", "text", "date", "boolean", "json")
 HEAP = 50_000_000  # bytes a writer may use for a batch
+LOOKUP_CAP = 1000  # the most records a lookup of references takes of what it finds
 SEARCHED = (
     "label",
     "slug",
@@ -104,6 +106,7 @@ RECORDS = IndexDefinition(
         Field("label", "text"),
         Field("text", "text", stored=False),
         Field("resource_uri", "text", tokenizer="raw"),
+        Field("resource_type", "text", tokenizer="raw"),  # the rdf:type of the resource
         Field("published", "boolean", fast=True),
         Field("modified", "date", fast=True),
     ),
@@ -415,6 +418,88 @@ class Indexes:
                 if values
             }
             hits.append({**stored, "score": score})
+        return found.count, hits  # ty: ignore[missing-attribute]
+
+    def lookup(
+        self,
+        repo: str,
+        definition: IndexDefinition,
+        text: str,
+        resource_types=(),
+    ) -> tuple[int, list[dict]]:
+        """The records whose label has a word that begins with each of the words of the
+        text (what is typed so far), of the resources of these rdf types (any, if none
+        are given), by label: how many there are, and the first LOOKUP_CAP of them. With
+        no words every record of the types is one. A text of digits is the number of a
+        record as well (and that record comes first). A hit has the stored fields of its
+        doc."""
+        state = self.status(repo, definition)
+        if state == "missing":
+            raise LookupError(f"the index {definition.name} is missing")
+        if state == "stale":
+            stored = self.stored_definition(repo, definition)
+            if stored is None:
+                raise LookupError(f"the index {definition.name} is stale")
+            definition = stored
+        have = {f.name for f in definition.fields}
+        if "label" not in have or (resource_types and "resource_type" not in have):
+            raise LookupError(
+                "the index has no field resource_type: add it in the search settings "
+                "and make the index again"
+            )
+        schema = definition.schema()
+        must = [
+            (tantivy.Occur.Must, tantivy.Query.regex_query(schema, "label", f"{w}.*"))
+            for w in re.findall(r"\w+", text.lower())
+        ]
+        number = str(int(text.strip())) if re.fullmatch(r"[0-9]+", text.strip()) else ""
+        if number:
+            # digits only: the number of a record too (rec:person:1234 for 1234), of any
+            # type, which the classes then narrow down
+            by_number = tantivy.Query.regex_query(
+                schema, "record", f"rec:[a-z][a-z0-9-]*:{number}"
+            )
+            by_label = tantivy.Query.boolean_query(must)
+            must = [
+                (
+                    tantivy.Occur.Must,
+                    tantivy.Query.boolean_query(
+                        [
+                            (tantivy.Occur.Should, by_label),
+                            (tantivy.Occur.Should, by_number),
+                        ]
+                    ),
+                )
+            ]
+        if resource_types:
+            either = [
+                (
+                    tantivy.Occur.Should,
+                    tantivy.Query.term_query(schema, "resource_type", t),
+                )
+                for t in resource_types
+            ]
+            must.append((tantivy.Occur.Must, tantivy.Query.boolean_query(either)))
+        query = tantivy.Query.boolean_query(must) if must else tantivy.Query.all_query()
+        index = tantivy.Index.open(str(self.path(repo, definition)))
+        index.reload()
+        searcher = index.searcher()
+        found = searcher.search(query, LOOKUP_CAP)
+        hits = [
+            {
+                name: values[0] if len(values) == 1 else values
+                for name, values in searcher.doc(address).to_dict().items()
+                if values
+            }
+            for _score, address in found.hits
+        ]
+        # the record of that number first, then by label
+        hits.sort(
+            key=lambda hit: (
+                not (number and str(hit.get("record", "")).endswith(f":{number}")),
+                str(hit.get("label", "")).lower(),
+            )
+        )
         return found.count, hits  # ty: ignore[missing-attribute]
 
     def field_stats(

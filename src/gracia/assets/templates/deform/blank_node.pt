@@ -10,7 +10,10 @@
                  values cstruct.values() if hasattr(cstruct, 'values') else [];
                  summary next((v for v in values if isinstance(v, str) and v), None);
                  icon icon|None;
-                 fields cstruct if hasattr(cstruct, 'get') else {};
+                 stored cstruct if hasattr(cstruct, 'get') else {};
+                 named {c.name: c.widget.label_of(stored.get(c.name)) for c in field.children
+                        if hasattr(c.widget, 'label_of') and isinstance(stored.get(c.name), str) and stored.get(c.name)};
+                 fields dict(stored, **{k: v for k, v in named.items() if v});
                  header getattr(field.schema, 'header', None);
                  addon getattr(field.schema, 'header_addon', None);
                  head_text header.render_names(fields) if header else None;

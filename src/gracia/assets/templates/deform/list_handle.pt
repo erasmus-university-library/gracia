@@ -1,0 +1,5 @@
+<button type="button" class="list-handle" draggable="false"
+        title="Drag to move; or use the arrow keys"
+        aria-label="Move ${label}: arrow up or down">
+  <i class="bi bi-grip-vertical" aria-hidden="true"></i>
+</button>

@@ -103,9 +103,35 @@
    `name` are an accordion in the browser, one open at a time, with no script; Bootstrap's
    accordion gives the look, and what its script does to a bar (the open look) is here */
 .blank-nodes > .accordion { border-radius: var(--bs-border-radius); overflow: hidden; --bar-height: 3.5rem; }
+/* The accordion clips what is outside it (its rounded corners, the focus rings). A menu that
+   is open in a row (the role of a contributor, the lookup of a reference, a calendar, the
+   languages) goes past the end of the row and the accordion: while one is open the clip is
+   lifted, and the first and the last bar have the corners that the clip gave them. */
+.blank-nodes > .accordion:has(.dropdown-menu.show) { overflow: visible; }
+.blank-nodes > .accordion > .blank-node:first-child > details > summary,
+.blank-nodes > .accordion > .blank-node:first-child > .bar-addon {
+  border-top-left-radius: var(--bs-accordion-inner-border-radius);
+}
+.blank-nodes > .accordion > .blank-node:first-child > .bar-addon {
+  border-top-left-radius: 0; border-top-right-radius: var(--bs-accordion-inner-border-radius);
+}
+.blank-nodes > .accordion > .blank-node:first-child > details > summary {
+  border-top-right-radius: var(--bs-accordion-inner-border-radius);
+}
+.blank-nodes > .accordion > .blank-node:last-child:not(:has(> details[open])) > details > summary {
+  border-bottom-left-radius: var(--bs-accordion-inner-border-radius);
+  border-bottom-right-radius: var(--bs-accordion-inner-border-radius);
+}
+.blank-nodes > .accordion > .blank-node:last-child:not(:has(> details[open])) > .bar-addon {
+  border-bottom-right-radius: var(--bs-accordion-inner-border-radius);
+}
 /* a node is a box (the wrapper) with the <details> in it, and the x next to that, over the
    end of the bar; the bar has a height of its own, so that the x can be as high as it is */
 .blank-node { position: relative; isolation: isolate; }
+/* A row is isolated (what is raised in it stays in it), so a menu that is open in it, which goes
+   past the end of the row, is under the fields that come after the row, unless the row as a
+   whole is over them while the menu is open. */
+.blank-node:has(.dropdown-menu.show) { z-index: 20; }
 .blank-node > details > summary {
   list-style: none; cursor: pointer; height: var(--bar-height);
   padding-top: 0; padding-bottom: 0; padding-right: 4.5rem;
@@ -156,18 +182,137 @@
 .language-text > input.language-code::placeholder { color: #c4c8cc; opacity: 1; }
 
 
-/* the caret of a LanguageWidget and the + and x of a BagWidget have the colour of the
-   borders of the controls, as the inputs next to them have */
-.language-text > .dropdown-toggle,
-.bag-button {
-  --bs-btn-color: var(--bs-border-color);
+/* The buttons of an input group (the + and x of a bag, the handle of a list, the calendar of
+   a date, the caret of a language, the Edit and New of a reference) have the border of the
+   inputs next to them, are white inside and a little grey when they are used. It is said
+   here, once, and not by each widget. */
+.input-group > .btn-outline-secondary {
+  --bs-btn-color: var(--bs-secondary-color);
   --bs-btn-bg: var(--bs-body-bg);
   --bs-btn-border-color: var(--bs-border-color);
-  --bs-btn-hover-color: var(--bs-border-color);
+  --bs-btn-hover-color: var(--bs-body-color);
   --bs-btn-hover-bg: var(--bs-tertiary-bg);
   --bs-btn-hover-border-color: var(--bs-border-color);
-  --bs-btn-active-color: var(--bs-border-color);
+  --bs-btn-active-color: var(--bs-body-color);
   --bs-btn-active-bg: var(--bs-tertiary-bg);
   --bs-btn-active-border-color: var(--bs-border-color);
+  --bs-btn-disabled-color: var(--bs-border-color);
+  --bs-btn-disabled-bg: var(--bs-body-bg);
+  --bs-btn-disabled-border-color: var(--bs-border-color);
   --bs-btn-focus-shadow-rgb: 134, 183, 254;
+}
+/* the ones that are an icon or a caret and no words are as light as the borders */
+.input-group > .btn-outline-secondary:is(.bag-button, .dropdown-toggle-split) {
+  --bs-btn-color: var(--bs-border-color);
+  --bs-btn-hover-color: var(--bs-border-color);
+  --bs-btn-active-color: var(--bs-border-color);
+}
+
+/* the date of a DateWidget is as wide as a date, about twelve characters */
+.date-input > .input-group { width: auto; max-width: 14rem; flex-wrap: nowrap; }
+.date-input > .input-group > input.form-control { min-width: 0; }
+.date-calendar { min-width: 17.5rem; }
+.date-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.date-grid > button { padding: 0; height: 2rem; }
+
+/* The rows of a ListWidget: the group of the item is as wide as the rows of a bag, and the
+   handle that moves the row, a bare grip, sticks out at its right, in the margin of the
+   page. Where there is no margin to speak of (a narrow screen) it is beside the group
+   and takes its width. The row that is dragged is dimmed. */
+.list-row { position: relative; }
+.list-handle {
+  position: absolute; left: 100%; top: 50%; transform: translateY(-50%);
+  margin-left: .15rem; padding: 0 .15rem; border: 0; background: none; line-height: 1;
+  color: var(--bs-gray-400); cursor: grab; border-radius: .25rem;
+}
+.list-handle:hover { color: var(--bs-gray-700); }
+.list-handle:active { cursor: grabbing; }
+.list-handle:focus-visible { outline: 0; box-shadow: 0 0 0 .2rem rgba(var(--bs-primary-rgb), .5); color: var(--bs-gray-700); }
+@media (max-width: 575.98px) {
+  .list-row { display: flex; align-items: center; gap: .25rem; }
+  .list-row > .input-group { flex: 1 1 auto; min-width: 0; }
+  .list-handle { position: static; transform: none; margin: 0; flex: none; }
+}
+.list .bag-item.dragging { opacity: .4; }
+
+/* a reference (ReferenceWidget): a group of the text, the button that edits or makes the
+   resource, and under it the menu of what was found. The text is a little grey, unlike the
+   inputs of values: it holds a link to another record and not a value of this one. The icon
+   of the type is in the text, over its padding, on the background, and does not take a part
+   of the group (it is not an addon: the text keeps its corners and its width). */
+.reference { position: relative; }
+.reference > .reference-input {
+  background-color: var(--bs-tertiary-bg); padding-left: 2.4rem;
+  /* Bootstrap takes the left corners and a pixel of margin from every part of a group that
+     is not the first (the icon is the first, in the page): the text is the start of this one */
+  margin-left: 0 !important;
+  border-top-left-radius: var(--bs-border-radius) !important;
+  border-bottom-left-radius: var(--bs-border-radius) !important;
+}
+.reference > .reference-input:focus { background-color: var(--bs-body-bg); }
+.reference > .reference-icon {
+  position: absolute; z-index: 6; /* above the text, which is raised when it has the focus */
+  left: .75rem; top: 50%; transform: translateY(-50%); display: flex; align-items: center;
+  pointer-events: none; /* a click is a click in the text */
+  color: var(--bs-secondary-color);
+}
+.reference.is-set > .reference-input { font-weight: 500; }
+/* Edit and New are as wide as each other: the button does not change its width when a
+   resource is chosen or taken away */
+.reference-open { flex: none; min-width: 5.5rem; }
+.reference-list { top: 100%; left: 0; width: 100%; max-height: 16rem; overflow-y: auto; }
+.reference-list {
+  /* the row the keys are at (or the mouse) is a little grey, not the blue of a selection:
+     what is selected is said by a pill */
+  --bs-dropdown-link-active-bg: var(--bs-tertiary-bg);
+  --bs-dropdown-link-active-color: var(--bs-body-color);
+  --bs-dropdown-link-hover-bg: var(--bs-tertiary-bg);
+}
+.reference-list .dropdown-item { cursor: pointer; white-space: normal; }
+/* the pager at the bottom of the menu stays there when the list is scrolled */
+.reference-pager {
+  position: sticky; bottom: 0; display: flex; align-items: center; justify-content: space-between;
+  gap: .5rem; padding: .25rem .5rem 0; margin-top: .25rem;
+  border-top: var(--bs-border-width) solid var(--bs-border-color); background: var(--bs-dropdown-bg);
+}
+/* text that was typed and not chosen: it is not a reference yet */
+.reference-input.reference-unset { border-color: var(--bs-warning); }
+/* the form in the dialog */
+.reference-frame { width: 100%; height: 75vh; border: 0; display: block; }
+
+/* a group of fields (sh:group): its name is in the column of the labels, like the label of a field
+   (see .form-horizontal above), and the fields are in a box in the column of the inputs. The
+   box is a card-body, so that it has a column of labels of its own, as a subform has. */
+.field-group-box { background: none; }
+
+/* The message of a field that is wrong is shown (Bootstrap) when its input is wrong and the
+   message is the next element: a widget that has its input in a wrapper (a choice of URIs, a
+   reference, a date) has the wrong input one level down, so it is said here. A bag or a list
+   shows the messages of its own rows. */
+.mb-3 > :is(.uri-select, .reference, .date-input):has(.is-invalid) ~ p.invalid-feedback { display: block; }
+
+/* a node that has an error is red at the start of its bar (the badge in the bar says so too) */
+.blank-node:has(> details > summary .badge.text-bg-danger) > details > summary {
+  border-left: .25rem solid var(--bs-danger);
+}
+
+/* A dialog is over a page that is light and blurred, as a whole: every dialog has a backdrop that
+   is white and blurs what is under it, so that the first one over the form and the one over
+   a form in a dialog are the same. The header of the dialog around a form in a dialog, which the
+   backdrop of the dialog on top cannot reach (the form is in an iframe, and the backdrop of
+   its dialog is in that), has the same laid over it: the class `covered`, which the dialog on
+   top asks of the page around it (reference.js). The dialog has a shadow, as it is not dark
+   around it any more. */
+.modal-backdrop {
+  --bs-backdrop-bg: rgba(255, 255, 255, .55); --bs-backdrop-opacity: 1;
+  backdrop-filter: blur(3px);
+}
+/* Bootstrap names the shadow of a dialog (--bs-modal-box-shadow) but does not put it on the
+   dialog: it does here, so that a theme that sets the variable has it. */
+.modal { --bs-modal-box-shadow: 0 1rem 3rem rgba(0, 0, 0, .25); }
+.modal-content { box-shadow: var(--bs-modal-box-shadow); }
+.modal.covered .modal-header { position: relative; }
+.modal.covered .modal-header::after {
+  content: ""; position: absolute; inset: 0; background: rgba(255, 255, 255, .55);
+  backdrop-filter: blur(3px); border-radius: inherit;
 }

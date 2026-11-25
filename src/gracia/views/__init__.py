@@ -78,8 +78,12 @@ def render(request, spec: str, status: int = 200, **values) -> Response:
     values.setdefault("title", values.get("heading", "gracia"))
     values.setdefault("home", home_url(request))
     values.setdefault("flashes", _flashes(request))
+    # a page in a dialog (a form in an iframe, see reference.js): no header, no footer
+    values.setdefault("embed", request.params.get("embed") == "1")
     # the styles and scripts of every page: in the head, see gracia.static
     static.page.need()
+    if values["embed"]:
+        static.embed_js.need()  # tells the page around it that the record is saved
     body = template(spec)(
         request=request,
         layout=template(
@@ -106,6 +110,7 @@ def render_form(
     toggle: tuple[str, str] | None = None,
     modified: str | None = None,
     history: str | None = None,
+    announce: dict | None = None,
 ) -> Response:
     if widgets is not None:
         static.need_form(widgets)
@@ -121,6 +126,7 @@ def render_form(
         toggle=toggle,
         modified=modified,
         history=history,
+        announce=announce,
     )
 
 

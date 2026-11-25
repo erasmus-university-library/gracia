@@ -361,6 +361,35 @@ class Graph:
         if new is not None:
             self.dataset.add(ox.Quad(subject, predicate, new, graph))
 
+    def replace_list(self, subject, predicate, items: list) -> None:
+        """Make the value of a property the rdf:list of the items, in their order (no
+        value for none, and what the old list was made of is gone)."""
+        subject, predicate = _term(subject), _term(predicate)
+        for old in self.objects(subject, predicate):
+            if isinstance(old, ox.BlankNode):
+                self.discard_node(subject, predicate, old)
+        self.replace(subject, predicate, None)
+        first, rest = (ox.NamedNode(_RDF + n) for n in ("first", "rest"))
+        graph = self.graph_name_of(subject)
+        head = ox.NamedNode(_RDF + "nil")
+        for item in reversed(items):
+            cell = ox.BlankNode()
+            self.add_value(cell, first, item, graph)
+            self.add_value(cell, rest, head, graph)
+            head = cell
+        if items:
+            self.add_value(subject, predicate, head, graph)
+
+    def discard_plain(self, subject, predicate) -> None:
+        """Take away the values of a property that are not blank nodes (a form of
+        values leaves the nodes alone, which another form has)."""
+        subject, predicate = _term(subject), _term(predicate)
+        for quad in list(self.dataset.quads_for_subject(subject)):
+            if quad.predicate == predicate and not isinstance(
+                quad.object, ox.BlankNode
+            ):
+                self.dataset.discard(quad)
+
     def discard_node(self, subject, predicate, node) -> None:
         subject, predicate = _term(subject), _term(predicate)
         for quad in list(self.dataset.quads_for_subject(subject)):

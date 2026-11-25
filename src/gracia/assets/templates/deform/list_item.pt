@@ -1,0 +1,35 @@
+<div tal:define="target target|field.oid;
+                 url url|None;
+                 path path|'';
+                 index index|0;
+                 last last|True;
+                 add_text add_text|'Add';
+                 can_add can_add|True;
+                 can_remove can_remove|True;
+                 autofocus autofocus|False;
+                 labelled labelled|None;
+                 parent parent|None;
+                 label ((parent.title if parent is not None else field.title) + ' ' + str(index + 1));
+                 takes_addon getattr(field.widget, 'takes_addon', False);
+                 handle field.renderer('list_handle', label=label);
+                 addon field.renderer('bag_button', field=field, target=target, url=url,
+                                      path=path, index=index, last=last, add_text=add_text, label=label,
+                                      can_add=can_add, can_remove=can_remove) if url else ''"
+     class="bag-item mb-2"
+     tal:attributes="data-autofocus 'data-autofocus' if autofocus else None"
+     i18n:domain="deform">
+  <!-- one row of a list (list.pt): the input of the item, with the button that adds a row (the
+       last row) or takes this one away (the others) at the end of it, and after that the handle
+       that moves the row (list.js): a bare grip, not a part of the group -->
+  <div class="list-row">
+    <span tal:condition="takes_addon" tal:replace="structure field.serialize(cstruct, addon=addon, label=label)"/>
+    <div tal:condition="not takes_addon" class="input-group">
+      <span tal:replace="structure field.serialize(cstruct, attributes=labelled(field, label)).strip()"/>
+      <span tal:replace="structure addon"/>
+    </div>
+    <span tal:replace="structure handle"/>
+  </div>
+  <div class="text-danger small" tal:condition="field.error and not field.children"
+       id="error-${field.oid}"
+       tal:repeat="msg field.error.messages()">${msg}</div>
+</div>

@@ -122,6 +122,44 @@ class DocTest(DocsCase):
             doc["text"], "Ada Ada Lovelace Lovelace"
         )  # sorted, distinct values
 
+    def test_the_rdf_types_are_in_the_doc_whichever_way_the_xml_says_them(self):
+        """RDF/XML says one type as the name of an element and the others as properties,
+        or all of them as properties: it is as the serializer comes upon them."""
+        wrap = (
+            '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" '
+            'xmlns:g="https://gracia.pub/ns/" xmlns:foaf="http://xmlns.com/foaf/0.1/" '
+            'xmlns:s="https://schema.org/">'
+            '<rdf:Description rdf:about="rec:person:1"><g:resource rdf:nodeID="b1"/>'
+            "</rdf:Description>{}</rdf:RDF>"
+        )
+        person, thing = "http://xmlns.com/foaf/0.1/Person", "https://schema.org/Thing"
+        as_property = (
+            '<rdf:Description rdf:nodeID="b1"><rdf:type rdf:resource="{}"/>'
+            "</rdf:Description>"
+        )
+        forms = {
+            "an element name": (
+                '<foaf:Person rdf:nodeID="b1"><foaf:name>Ada</foaf:name></foaf:Person>',
+                [person],
+            ),
+            "a property": (as_property.format(person), [person]),
+            "an element name and a property": (
+                '<foaf:Person rdf:nodeID="b1"><rdf:type rdf:resource="' + thing + '"/>'
+                "</foaf:Person>",
+                [person, thing],
+            ),
+            "no type": ('<rdf:Description rdf:nodeID="b1"/>', None),
+        }
+        repository = self.application["test_repo"]
+        for how, (xml, expected) in forms.items():
+            with self.subTest(how=how):
+                found = self.cache.docs.bulk_update(
+                    repository,
+                    {"rec:person:1": self.rid("rec:person:1")},
+                    wrap.format(xml),
+                )
+                self.assertEqual(found["rec:person:1"].get("resource_type"), expected)
+
     def test_a_record_of_a_type_with_no_template_has_the_doc_of_the_base_only(self):
         self.assertNotIn("given_name", self.doc("rec:thing:1"))
 
@@ -592,6 +630,7 @@ class SchemaModeTest(DocsCase):
             "label",
             "text",
             "resource_uri",
+            "resource_type",
             "published",
             "modified",
         ):
@@ -608,6 +647,7 @@ class SchemaModeTest(DocsCase):
                 "label",
                 "text",
                 "resource_uri",
+                "resource_type",
                 "published",
                 "modified",
             },

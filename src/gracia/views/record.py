@@ -119,9 +119,10 @@ class RecordView(View):
         return self.form_page()
 
     def saved(self) -> HTTPFound:
-        return HTTPFound(
-            self.request.resource_url(self.record, "edit", query={"saved": "1"})
-        )
+        query = {"saved": "1"}
+        if self.request.params.get("embed") == "1":
+            query["embed"] = "1"  # the form is in a dialog: and stays there
+        return HTTPFound(self.request.resource_url(self.record, "edit", query=query))
 
     def page(self, body: str, errors=(), **options):
         if (
@@ -135,6 +136,31 @@ class RecordView(View):
                 options.setdefault(
                     "history", self.request.resource_url(self.record, "history")
                 )
+        request = self.request
+        if (
+            not self.new
+            and request.params.get("embed") == "1"
+            and "saved" in request.GET
+            and request.method == "GET"
+        ):
+            # what the page around the dialog needs of the record that was saved: the
+            # uri it is pointed at by, how it is shown, and where its form is
+            record = self.record
+            found = record.graph.value(
+                ox.NamedNode(record.uri), ox.NamedNode(uri.RESOURCE_URI)
+            )
+            options.setdefault(
+                "announce",
+                {
+                    "uri": found.value
+                    if found is not None
+                    else uri.default_resource_uri(record.uri),
+                    "label": record.title,
+                    "edit": request.resource_url(record, "edit", query={"embed": "1"}),
+                    "icon": self.res_type.icon or "",
+                    "record": record.uri,
+                },
+            )
         return self.render_form(
             self.heading, self.subtitle, body, errors=errors, **options
         )

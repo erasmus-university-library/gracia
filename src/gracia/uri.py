@@ -76,6 +76,9 @@ IS_PUBLISHED = G_NS.is_published  # record -> whether it is published (xsd:boole
 TIMEZONE = (
     G_NS.timezone
 )  # repository -> the name of its time zone (Europe/Amsterdam); none: UTC
+LOCALE = (
+    G_NS.locale
+)  # repository -> the locale dates are shown and typed in (nl-NL); none: ISO 8601
 CLASS = G_NS["class"]  # type -> the rdf class of its resources
 USERID = G_NS.userid
 CREDENTIALS = G_NS.credentials  # a salted hash, never exported

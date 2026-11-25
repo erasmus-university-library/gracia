@@ -8,8 +8,8 @@
   <!-- the styles and scripts are put here by gracia.static: one of each, cached for good -->
   <metal:slot define-slot="head"></metal:slot>
 </head>
-<body>
-  <header class="container py-3 border-bottom mb-4">
+<body tal:define="embedded embed|False">
+  <header class="container py-3 border-bottom mb-4" tal:condition="not embedded">
     <a class="gracia-logo mb-3" href="${home}" aria-label="gracia, home">
       <span class="wave" aria-hidden="true">👋</span><span>gracia</span>
     </a>
@@ -17,7 +17,7 @@
       <h1 class="h3 mb-0">${title}</h1>
     </metal:slot>
   </header>
-  <main class="container pb-4">
+  <main tal:attributes="class 'container-fluid px-4 py-4' if embedded else 'container pb-4'">
     <div tal:repeat="flash flashes" class="alert alert-${flash[0]} alert-dismissible fade show"
          role="alert">
       ${flash[1]}
@@ -25,7 +25,7 @@
     </div>
     <metal:slot define-slot="content"></metal:slot>
   </main>
-  <footer class="container py-3 border-top text-muted small">
+  <footer class="container py-3 border-top text-muted small" tal:condition="not embedded">
     <metal:slot define-slot="footer">gracia</metal:slot>
   </footer>
 </body>

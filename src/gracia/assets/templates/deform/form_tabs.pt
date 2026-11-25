@@ -41,12 +41,30 @@
     <div class="tab-content">
       <div class="tab-pane${' active' if tab.active else ''}" id="${tab.id}" role="tabpanel"
            aria-labelledby="${tab.id}-tab"
+           tal:attributes="data-only-for-fields tab.only_for if tab.only_for != '{}' else None"
            tal:repeat="tab tabs">
         <tal:mapping tal:condition="tab.mapping is not None">
           <div class="alert alert-danger" tal:condition="tab.mapping.errormsg">${tab.mapping.errormsg}</div>
           ${structure: tab.mapping.start_mapping()}
-          <div tal:repeat="child tab.mapping.children"
-               tal:replace="structure child.render_template(item_template)"/>
+          <!-- the fields that are in a group (sh:group) next to each other are in a box of their own -->
+          <tal:run tal:repeat="run field.widget.runs(tab.mapping.children)">
+            <!-- A group of fields (sh:group): its name is in the column of the labels, as the label of a
+                 field is, and the fields are in a box in the column of the inputs, which has a column of
+                 labels of its own (a card-body, as a subform has) -->
+            <div tal:condition="run.group" class="mb-3 field-group" role="group"
+                 aria-labelledby="${tab.id}-group-${repeat.run.index}">
+              <label class="form-label" id="${tab.id}-group-${repeat.run.index}">${run.group}</label>
+              <div class="field-group-box card-body border rounded p-3 pb-1">
+                <div tal:repeat="child run.fields"
+                     tal:replace="structure child.render_template(item_template)"/>
+              </div>
+            </div>
+            <!-- /field-group -->
+            <tal:plain tal:condition="not run.group">
+              <div tal:repeat="child run.fields"
+                   tal:replace="structure child.render_template(item_template)"/>
+            </tal:plain>
+          </tal:run>
           ${structure: tab.mapping.end_mapping()}
         </tal:mapping>
         <tal:loose tal:condition="tab.mapping is None">

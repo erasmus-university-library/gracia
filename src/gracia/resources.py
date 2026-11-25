@@ -11,7 +11,7 @@ from pyramid.authorization import ALL_PERMISSIONS, DENY_ALL, Allow, Everyone
 from pyramid.threadlocal import get_current_request
 from zope.interface import implementer
 
-from gracia import forms, hints, predicates, templates, traversal, uri
+from gracia import dates, forms, hints, predicates, templates, traversal, uri
 from gracia.graph import Graph
 from gracia.interfaces import IDeformView, IExtension, IGraciaType, IRepository
 from gracia.store import new_store
@@ -69,6 +69,23 @@ class Resolved(Node):
             raise KeyError(key)
         self.__name__ = key
         self.record = repository.types[parsed[0]][str(parsed[1])]
+
+
+def edit_address(request, repository, record: str, slug: str | None) -> str:
+    """Where the form of a record is, for a dialog (`embed`): none, when the person may
+    not edit records of its type."""
+    parsed = uri.parse_record_uri(record)
+    if parsed is None:
+        return ""
+    try:
+        node = repository[parsed[0]]
+    except KeyError:
+        return ""
+    if not request.has_permission("edit", node):
+        return ""
+    return request.resource_url(
+        node, slug or str(parsed[1]), "edit", query={"embed": "1"}
+    )
 
 
 @implementer(IRepository)
@@ -144,18 +161,21 @@ class Repository:
             self, "1", self.uri, graph
         )
 
-    def timezone(self) -> datetime.tzinfo:
+    def _setting(self, predicate: str) -> str:
         try:
             record = self.record()
         except LookupError:
-            return datetime.UTC
+            return ""
         if record.resource is None:
-            return datetime.UTC
-        found = record.graph.value(record.resource, _N(uri.TIMEZONE))
+            return ""
+        found = record.graph.value(record.resource, _N(predicate))
+        return found.value if found is not None and found.value else ""
+
+    def timezone(self) -> datetime.tzinfo:
         try:
             return (
-                zoneinfo.ZoneInfo(found.value)
-                if found is not None and found.value
+                zoneinfo.ZoneInfo(name)
+                if (name := self._setting(uri.TIMEZONE))
                 else datetime.UTC
             )
         except (
@@ -164,6 +184,33 @@ class Repository:
             OSError,
         ):  # a name this system does not know
             return datetime.UTC
+
+    def shape_types(self, shape_uris) -> list["Type"]:
+        """The types whose shape is one of the shapes (`ex:PersonShape`): what the
+        resources a reference points at are records of."""
+        wanted = {s.value if hasattr(s, "value") else str(s) for s in shape_uris}
+        found = []
+        for res_type in self.types.values():
+            shapes = res_type.shacl_shape(include_record_shape=False)
+            if shapes is not None and getattr(shapes[1], "value", None) in wanted:
+                found.append(res_type)
+        return found
+
+    def shape_classes(self, shape_uris) -> list[str]:
+        """The classes of the resources a reference points at: the target classes of the
+        shapes of those types."""
+        found: set[str] = set()
+        for res_type in self.shape_types(shape_uris):
+            graph, primary = res_type.shacl_shape(include_record_shape=False)
+            found.update(
+                o.value for o in graph.objects(primary, _N(uri.SH_TARGET_CLASS))
+            )
+        return sorted(found)
+
+    def locale(self) -> str:
+        """The locale of dates (a key of `dates.FORMATS`); ISO 8601 if none."""
+        name = self._setting(uri.LOCALE)
+        return name if name in dates.FORMATS else ""
 
     @cached_property
     def types(self) -> dict[str, "Type"]:
@@ -407,6 +454,12 @@ class Type(Node):
     def property_roles(self) -> list[tuple[str, str, int]]:
         return hints.property_roles(*self.shacl_shape(), self.class_uri)
 
+    @cached_property
+    def icon(self) -> str | None:
+        """The Bootstrap icon of the type (the icon role of its shape), if any."""
+        shapes = self.shacl_shape(include_record_shape=False)
+        return forms.icon(*shapes) if shapes else None
+
     def property_role_paths(self, role: str) -> list[str]:
         return [path for r, path, _place in self.property_roles if r == role]
 
@@ -606,6 +659,7 @@ class Record(Node):
         made: dict[str, list] = {}
         for template in templates.of_shape(shapes, shape):
             made.setdefault(template.target, []).append(template)
+        only_for = forms.fields_only_for(shapes, shape)  # fields of some works only
         for path, prop in forms.properties(shapes, shape):
             if path in self.hidden:
                 continue
@@ -621,6 +675,12 @@ class Record(Node):
                     shapes, nested, request, depth + 1, (*above, shape)
                 ):
                     node.add(child)
+                forms.apply_only_for(shapes, shape, path, node.children)
+                node.only_for_fields = {  # of some works only: the page hides them
+                    child.name: child.only_for_classes
+                    for child in node.children
+                    if getattr(child, "only_for_classes", None)
+                }
                 node.validator = self._sibling_validator(
                     node.children,
                     forms.alternatives_validator(shapes, nested, node.children),
@@ -656,6 +716,14 @@ class Record(Node):
                     node.icon = node.children[0].icon
             else:
                 node = forms.leaf_node(shapes, prop, path)
+                if node is None and forms.is_list(shapes, prop):
+                    target = self.type if self.is_new else self
+                    node = forms.list_node(
+                        shapes,
+                        prop,
+                        path,
+                        request.resource_url(target, "sequence") if request else None,
+                    )
                 if node is None and forms.is_bag(shapes, prop):
                     target = self.type if self.is_new else self
                     node = forms.bag_node(
@@ -664,6 +732,28 @@ class Record(Node):
                         path,
                         request.resource_url(target, "sequence") if request else None,
                     )
+                if node is not None:
+                    forms.localize_dates(node, self.repository)
+                if (
+                    node is not None
+                    and request is not None
+                    and forms.by_uri(shapes, prop)
+                ):
+                    named = forms.reference_shapes(shapes, prop, shape)
+                    classes, new, icons = self.reference_kinds(request, named)
+                    if classes:  # a reference to records: looked for by their labels
+                        forms.wire_references(
+                            node,
+                            classes,
+                            request.resource_url(self.repository, "lookup"),
+                            self.reference_labels,
+                            lambda record, slug: edit_address(
+                                request, self.repository, record, slug
+                            ),
+                            new,
+                            icons,
+                            self._follow(request, shapes, shape, prop),
+                        )
                 if node is not None and path == uri.RDF_TYPE:
                     node.initial = (
                         self.type.class_uri
@@ -675,6 +765,10 @@ class Record(Node):
                         templates.variants_json(made[path]),
                         forms.needed(shapes, shape, path),
                     )
+            if node is not None:
+                node.group = forms.property_group(shapes, prop)
+            if node is not None and path in only_for:
+                node.only_for_classes = only_for[path]
             if node is not None:
                 node.depth = (
                     depth  # 0: a property of the record, 1: of its content (a predicate
@@ -690,9 +784,51 @@ class Record(Node):
                 nodes.append(node)
         return nodes
 
+    def reference_kinds(self, request, shape_uris) -> tuple[list, list, dict]:
+        """What a reference to the records of these shapes needs: the classes of their
+        resources (the lookup), the types of the records that a person may add (the New
+        button, with the address of each form) and the icon of each type."""
+        found = self.repository.shape_types(shape_uris)
+        return (
+            self.repository.shape_classes(shape_uris),
+            [
+                {
+                    "icon": res_type.icon or "",
+                    "label": res_type.name,
+                    "url": request.resource_url(
+                        self.repository[res_type.slug], "add", query={"embed": "1"}
+                    ),
+                }
+                for res_type in found
+                if request.has_permission("add", self.repository[res_type.slug])
+            ],
+            {res_type.slug: res_type.icon or "" for res_type in found},
+        )
+
+    def _follow(self, request, shapes, shape, prop) -> dict | None:
+        """For a reference that follows the field next to it (the role of a
+        contributor): what it points at for each value of that field."""
+        followed = forms.class_follow(shapes, shape, prop)
+        if followed is None:
+            return None
+        path, by_value = followed
+        kinds = {}
+        for value, named in by_value.items():
+            classes, new, icons = self.reference_kinds(request, named)
+            if classes:
+                known = {i for i in icons.values() if i}
+                kinds[value] = {
+                    "classes": classes,
+                    "new": new,
+                    "icon": known.pop() if len(known) == 1 else forms.GENERIC_ICON,
+                }
+        return {"name": forms.local_name(path), "map": kinds} if kinds else None
+
     def _sibling_validator(self, nodes, extra=None):
         found = [extra] if extra is not None else []
         if (validator := forms.template_validator(nodes)) is not None:
+            found.append(validator)
+        if (validator := forms.only_for_validator(nodes)) is not None:
             found.append(validator)
         for node in nodes:
             code = predicates.find(
@@ -724,6 +860,10 @@ class Record(Node):
 
     def extra_fields(self) -> list[colander.SchemaNode]:
         return []
+
+    @cached_property
+    def reference_labels(self) -> forms.ReferenceLabels:
+        return forms.ReferenceLabels(self.repository.store.resource_records)
 
     def edit_schema(self, request=None) -> colander.Schema:
         request = request or get_current_request()
@@ -787,6 +927,11 @@ class Record(Node):
             ]
         return sorted(o.value for o in found)
 
+    # the rows of a list: the items of the rdf:list that is the value, in its order
+    def _list_values(self, subject, path) -> list[str]:
+        heads = self.graph.objects(subject, path) if subject is not None else []
+        return [o.value for head in heads[:1] for o in self.graph.walk_list(head)]
+
     def form_values(self) -> dict:
         nested_nodes = self._nested_nodes
 
@@ -794,7 +939,9 @@ class Record(Node):
             values = {}
             for node in nodes:
                 path = getattr(node, "predicate", None)
-                if getattr(node, "bag", False):
+                if getattr(node, "list", False):
+                    values[node.name] = self._list_values(subject, path)
+                elif getattr(node, "bag", False):
                     values[node.name] = self._bag_values(node, subject, path)
                 elif getattr(node, "language_tagged", False):
                     text, language = predicates.read_language_text(
@@ -824,15 +971,52 @@ class Record(Node):
                     )
             return values
 
-        return read(self.edit_schema().children, _N(self.uri) if self.uri else None)
+        schema = self.edit_schema()
+        values = read(schema.children, _N(self.uri) if self.uri else None)
+        self._prefetch_labels(schema.children, values)
+        return values
+
+    def _prefetch_labels(self, nodes, values: dict) -> None:
+        """The labels of the references the form shows, in one go."""
+        found: list[str] = []
+
+        def walk(nodes, values) -> None:
+            for node in nodes:
+                value = values.get(node.name)
+                if getattr(node, "reference", False):
+                    found.extend(value if isinstance(value, list) else [value])
+                elif isinstance(node.typ, colander.Sequence) and isinstance(
+                    value, list
+                ):
+                    for each in value:
+                        walk(node.children[0].children, each)
+                elif isinstance(node.typ, colander.Mapping) and isinstance(value, dict):
+                    walk(node.children, value)
+
+        walk(nodes, values)
+        self.reference_labels.prefetch([u for u in found if isinstance(u, str)])
 
     def apply_form(self, data: dict) -> None:
         def write(nodes, data: dict, subject) -> None:
+            typed = next(
+                (n for n in nodes if getattr(n, "predicate", None) == uri.RDF_TYPE),
+                None,
+            )
+            kind = (data.get(typed.name) or "").strip() if typed is not None else None
             for node in nodes:
                 path = getattr(node, "predicate", None)
+                classes = getattr(node, "only_for_classes", None)
+                if path and classes and kind is not None and kind not in classes:
+                    self.graph.replace(subject, _N(path), None)  # not for this work
+                    continue
                 if path is None or node.name not in data:
                     continue  # a field that is not stored as it is, or nothing was said
-                if getattr(node, "bag", False):
+                if getattr(node, "list", False):
+                    rows = [(t or "").strip() for t in data[node.name] or []]
+                    self.graph.replace_list(
+                        subject, path, [_N(t) for t in dict.fromkeys(rows) if t]
+                    )
+                elif getattr(node, "bag", False):
                     wanted: list[tuple[str, str]] = []
                     for said in data[node.name] or []:
                         text = said.get("value") if isinstance(said, dict) else said
@@ -840,12 +1024,18 @@ class Record(Node):
                         row = ((text or "").strip(), language or "")
                         if row[0] and row not in wanted:  # no value, or the same again
                             wanted.append(row)
-                    self.graph.replace(subject, path, None)
+                    self.graph.discard_plain(subject, path)  # the blank nodes stay
+                    kinds = getattr(node.children[0], "date_kinds", None)
                     for text, language in wanted:
+                        datatype = dates.datatype_of(text) if kinds else None
                         term = (
                             _N(text)
                             if getattr(node, "as_uri", False)
-                            else ox.Literal(text, language=language or None)
+                            else ox.Literal(
+                                text,
+                                language=language or None,
+                                datatype=_N(datatype) if datatype else None,
+                            )
                         )
                         self.graph.add_value(subject, path, term)
                 elif getattr(node, "language_tagged", False):
@@ -886,6 +1076,11 @@ class Record(Node):
                         path,
                         data[node.name],
                         getattr(node, "as_uri", False),
+                        datatype=(
+                            dates.datatype_of(data[node.name] or "")
+                            if getattr(node, "date_kinds", None)
+                            else None
+                        ),
                     )
 
         write(self.edit_schema().children, data, _N(self.uri))

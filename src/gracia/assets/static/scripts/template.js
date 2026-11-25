@@ -45,7 +45,8 @@
     const valuesOf = (pieces) => {
       const values = {};
       for (const name of sources(pieces)) {
-        values[name] = fields[name] ? fields[name].value : "";
+        // what a choice is called (data-label of a select of URIs, a reference), else its value
+        values[name] = fields[name] ? fields[name].dataset.label || fields[name].value : "";
       }
       return values;
     };

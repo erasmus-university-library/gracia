@@ -6,6 +6,7 @@ from typing import ClassVar
 
 import pyoxigraph as ox
 from harness import ConfiguredCase
+from support import uri_select
 
 from gracia import forms, types
 from gracia.utils import assets
@@ -73,26 +74,16 @@ class OrganizationCase(ConfiguredCase):
 
 class SubclassTest(OrganizationCase):
     def test_the_form_has_a_choice_of_the_classes_named_by_their_names(self):
-        page = self.web.get(ADD, headers=AUTH).text
-        select = re.search(r'(?s)<select[^>]*name="type".*?</select>', page)
-        assert select is not None
-        options = re.findall(
-            r'<option[^>]*value="([^"]*)"[^>]*>([^<]*)</option>', select[0]
-        )
+        select = uri_select(self.web.get(ADD, headers=AUTH).text)
         self.assertEqual(
-            options,
+            select.items,
             [("", "- choose -")] + [(SCHEMA + c, forms.uri_label(c)) for c in CLASSES],
         )
-        self.assertIn("College or university", select[0])
+        self.assertIn("College or university", select.html)
 
     def test_the_class_of_the_type_is_the_one_a_new_resource_starts_with(self):
-        page = self.web.get(ADD, headers=AUTH).text
-        select = re.search(r'(?s)<select[^>]*name="type".*?</select>', page)
-        assert select is not None
-        selected = re.findall(
-            r'<option[^>]*selected[^>]*value="([^"]*)"', select[0]
-        ) or re.findall(r'<option[^>]*value="([^"]*)"[^>]*selected', select[0])
-        self.assertEqual(selected, [SCHEMA + "Organization"])
+        select = uri_select(self.web.get(ADD, headers=AUTH).text)
+        self.assertEqual(select.chosen, SCHEMA + "Organization")
 
     def test_a_subclass_is_the_only_rdf_type_the_resource_has(self):
         for number, kind in enumerate(CLASSES, 1):
@@ -106,11 +97,11 @@ class SubclassTest(OrganizationCase):
         page = self.web.get(
             "/test_repo/organization/university-of-delft/edit", headers=AUTH
         ).text
-        select = re.search(r'(?s)<select[^>]*name="type".*?</select>', page)
-        assert select is not None
-        chosen = re.findall(r"<option[^>]*selected[^>]*>", select[0])
-        self.assertEqual(len(chosen), 1)
-        self.assertIn('value="https://schema.org/CollegeOrUniversity"', chosen[0])
+        select = uri_select(page)
+        self.assertEqual(select.chosen, SCHEMA + "CollegeOrUniversity")
+        self.assertEqual(
+            select.selected, 1
+        )  # one item says it is selected, and only one
 
     def test_another_class_replaces_the_one_there_was(self):
         self.post(SCHEMA + "CollegeOrUniversity")
@@ -255,12 +246,20 @@ class TabFollowsTheClassTest(OrganizationCase):
         )
 
     def test_the_options_of_the_select_have_the_names_the_shape_gives(self):
-        page = self.web.get(ADD, headers=AUTH).text
-        select = re.search(r'(?s)<select[^>]*name="type".*?</select>', page)
-        assert select is not None
+        select = uri_select(self.web.get(ADD, headers=AUTH).text)
         self.assertEqual(
-            re.findall(r"<option[^>]*>([^<]*)</option>", select[0]),
+            [label for _value, label in select.items],
             ["- choose -", *(label for label, _icon in self.LOOKS.values())],
+        )
+
+    def test_the_options_have_the_icons_the_shape_gives(self):
+        select = uri_select(self.web.get(ADD, headers=AUTH).text)
+        icons = dict(
+            re.findall(r'data-value="([^"]+)"[^>]*data-icon="([^"]*)"', select.html)
+        )
+        self.assertEqual(
+            {c.removeprefix(SCHEMA): i for c, i in icons.items()},
+            {c: icon for c, (_label, icon) in self.LOOKS.items()},
         )
 
     def test_the_select_tells_the_browser_what_the_tab_is_called_and_has(self):

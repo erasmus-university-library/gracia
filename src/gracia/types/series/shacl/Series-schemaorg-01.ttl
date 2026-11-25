@@ -4,7 +4,21 @@
 @prefix dash:   <http://datashapes.org/dash#> .
 @prefix xsd:    <http://www.w3.org/2001/XMLSchema#> .
 @prefix rdf:    <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:   <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix ex:     <http://example.org/shapes#> .
+
+# ============================================================================
+# The classes of a series, as people see them: the name of a choice and of the tab of the
+# form, and its icon (a Bootstrap icon)
+# ============================================================================
+schema:Periodical rdfs:label "Periodical" ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "journals" .
+schema:Newspaper rdfs:label "Newspaper" ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "newspaper" .
+schema:BookSeries rdfs:label "Book series" ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "bookshelf" .
+schema:CreativeWorkSeries rdfs:label "Series" ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "collection" .
 
 # ============================================================================
 # 1. CreativeWorkSeries Shape (covers CreativeWorkSeries & bibliographic subtypes)
@@ -17,19 +31,20 @@ ex:CreativeWorkSeriesShape a sh:NodeShape ;
                    schema:BookSeries ,
                    schema:Newspaper ;
 
-    # Explicit rdf:type check (works without RDFS reasoning and allows dual-typing)
+    # What kind of series it is: one rdf:type, of the classes above (the form has a choice;
+    # schema:CreativeWorkSeries, the class of the type, is the one it starts with)
     sh:property [
         sh:path rdf:type ;
-        sh:qualifiedValueShape [
-            sh:in (
-                schema:CreativeWorkSeries
-                schema:Periodical
-                schema:BookSeries
+        sh:name "type" ;
+        sh:order 0 ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:in ( schema:Periodical
                 schema:Newspaper
-            )
-        ] ;
-        sh:qualifiedMinCount 1 ;
-        sh:message "Node must have an rdf:type of CreativeWorkSeries, Periodical, BookSeries, or Newspaper."
+                schema:BookSeries
+                schema:CreativeWorkSeries ) ;
+        sh:message "A series has one rdf:type: Periodical, Newspaper, BookSeries or CreativeWorkSeries."
     ] ;
 
     # Series / Journal title (required)
@@ -79,16 +94,6 @@ ex:CreativeWorkSeriesShape a sh:NodeShape ;
         sh:message "schema:additionalType must be a concept IRI."
     ] ;
 
-    # Native Schema.org ISSN property
-    sh:property [
-        sh:path schema:issn ;
-        sh:name "ISSN" ;
-        sh:order 5 ;
-        sh:datatype xsd:string ;
-        sh:pattern "^\\d{4}-\\d{3}[0-9X]$" ;
-        sh:message "schema:issn must follow the 8-character ISSN format (e.g. 0302-9743)."
-    ] ;
-
     # Series run dates
     sh:property [
         sh:path schema:startDate ;
@@ -113,7 +118,7 @@ ex:CreativeWorkSeriesShape a sh:NodeShape ;
         sh:message "schema:endDate must be an xsd:date or xsd:gYear."
     ] ;
 
-    # Structured identifiers (EISSN, DOI prefix, internal series ID, etc.)
+    # Structured identifiers (ISSN, ISBN, OpenAlex, a local one, one of another source)
     sh:property [
         sh:path schema:identifier ;
         sh:name "identifier" ;
@@ -144,6 +149,8 @@ ex:CreativeWorkSeriesShape a sh:NodeShape ;
     sh:property [
         sh:path schema:inLanguage ;
         sh:name "in language" ;
+        dash:editor gracia:LanguageEditor ;
+        sh:maxCount 1 ;
         sh:order 8 ;
         sh:datatype xsd:string
     ] ;
@@ -161,6 +168,7 @@ ex:CreativeWorkSeriesShape a sh:NodeShape ;
         sh:path schema:publisher ;
         sh:name "publisher" ;
         sh:order 10 ;
+        dash:editor dash:URIEditor ;
         sh:node ex:OrganizationShape ;
         sh:message "schema:publisher must be a valid schema:Organization node."
     ] .
@@ -177,38 +185,26 @@ ex:PropertyValueShape a sh:NodeShape ;
 
     # the kinds of identifier, and what the value of each looks like (the other kinds, a
     # local one and one of some other source, can be anything)
-    sh:message "The value is not in the form of its kind: ORCID 0000-0002-1825-0097, ISNI 16 digits, OpenAlex A5023888391, Scopus 6 to 12 digits, ResearcherId A-1234-2008" ;
+    sh:message "The value is not in the form of its kind: ISSN 0302-9743, ISBN 10 or 13 digits, OpenAlex S4210172589" ;
     sh:or (
-        [ sh:property [ sh:path schema:propertyID ; sh:hasValue "ORCID" ] ;
-          sh:property [ sh:path schema:value ; sh:pattern "^\\d{4}-\\d{4}-\\d{4}-\\d{3}[\\dX]$" ;
-            sh:message "An ORCID iD is four groups of four digits, like 0000-0002-1825-0097." ] ;
-          sh:property [ sh:path schema:url ; sh:pattern "^https://orcid\\.org/" ;
-            sh:message "An ORCID URL starts with https://orcid.org/" ;
-            gracia:propertyTemplate ( "https://orcid.org/{}" schema:value ) ] ]
-        [ sh:property [ sh:path schema:propertyID ; sh:hasValue "ISNI" ] ;
-          sh:property [ sh:path schema:value ; sh:pattern "^\\d{15}[\\dX]$" ;
-            sh:message "An ISNI is 16 digits (the last may be X), like 0000000121032683." ] ;
-          sh:property [ sh:path schema:url ; sh:pattern "^https://isni\\.org/" ;
-            sh:message "An ISNI URL starts with https://isni.org/isni/" ;
-            gracia:propertyTemplate ( "https://isni.org/isni/{}" schema:value ) ] ]
+        [ sh:property [ sh:path schema:propertyID ; sh:hasValue "ISSN" ] ;
+          sh:property [ sh:path schema:value ; sh:pattern "^\\d{4}-\\d{3}[\\dX]$" ;
+            sh:message "An ISSN is two groups of four digits (the last may be X), like 0302-9743." ] ;
+          sh:property [ sh:path schema:url ; sh:pattern "^urn:issn:" ;
+            sh:message "An ISSN URL starts with urn:issn:" ;
+            gracia:propertyTemplate ( "urn:issn:{}" schema:value ) ] ]
+        [ sh:property [ sh:path schema:propertyID ; sh:hasValue "ISBN" ] ;
+          sh:property [ sh:path schema:value ; sh:pattern "^(?:\\d-?){9}[\\dXx]$|^97[89](?:-?\\d){10}$" ;
+            sh:message "An ISBN is 10 digits (the last may be X) or 13 digits that start with 978 or 979, with or without hyphens, like 978-3-16-148410-0." ] ;
+          sh:property [ sh:path schema:url ; sh:pattern "^urn:isbn:" ;
+            sh:message "An ISBN URL starts with urn:isbn:" ;
+            gracia:propertyTemplate ( "urn:isbn:{}" schema:value ) ] ]
         [ sh:property [ sh:path schema:propertyID ; sh:hasValue "OpenAlex" ] ;
-          sh:property [ sh:path schema:value ; sh:pattern "^[A-Za-z]\\d+$" ;
-            sh:message "An OpenAlex id is a letter and digits, like A5023888391." ] ;
+          sh:property [ sh:path schema:value ; sh:pattern "^S\\d+$" ;
+            sh:message "An OpenAlex source id is an S and digits, like S4210172589." ] ;
           sh:property [ sh:path schema:url ; sh:pattern "^https://openalex\\.org/" ;
             sh:message "An OpenAlex URL starts with https://openalex.org/" ;
             gracia:propertyTemplate ( "https://openalex.org/{}" schema:value ) ] ]
-        [ sh:property [ sh:path schema:propertyID ; sh:hasValue "Scopus" ] ;
-          sh:property [ sh:path schema:value ; sh:pattern "^\\d{6,12}$" ;
-            sh:message "A Scopus id is 6 to 12 digits, like 57189222659." ] ;
-          sh:property [ sh:path schema:url ; sh:pattern "^https://www\\.scopus\\.com/" ;
-            sh:message "A Scopus URL starts with https://www.scopus.com/authid/detail.uri?authorId=" ;
-            gracia:propertyTemplate ( "https://www.scopus.com/authid/detail.uri?authorId={}" schema:value ) ] ]
-        [ sh:property [ sh:path schema:propertyID ; sh:hasValue "ResearcherId" ] ;
-          sh:property [ sh:path schema:value ; sh:pattern "^[A-Za-z]{1,3}-\\d{4}-\\d{4}$" ;
-            sh:message "A ResearcherId is like A-1234-2008." ] ;
-          sh:property [ sh:path schema:url ; sh:pattern "^https://www\\.webofscience\\.com/" ;
-            sh:message "A ResearcherId URL starts with https://www.webofscience.com/wos/author/rid/" ;
-            gracia:propertyTemplate ( "https://www.webofscience.com/wos/author/rid/{}" schema:value ) ] ]
         [ sh:property [ sh:path schema:propertyID ; sh:in ( "Local" "External" ) ] ]
     ) ;
 
@@ -220,7 +216,7 @@ ex:PropertyValueShape a sh:NodeShape ;
         sh:minCount 1 ;
         sh:maxCount 1 ;
         sh:datatype xsd:string ;
-        sh:in ( "ORCID" "ISNI" "OpenAlex" "Scopus" "ResearcherId" "Local" "External" ) ;
+        sh:in ( "ISSN" "ISBN" "OpenAlex" "Local" "External" ) ;
         sh:message "A PropertyValue identifier must have exactly one schema:propertyID string."
     ] ;
 

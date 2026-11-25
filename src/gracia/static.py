@@ -21,6 +21,23 @@ htmx_js = Resource(
 language_js = Resource(  # the menu of a LanguageWidget fills in its input
     library, "scripts/language.js", depends=[bootstrap_js]
 )
+embed_js = (
+    Resource(  # a page in a dialog tells the page around it that a record is saved
+        library, "scripts/embed.js"
+    )
+)
+uri_select_js = Resource(  # a choice of URIs is a Bootstrap dropdown
+    library, "scripts/uri_select.js", depends=[bootstrap_js]
+)
+reference_js = Resource(  # the typeahead of a ReferenceWidget
+    library, "scripts/reference.js"
+)
+list_js = Resource(  # the handle of a row of a ListWidget moves it
+    library, "scripts/list.js"
+)
+date_js = Resource(  # the calendar of a DateWidget fills in its text
+    library, "scripts/date.js"
+)
 template_js = Resource(  # a field that is made of others follows them as they are typed
     library, "scripts/template.js"
 )
@@ -171,6 +188,10 @@ def need_form(form) -> None:
     form_js.need()  # a new row is focused, a submit button is busy once pressed
     template_js.need()  # fields made of others (gracia:propertyTemplate)
     language_js.need()  # the menu of a text with a language
+    date_js.need()  # the calendar of a date
+    list_js.need()  # the rows of a list are moved
+    reference_js.need()  # a reference is looked for by its label
+    uri_select_js.need()  # a choice of URIs
     htmx_js.need()  # the buttons of a sequence of blank nodes ask the server
     found = form.get_widget_resources()
     for spec in (*found["js"], *found["css"]):

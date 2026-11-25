@@ -268,7 +268,7 @@ class BagNodeTest(ConfiguredCase):
         )
         with self.assertRaises(colander.Invalid) as caught:
             node.deserialize([""])
-        self.assertIn("Shorter than minimum length 1", str(caught.exception.asdict()))
+        self.assertIn("At least one", str(caught.exception.asdict()))
         with self.assertRaises(colander.Invalid):
             node.deserialize(["a", "b", "c"])
         self.assertEqual(node.deserialize(["a", ""]), ["a", ""])

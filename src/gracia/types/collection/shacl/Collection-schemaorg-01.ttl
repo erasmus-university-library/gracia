@@ -93,6 +93,8 @@ ex:CollectionShape a sh:NodeShape ;
     sh:property [
         sh:path schema:inLanguage ;
         sh:name "in language" ;
+        dash:editor gracia:LanguageEditor ;
+        sh:maxCount 1 ;
         sh:order 5 ;
         sh:datatype xsd:string
     ] ;
@@ -121,6 +123,7 @@ ex:CollectionShape a sh:NodeShape ;
         sh:path schema:publisher ;
         sh:name "publisher" ;
         sh:order 8 ;
+        dash:editor dash:URIEditor ;
         sh:node ex:OrganizationShape ;
         sh:message "schema:publisher must be a valid schema:Organization node."
     ] ;
@@ -142,6 +145,7 @@ ex:CollectionShape a sh:NodeShape ;
         sh:path schema:isPartOf ;
         sh:name "is part of" ;
         sh:order 10 ;
+        dash:editor dash:URIEditor ;
         sh:or ( [ sh:nodeKind sh:IRI ] [ sh:node ex:CollectionShape ] ) ;
         sh:message "A parent collection referenced via schema:isPartOf must be a valid schema:Collection."
     ] .

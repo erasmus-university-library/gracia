@@ -41,8 +41,8 @@
   // by the class that is chosen: the select says what each class is called and has as an
   // icon (data-follow-tab), the tab has a .tab-title and may have an icon.
   document.addEventListener("change", (event) => {
-    const select = event.target;
-    if (!select.matches || !select.matches("select[data-follow-tab]")) return;
+    const select = event.target; // a select, or the hidden input of a URISelectWidget
+    if (!select.matches || !select.matches("[data-follow-tab]")) return;
     const said = JSON.parse(select.dataset.followTab)[select.value];
     const pane = select.closest(".tab-pane");
     const tab = pane && document.getElementById(pane.id + "-tab");

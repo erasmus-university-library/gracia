@@ -168,3 +168,23 @@ def diff(expected, actual, unshare_expected: bool = True) -> str:
 def validate(dataset, shapes, shape=None):
     graph = dataset if isinstance(dataset, Graph) else Graph(dataset)
     return graph.validate(shapes, shape=shape)
+
+
+def uri_select(page: str, name: str = "type"):
+    """The dropdown of a URISelectWidget on a page (it is a Bootstrap dropdown with a
+    hidden input that is posted): its items as (value, label), the value that is chosen,
+    how many items say they are selected, and its html."""
+    from types import SimpleNamespace
+
+    block = must_search(
+        r'(?s)<div class="uri-select dropdown">\s*<input type="hidden" name="'
+        + re.escape(name)
+        + r'".*?</ul>',
+        page,
+    )[0]
+    return SimpleNamespace(
+        items=re.findall(r'data-value="([^"]*)"\s+data-label="([^"]*)"', block),
+        chosen=must_search(r'<input type="hidden"[^>]*value="([^"]*)"', block)[1],
+        selected=block.count('aria-selected="true"'),
+        html=block,
+    )

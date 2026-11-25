@@ -95,6 +95,16 @@
         return normalize-space($p)[. != '']))"/>
   </xsl:function>
 
+  <!-- the rdf types of a resource, distinct and sorted, as an array (none: no value). The RDF/XML
+       says one of them as the name of the element (<foaf:Person rdf:nodeID="...">) or all of them as
+       rdf:type properties, whichever the serializer comes upon first: both are read -->
+  <xsl:function name="doc:types" as="array(*)?">
+    <xsl:param name="subject" as="element()?"/>
+    <xsl:variable name="named" select="$subject[not(self::rdf:Description)] ! (namespace-uri(.) || local-name(.))"/>
+    <xsl:variable name="types" select="sort(distinct-values(($named, $subject/rdf:type/@rdf:resource ! string(.))))"/>
+    <xsl:sequence select="if (exists($types)) then array { $types } else ()"/>
+  </xsl:function>
+
   <!-- the fields that have a value: an empty string is no value -->
   <xsl:function name="doc:fields" as="map(*)">
     <xsl:param name="all" as="map(*)"/>
@@ -131,6 +141,7 @@
         doc:field('label',        'text'),
         doc:field('text',         'text',    map { 'stored': false() }),
         doc:field('resource_uri', 'text',    map { 'tokenizer': 'raw' }),
+        doc:field('resource_type','text',    map { 'tokenizer': 'raw' }),
         doc:field('published',    'boolean', map { 'fast': true() }),
         doc:field('modified',     'date',    map { 'fast': true() })
     )"/>
@@ -147,6 +158,7 @@
         'label':        string(g:label[1]),
         'text':         string-join(sort(distinct-values(doc:literals(doc:resource(.)))), ' '),
         'resource_uri': string(g:resource_uri/@rdf:resource),
+        'resource_type': doc:types(doc:resource(.)),
         'published':    not(string(g:is_published[1]) = ('false', '0')),
         'modified':     string(g:modified_at[1])
     })"/>

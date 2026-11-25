@@ -1,0 +1,20 @@
+<!-- gracia.forms.DateWidget: the date as text, in the format of the repository, with a
+     calendar menu as an addon: date.js fills the menu when it opens, with the months and
+     the days named in the language of the repository and the week beginning on the day
+     it begins there, and puts the date that is clicked in the text; an addon (the + or x
+     of a BagWidget) is at the end of the group -->
+<div class="date-input" tal:define="addon addon|''"
+     data-order="${order}" data-separator="${separator}"
+     data-locale="${tag}" data-first-day="${first_day}">
+  <div class="input-group">
+    <span tal:replace="structure text.strip()"/>
+    <button tal:condition="picker" type="button"
+            class="btn btn-outline-secondary date-pick dropdown-toggle dropdown-toggle-split"
+            data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false"
+            title="Choose from a calendar" aria-label="Choose ${label} from a calendar">
+      <i class="bi bi-calendar3" aria-hidden="true"></i>
+    </button>
+    <div tal:condition="picker" class="dropdown-menu dropdown-menu-end date-calendar p-2"></div>
+    <span tal:replace="structure addon"/>
+  </div>
+</div>
