@@ -9,14 +9,27 @@ from webtest import TestApp
 from gracia.application import Application
 from gracia.main import init, make_config, opened, shutdown
 from gracia.store import Store
+from gracia.types import ContentType
 
 __all__ = [
+    "FOAF_PERSON",
     "ConfiguredCase",
     "fake_type",
     "open_application",
     "open_store",
     "opened",
 ]
+
+
+FOAF_PERSON = ContentType(
+    package="gracia.types.person",
+    name="Person",
+    slug="person",
+    class_uri="http://xmlns.com/foaf/0.1/Person",
+    schema="Person-minimal-01.ttl",
+    assets="gracia.types:person/",
+    doc="doc-full-01.xsl",
+)  # the person of the foaf profiles: the tests of the forms and the hooks use it
 
 
 def fake_type(sql_hooks=(), property_roles=(), slug: str = "thing", number: int = 5):

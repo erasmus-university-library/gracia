@@ -1,0 +1,32 @@
+<tal:def tal:define="addon addon|'';
+                     errors [e for child in field.children if child.error for e in child.error.messages()]"
+         i18n:domain="deform">
+  <!-- gracia.forms.LanguageWidget: the text, the language code and a menu of languages;
+       the menu is for language.js, which puts the language that is clicked in the code;
+       an addon (the + or x of a BagWidget) is at the end of the group -->
+  ${field.start_mapping()}
+  <div tal:condition="field.widget.stacked" tal:content="structure text.strip()"/>
+  <div class="${'d-flex justify-content-end mt-1' if field.widget.stacked else ''}"
+       tal:omit-tag="not field.widget.stacked">
+  <div class="input-group language-text ${'w-auto' if field.widget.stacked else ''}">
+    <span tal:condition="not field.widget.stacked" tal:replace="structure text.strip()"/>
+    <span tal:replace="structure lang.strip()"/>
+    <button type="button" class="btn btn-outline-secondary dropdown-toggle dropdown-toggle-split"
+            data-bs-toggle="dropdown" aria-expanded="false" title="Languages" tabindex="-1">
+      <span class="visually-hidden">Choose a language</span>
+    </button>
+    <ul class="dropdown-menu dropdown-menu-end">
+      <li tal:repeat="language languages">
+        <button type="button" class="dropdown-item" data-language="${language[0]}">
+          <strong>${language[0]}</strong> <span class="text-muted">${language[1]}</span>
+        </button>
+      </li>
+      <li><hr class="dropdown-divider"/></li>
+      <li><button type="button" class="dropdown-item text-muted" data-language="">no language</button></li>
+    </ul>
+    <span tal:replace="structure addon"/>
+  </div>
+  </div>
+  <div class="text-danger small" id="error-${field.oid}" tal:repeat="message errors">${message}</div>
+  ${field.end_mapping()}
+</tal:def>

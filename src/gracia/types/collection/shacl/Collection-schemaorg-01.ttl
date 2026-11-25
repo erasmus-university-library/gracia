@@ -1,0 +1,259 @@
+@prefix sh:     <http://www.w3.org/ns/shacl#> .
+@prefix schema: <https://schema.org/> .
+@prefix gracia: <https://gracia.pub/ns/> .
+@prefix dash:   <http://datashapes.org/dash#> .
+@prefix xsd:    <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdf:    <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix ex:     <http://example.org/shapes#> .
+
+# ============================================================================
+# 1. Collection Shape
+# ============================================================================
+ex:CollectionShape a sh:NodeShape ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "collection" ;
+    sh:name "Collection" ;
+    sh:targetClass schema:Collection ;
+    sh:class schema:Collection ;
+
+    # Collection title (required)
+    sh:property [
+        sh:path schema:name ;
+        sh:name "name" ;
+        sh:order 1 ;
+        dash:propertyRole dash:LabelRole ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "A Collection must have exactly one schema:name string."
+    ] ;
+
+    # Short codes (xsd:string) and translated collection names (rdf:langString)
+    sh:property [
+        sh:path schema:alternateName ;
+        sh:name "alternate name" ;
+        sh:order 2 ;
+        sh:or (
+            [ sh:datatype xsd:string ]
+            [ sh:datatype rdf:langString ]
+        ) ;
+        sh:message "schema:alternateName must be a plain string or a language-tagged string."
+    ] ;
+
+    # Scope / description (supports plain strings and language-tagged strings)
+    sh:property [
+        sh:path schema:description ;
+        sh:name "description" ;
+        dash:editor dash:TextAreaEditor ;
+        sh:maxCount 1 ;
+        sh:order 3 ;
+        sh:or (
+            [ sh:datatype xsd:string ]
+            [ sh:datatype rdf:langString ]
+        ) ;
+        sh:message "schema:description must be a plain string or a language-tagged string."
+    ] ;
+
+    # Collection category (e.g., ThesisSeries, DepartmentalArchive, SpecialCollection)
+    sh:property [
+        sh:path schema:additionalType ;
+        sh:name "additional type" ;
+        sh:order 4 ;
+        sh:nodeKind sh:IRI ;
+        sh:message "schema:additionalType must be a concept IRI."
+    ] ;
+
+    # Structured identifiers (Handle, DOI, internal collection code, etc.)
+    sh:property [
+        sh:path schema:identifier ;
+        sh:name "identifier" ;
+        sh:order 12 ;
+        sh:node ex:PropertyValueShape ;
+        sh:message "schema:identifier must be a valid schema:PropertyValue node."
+    ] ;
+
+    # External authority or catalog URIs
+    sh:property [
+        sh:path schema:sameAs ;
+        sh:name "same as" ;
+        sh:order 13 ;
+        sh:nodeKind sh:IRI ;
+        sh:message "schema:sameAs must be a valid IRI."
+    ] ;
+
+    # Collection landing page
+    sh:property [
+        sh:path schema:url ;
+        sh:name "URL" ;
+        sh:order 11 ;
+        sh:maxCount 1 ;
+        sh:nodeKind sh:IRI
+    ] ;
+
+    # Primary language(s) of items in the collection (e.g., "en", "nl")
+    sh:property [
+        sh:path schema:inLanguage ;
+        sh:name "in language" ;
+        sh:order 5 ;
+        sh:datatype xsd:string
+    ] ;
+
+    # Default license URI for the collection
+    sh:property [
+        sh:path schema:license ;
+        sh:name "license" ;
+        sh:order 7 ;
+        sh:nodeKind sh:IRI
+    ] ;
+
+    # Optional item count
+    sh:property [
+        sh:path schema:collectionSize ;
+        sh:name "collection size" ;
+        sh:order 6 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:integer ;
+        sh:minInclusive 0 ;
+        sh:message "schema:collectionSize must be a non-negative integer."
+    ] ;
+
+    # Curating / owning organization
+    sh:property [
+        sh:path schema:publisher ;
+        sh:name "publisher" ;
+        sh:order 8 ;
+        sh:node ex:OrganizationShape ;
+        sh:message "schema:publisher must be a valid schema:Organization node."
+    ] ;
+
+    # Curator or creator (can be an Organization or a Person)
+    sh:property [
+        sh:path schema:creator ;
+        sh:name "creator" ;
+        sh:order 9 ;
+        sh:or (
+            [ sh:node ex:OrganizationShape ]
+            [ sh:node ex:PersonShape ]
+        ) ;
+        sh:message "schema:creator must be a valid schema:Organization or schema:Person node."
+    ] ;
+
+    # Recursive parent collection hierarchy (e.g., 2026 Cohort -> All CS Theses)
+    sh:property [
+        sh:path schema:isPartOf ;
+        sh:name "is part of" ;
+        sh:order 10 ;
+        sh:or ( [ sh:nodeKind sh:IRI ] [ sh:node ex:CollectionShape ] ) ;
+        sh:message "A parent collection referenced via schema:isPartOf must be a valid schema:Collection."
+    ] .
+
+# ============================================================================
+# 2. Referenced Helper Shapes (the Organization shape is the one of the type Organization)
+# ============================================================================
+ex:PropertyValueShape a sh:NodeShape ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "fingerprint" ;
+    gracia:headerTemplate ( "{}" schema:value ) ;
+    gracia:headerAddOnTemplate ( "{}" schema:propertyID ) ;
+    sh:name "Property value" ;
+    sh:class schema:PropertyValue ;
+
+    # the kinds of identifier, and what the value of each looks like (the other kinds, a
+    # local one and one of some other source, can be anything)
+    sh:message "The value is not in the form of its kind: ORCID 0000-0002-1825-0097, ISNI 16 digits, OpenAlex A5023888391, Scopus 6 to 12 digits, ResearcherId A-1234-2008" ;
+    sh:or (
+        [ sh:property [ sh:path schema:propertyID ; sh:hasValue "ORCID" ] ;
+          sh:property [ sh:path schema:value ; sh:pattern "^\\d{4}-\\d{4}-\\d{4}-\\d{3}[\\dX]$" ;
+            sh:message "An ORCID iD is four groups of four digits, like 0000-0002-1825-0097." ] ;
+          sh:property [ sh:path schema:url ; sh:pattern "^https://orcid\\.org/" ;
+            sh:message "An ORCID URL starts with https://orcid.org/" ;
+            gracia:propertyTemplate ( "https://orcid.org/{}" schema:value ) ] ]
+        [ sh:property [ sh:path schema:propertyID ; sh:hasValue "ISNI" ] ;
+          sh:property [ sh:path schema:value ; sh:pattern "^\\d{15}[\\dX]$" ;
+            sh:message "An ISNI is 16 digits (the last may be X), like 0000000121032683." ] ;
+          sh:property [ sh:path schema:url ; sh:pattern "^https://isni\\.org/" ;
+            sh:message "An ISNI URL starts with https://isni.org/isni/" ;
+            gracia:propertyTemplate ( "https://isni.org/isni/{}" schema:value ) ] ]
+        [ sh:property [ sh:path schema:propertyID ; sh:hasValue "OpenAlex" ] ;
+          sh:property [ sh:path schema:value ; sh:pattern "^[A-Za-z]\\d+$" ;
+            sh:message "An OpenAlex id is a letter and digits, like A5023888391." ] ;
+          sh:property [ sh:path schema:url ; sh:pattern "^https://openalex\\.org/" ;
+            sh:message "An OpenAlex URL starts with https://openalex.org/" ;
+            gracia:propertyTemplate ( "https://openalex.org/{}" schema:value ) ] ]
+        [ sh:property [ sh:path schema:propertyID ; sh:hasValue "Scopus" ] ;
+          sh:property [ sh:path schema:value ; sh:pattern "^\\d{6,12}$" ;
+            sh:message "A Scopus id is 6 to 12 digits, like 57189222659." ] ;
+          sh:property [ sh:path schema:url ; sh:pattern "^https://www\\.scopus\\.com/" ;
+            sh:message "A Scopus URL starts with https://www.scopus.com/authid/detail.uri?authorId=" ;
+            gracia:propertyTemplate ( "https://www.scopus.com/authid/detail.uri?authorId={}" schema:value ) ] ]
+        [ sh:property [ sh:path schema:propertyID ; sh:hasValue "ResearcherId" ] ;
+          sh:property [ sh:path schema:value ; sh:pattern "^[A-Za-z]{1,3}-\\d{4}-\\d{4}$" ;
+            sh:message "A ResearcherId is like A-1234-2008." ] ;
+          sh:property [ sh:path schema:url ; sh:pattern "^https://www\\.webofscience\\.com/" ;
+            sh:message "A ResearcherId URL starts with https://www.webofscience.com/wos/author/rid/" ;
+            gracia:propertyTemplate ( "https://www.webofscience.com/wos/author/rid/{}" schema:value ) ] ]
+        [ sh:property [ sh:path schema:propertyID ; sh:in ( "Local" "External" ) ] ]
+    ) ;
+
+    sh:property [
+        sh:path schema:propertyID ;
+        sh:name "property ID" ;
+        sh:order 1 ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string
+    ] ;
+    sh:property [
+        sh:path schema:value ;
+        sh:name "value" ;
+        sh:order 2 ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string
+    ] ;
+    sh:property [
+        sh:path schema:url ;
+        sh:name "URL" ;
+        sh:order 3 ;
+        dash:editor dash:URIEditor ;
+        sh:maxCount 1 ;
+        sh:nodeKind sh:IRI
+    ] .
+
+ex:PersonShape a sh:NodeShape ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "person" ;
+    sh:name "Person" ;
+    sh:class schema:Person ;
+
+    sh:property [
+        sh:path schema:name ;
+        sh:name "name" ;
+        sh:order 1 ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string
+    ] ;
+    sh:property [
+        sh:path schema:givenName ;
+        sh:name "given name" ;
+        sh:order 2 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string
+    ] ;
+    sh:property [
+        sh:path schema:familyName ;
+        sh:name "family name" ;
+        sh:order 3 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string
+    ] ;
+    sh:property [
+        sh:path schema:identifier ;
+        sh:name "identifier" ;
+        sh:order 8 ;
+        sh:node ex:PropertyValueShape
+    ] ;
+    sh:property [
+        sh:path schema:sameAs ;
+        sh:name "same as" ;
+        sh:order 9 ;
+        sh:nodeKind sh:IRI
+    ] .

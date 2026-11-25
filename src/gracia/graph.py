@@ -361,6 +361,18 @@ class Graph:
         if new is not None:
             self.dataset.add(ox.Quad(subject, predicate, new, graph))
 
+    def discard_node(self, subject, predicate, node) -> None:
+        subject, predicate = _term(subject), _term(predicate)
+        for quad in list(self.dataset.quads_for_subject(subject)):
+            if quad.predicate == predicate and quad.object == node:
+                self.dataset.discard(quad)
+        pending = [node]  # and what is said of it, and of the blank nodes below it
+        while pending:
+            for quad in list(self.dataset.quads_for_subject(pending.pop())):
+                self.dataset.discard(quad)
+                if isinstance(quad.object, ox.BlankNode):
+                    pending.append(quad.object)
+
     def add_value(self, subject, predicate, term, graph=None) -> None:
         subject = _term(subject)
         if graph is None:

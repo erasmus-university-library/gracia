@@ -18,6 +18,17 @@ bootstrap_js = Resource(library, "scripts/bootstrap.bundle.min.js")
 htmx_js = Resource(
     library, "scripts/htmx.min.js"
 )  # htmx 2: attributes in the HTML ask the server
+language_js = Resource(  # the menu of a LanguageWidget fills in its input
+    library, "scripts/language.js", depends=[bootstrap_js]
+)
+template_js = Resource(  # a field that is made of others follows them as they are typed
+    library, "scripts/template.js"
+)
+form_js = (
+    Resource(  # what a form does: focus an added row, show a save that is on its way
+        library, "scripts/form.js"
+    )
+)
 jobs_js = Resource(library, "scripts/jobs.js", depends=[bootstrap_js, htmx_js])
 api_browser_js = Resource(library, "scripts/apibrowser.js")
 manage_js = Resource(
@@ -80,6 +91,9 @@ _registry.add(deform_library)
 deform_jquery = Resource(
     deform_library, "scripts/jquery-2.0.3.min.js"
 )  # deform names no jQuery
+bootstrap_icons_css = Resource(  # its fonts are next to it, so it is not bundled
+    deform_library, "css/bootstrap-icons.min.css", dont_bundle=True
+)
 _known: dict[str, Resource] = {}  # asset spec -> resource: what widgets can name
 
 
@@ -154,6 +168,10 @@ def add_library(config, new: Library) -> None:
 
 
 def need_form(form) -> None:
+    form_js.need()  # a new row is focused, a submit button is busy once pressed
+    template_js.need()  # fields made of others (gracia:propertyTemplate)
+    language_js.need()  # the menu of a text with a language
+    htmx_js.need()  # the buttons of a sequence of blank nodes ask the server
     found = form.get_widget_resources()
     for spec in (*found["js"], *found["css"]):
         _resource(spec).need()

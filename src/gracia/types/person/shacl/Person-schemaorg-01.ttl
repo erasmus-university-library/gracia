@@ -1,0 +1,225 @@
+@prefix sh:     <http://www.w3.org/ns/shacl#> .
+@prefix schema: <https://schema.org/> .
+@prefix dash:   <http://datashapes.org/dash#> .
+@prefix gracia: <https://gracia.pub/ns/> .
+@prefix xsd:    <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdf:    <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix ex:     <http://example.org/shapes#> .
+
+# ============================================================================
+# 1. Main Person Shape
+# ============================================================================
+ex:PersonShape a sh:NodeShape ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "person" ;
+    sh:name "Person" ;
+    sh:targetClass schema:Person ;
+
+    # Full display name (required)
+    sh:property [
+        sh:path schema:name ;
+        sh:name "name" ;
+        sh:order 1 ;
+        dash:propertyRole dash:LabelRole ;
+        gracia:propertyTemplate ( "{} {}" schema:givenName schema:familyName ) ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "A Person must have exactly one schema:name string."
+    ] ;
+
+    # Name parts & aliases
+    sh:property [
+        sh:path schema:givenName ;
+        sh:name "given name" ;
+        sh:order 2 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string
+    ] ;
+    sh:property [
+        sh:path schema:familyName ;
+        sh:name "family name" ;
+        sh:order 3 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string
+    ] ;
+    sh:property [
+        sh:path schema:alternateName ;
+        sh:name "alternate name" ;
+        sh:order 4 ;
+        sh:or (
+            [ sh:datatype xsd:string ]
+            [ sh:datatype rdf:langString ]
+        )
+    ] ;
+
+    # Structured external/internal identifiers (ORCID, ISNI, local ID, etc.)
+    sh:property [
+        sh:path schema:identifier ;
+        sh:name "identifier" ;
+        sh:order 8 ;
+        sh:node ex:PropertyValueShape ;
+        sh:message "schema:identifier must be a valid schema:PropertyValue node."
+    ] ;
+
+    # External authority or profile URIs (Wikidata, ORCID URL, homepage, etc.)
+    sh:property [
+        sh:path schema:sameAs ;
+        sh:name "same as" ;
+        sh:order 9 ;
+        sh:nodeKind sh:IRI ;
+        sh:message "schema:sameAs must be a valid IRI."
+    ] ;
+
+    # Email address
+    sh:property [
+        sh:path schema:email ;
+        sh:name "email" ;
+        sh:order 6 ;
+        sh:datatype xsd:string ;
+        sh:pattern "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$" ;
+        sh:message "schema:email must be a valid email string."
+    ] ;
+
+    # Bio (supports plain strings and language-tagged strings like @en or @nl)
+    sh:property [
+        sh:path schema:description ;
+        sh:name "description" ;
+        dash:editor dash:TextAreaEditor ;
+        sh:maxCount 1 ;
+        sh:order 5 ;
+        sh:or (
+            [ sh:datatype xsd:string ]
+            [ sh:datatype rdf:langString ]
+        ) ;
+        sh:message "schema:description (bio) must be a plain or language-tagged string."
+    ] ;
+
+    # Postal Address
+    sh:property [
+        sh:path schema:address ;
+        sh:name "address" ;
+        sh:order 7 ;
+        sh:node ex:PostalAddressShape
+    ] .
+
+# ============================================================================
+# 2. Structured Identifier Shape (schema:PropertyValue)
+# ============================================================================
+ex:PropertyValueShape a sh:NodeShape ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "fingerprint" ;
+    gracia:headerTemplate ( "{}" schema:value ) ;
+    gracia:headerAddOnTemplate ( "{}" schema:propertyID ) ;
+    sh:name "Property value" ;
+    sh:class schema:PropertyValue ;
+
+    # the kinds of identifier, and what the value of each looks like (the other kinds, a
+    # local one and one of some other source, can be anything)
+    sh:message "The value is not in the form of its kind: ORCID 0000-0002-1825-0097, ISNI 16 digits, OpenAlex A5023888391, Scopus 6 to 12 digits, ResearcherId A-1234-2008" ;
+    sh:or (
+        [ sh:property [ sh:path schema:propertyID ; sh:hasValue "ORCID" ] ;
+          sh:property [ sh:path schema:value ; sh:pattern "^\\d{4}-\\d{4}-\\d{4}-\\d{3}[\\dX]$" ;
+            sh:message "An ORCID iD is four groups of four digits, like 0000-0002-1825-0097." ] ;
+          sh:property [ sh:path schema:url ; sh:pattern "^https://orcid\\.org/" ;
+            sh:message "An ORCID URL starts with https://orcid.org/" ;
+            gracia:propertyTemplate ( "https://orcid.org/{}" schema:value ) ] ]
+        [ sh:property [ sh:path schema:propertyID ; sh:hasValue "ISNI" ] ;
+          sh:property [ sh:path schema:value ; sh:pattern "^\\d{15}[\\dX]$" ;
+            sh:message "An ISNI is 16 digits (the last may be X), like 0000000121032683." ] ;
+          sh:property [ sh:path schema:url ; sh:pattern "^https://isni\\.org/" ;
+            sh:message "An ISNI URL starts with https://isni.org/isni/" ;
+            gracia:propertyTemplate ( "https://isni.org/isni/{}" schema:value ) ] ]
+        [ sh:property [ sh:path schema:propertyID ; sh:hasValue "OpenAlex" ] ;
+          sh:property [ sh:path schema:value ; sh:pattern "^[A-Za-z]\\d+$" ;
+            sh:message "An OpenAlex id is a letter and digits, like A5023888391." ] ;
+          sh:property [ sh:path schema:url ; sh:pattern "^https://openalex\\.org/" ;
+            sh:message "An OpenAlex URL starts with https://openalex.org/" ;
+            gracia:propertyTemplate ( "https://openalex.org/{}" schema:value ) ] ]
+        [ sh:property [ sh:path schema:propertyID ; sh:hasValue "Scopus" ] ;
+          sh:property [ sh:path schema:value ; sh:pattern "^\\d{6,12}$" ;
+            sh:message "A Scopus id is 6 to 12 digits, like 57189222659." ] ;
+          sh:property [ sh:path schema:url ; sh:pattern "^https://www\\.scopus\\.com/" ;
+            sh:message "A Scopus URL starts with https://www.scopus.com/authid/detail.uri?authorId=" ;
+            gracia:propertyTemplate ( "https://www.scopus.com/authid/detail.uri?authorId={}" schema:value ) ] ]
+        [ sh:property [ sh:path schema:propertyID ; sh:hasValue "ResearcherId" ] ;
+          sh:property [ sh:path schema:value ; sh:pattern "^[A-Za-z]{1,3}-\\d{4}-\\d{4}$" ;
+            sh:message "A ResearcherId is like A-1234-2008." ] ;
+          sh:property [ sh:path schema:url ; sh:pattern "^https://www\\.webofscience\\.com/" ;
+            sh:message "A ResearcherId URL starts with https://www.webofscience.com/wos/author/rid/" ;
+            gracia:propertyTemplate ( "https://www.webofscience.com/wos/author/rid/{}" schema:value ) ] ]
+        [ sh:property [ sh:path schema:propertyID ; sh:in ( "Local" "External" ) ] ]
+    ) ;
+
+    # The kind of identifier
+    sh:property [
+        sh:path schema:propertyID ;
+        sh:name "property ID" ;
+        sh:order 1 ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+        sh:in ( "ORCID" "ISNI" "OpenAlex" "Scopus" "ResearcherId" "Local" "External" ) ;
+        sh:message "A PropertyValue identifier must have exactly one schema:propertyID string."
+    ] ;
+
+    # The identifier value itself
+    sh:property [
+        sh:path schema:value ;
+        sh:name "value" ;
+        sh:order 2 ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "A PropertyValue identifier must have exactly one schema:value string."
+    ] ;
+
+    # Optional resolvable URI for the identifier
+    sh:property [
+        sh:path schema:url ;
+        sh:name "URL" ;
+        sh:order 3 ;
+        dash:editor dash:URIEditor ;
+        sh:maxCount 1 ;
+        sh:nodeKind sh:IRI
+    ] .
+
+# ============================================================================
+# 3. Postal Address Shape
+# ============================================================================
+ex:PostalAddressShape a sh:NodeShape ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "geo-alt" ;
+    gracia:headerTemplate ( "[{}, ][{} ][{}, ][{}]" schema:streetAddress schema:postalCode schema:addressLocality schema:addressCountry ) ;
+    sh:name "Postal address" ;
+    sh:class schema:PostalAddress ;
+
+    sh:property [
+        sh:path schema:streetAddress ;
+        sh:name "street address" ;
+        sh:order 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string
+    ] ;
+    sh:property [
+        sh:path schema:postalCode ;
+        sh:name "postal code" ;
+        sh:order 2 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string
+    ] ;
+    sh:property [
+        sh:path schema:addressLocality ;
+        sh:name "address locality" ;
+        sh:order 3 ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "A PostalAddress must include a city/locality (schema:addressLocality)."
+    ] ;
+    sh:property [
+        sh:path schema:addressCountry ;
+        sh:name "address country" ;
+        sh:order 4 ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "A PostalAddress must include a country code or name (schema:addressCountry)."
+    ] .

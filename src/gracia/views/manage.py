@@ -441,7 +441,7 @@ class RepositoryManage(Manage):
     def _titles(self) -> dict[str, tuple[str, str]]:
         found: dict[str, tuple[str, str]] = {}
 
-        def walk(dataset, shape):
+        def walk(dataset, shape, above=()):
             for path, prop in forms.properties(dataset, shape):
                 found.setdefault(
                     path,
@@ -451,8 +451,8 @@ class RepositoryManage(Manage):
                     ),
                 )
                 nested = forms.nested_shape(dataset, prop)
-                if nested is not None:
-                    walk(dataset, nested)
+                if nested is not None and nested not in (*above, shape):
+                    walk(dataset, nested, (*above, shape))
 
         for res_type in self.context.types.values():
             walk(*res_type.shacl_shape())

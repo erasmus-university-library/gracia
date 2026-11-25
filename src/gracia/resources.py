@@ -5,12 +5,13 @@ from functools import cached_property
 from pathlib import Path
 
 import colander
+import deform.widget
 import pyoxigraph as ox
 from pyramid.authorization import ALL_PERMISSIONS, DENY_ALL, Allow, Everyone
 from pyramid.threadlocal import get_current_request
 from zope.interface import implementer
 
-from gracia import forms, hints, predicates, traversal, uri
+from gracia import forms, hints, predicates, templates, traversal, uri
 from gracia.graph import Graph
 from gracia.interfaces import IDeformView, IExtension, IGraciaType, IRepository
 from gracia.store import new_store
@@ -413,15 +414,25 @@ class Type(Node):
     def sql_hooks(self) -> list[str]:
         return self._sql_plan(*self.shacl_shape())
 
-    def _sql_plan(self, shapes, shape) -> list[str]:
+    def _sql_plan(self, shapes, shape, above: tuple = ()) -> list[str]:
         properties = [
             (path, forms.nested_shape(shapes, prop))
             for path, prop in forms.properties(shapes, shape)
         ]
         statements = []
         for _path, nested in properties:  # what is embedded comes first
-            if nested is not None:
-                statements += self._sql_plan(shapes, nested)
+            if nested is not None and nested not in (*above, shape):  # a shape that
+                statements += self._sql_plan(
+                    shapes, nested, (*above, shape)
+                )  # is its own
+        made: dict[str, list] = {}
+        for template in templates.of_shape(shapes, shape):
+            made.setdefault(template.target, []).append(template)
+        for target, variants in made.items():  # before any label is made
+            context = predicates.HookContext(self.repository, self, target)
+            statements += [
+                s for s in templates.sql_of(variants, context) if s not in statements
+            ]
         for path, _nested in properties:
             code = predicates.find(self.registry, path)
             if code is not None:
@@ -508,6 +519,12 @@ class Type(Node):
         return record
 
 
+def _natural(node) -> list:
+    """The key to sort blank nodes on their identifiers, the numbers as numbers: `b7_2`
+    comes before `b7_10`."""
+    return [int(p) if p.isdigit() else p for p in re.split(r"(\d+)", node.value)]
+
+
 def _slug_of(graph: Graph, record_uri: str) -> str | None:
     found = graph.value(_N(record_uri), _N(uri.SLUG))
     return found.value if found is not None else None
@@ -583,24 +600,77 @@ class Record(Node):
     # ----------
 
     def _nodes(
-        self, shapes, shape, request, depth: int = 0
+        self, shapes, shape, request, depth: int = 0, above: tuple = ()
     ) -> list[colander.SchemaNode]:
         nodes = []
+        made: dict[str, list] = {}
+        for template in templates.of_shape(shapes, shape):
+            made.setdefault(template.target, []).append(template)
         for path, prop in forms.properties(shapes, shape):
             if path in self.hidden:
                 continue
             nested = forms.nested_shape(shapes, prop)
-            if nested is not None:
+            if nested is not None and nested in (*above, shape):
+                node = None  # a shape that refers to itself: no form is that deep
+            elif nested is not None:
+                title = forms.property_title(shapes, prop, path)
                 node = colander.SchemaNode(
-                    colander.Mapping(),
-                    name=forms.local_name(path),
-                    title=forms.property_title(shapes, prop, path),
+                    colander.Mapping(), name=forms.local_name(path), title=title
                 )
-                for child in self._nodes(shapes, nested, request, depth + 1):
+                for child in self._nodes(
+                    shapes, nested, request, depth + 1, (*above, shape)
+                ):
                     node.add(child)
-                node.validator = self._sibling_validator(node.children)
+                node.validator = self._sibling_validator(
+                    node.children,
+                    forms.alternatives_validator(shapes, nested, node.children),
+                )
+                node.icon = forms.icon(shapes, prop, nested)
+                node.header, node.header_addon = templates.header_of(shapes, nested)
+                lowest, highest = forms.cardinality(shapes, prop)
+                if (lowest, highest) != (1, 1):  # not exactly one: none, one, or more,
+                    node.name = "item"  # each of them added (a button) or removed
+                    node.node_class = forms.nested_class(shapes, nested)
+                    node.widget = deform.widget.MappingWidget(template="mapping_plain")
+                    target = self.type if self.is_new else self
+                    node = colander.SchemaNode(
+                        colander.Sequence(),
+                        node,
+                        name=forms.local_name(path),
+                        title=title,
+                        missing=[],
+                        validator=colander.Length(min=lowest or None, max=highest),
+                        widget=forms.BlankNodeWidget(
+                            url=(
+                                request.resource_url(target, "sequence")
+                                if request is not None
+                                else None
+                            ),
+                            min_len=lowest,
+                            max_len=highest,
+                        ),
+                    )
+                    node.oid = (
+                        f"nodes-{forms.local_name(path)}"  # the same on every page
+                    )
+                    node.icon = node.children[0].icon
             else:
                 node = forms.leaf_node(shapes, prop, path)
+                if node is None and forms.is_bag(shapes, prop):
+                    target = self.type if self.is_new else self
+                    node = forms.bag_node(
+                        shapes,
+                        prop,
+                        path,
+                        request.resource_url(target, "sequence") if request else None,
+                    )
+                if node is not None and path in made and not getattr(node, "bag", 0):
+                    forms.made_of(
+                        node,
+                        made[path],
+                        templates.variants_json(made[path]),
+                        forms.needed(shapes, shape, path),
+                    )
             if node is not None:
                 node.depth = (
                     depth  # 0: a property of the record, 1: of its content (a predicate
@@ -616,8 +686,10 @@ class Record(Node):
                 nodes.append(node)
         return nodes
 
-    def _sibling_validator(self, nodes):
-        found = []
+    def _sibling_validator(self, nodes, extra=None):
+        found = [extra] if extra is not None else []
+        if (validator := forms.template_validator(nodes)) is not None:
+            found.append(validator)
         for node in nodes:
             code = predicates.find(
                 self.registry, getattr(node, "predicate", None) or ""
@@ -686,12 +758,51 @@ class Record(Node):
                 )
         return kept
 
+    def _nested_nodes(self, subject, path: str | None) -> list:
+        found = (
+            self.graph.objects(subject, _N(path))
+            if path and subject is not None
+            else []
+        )
+        return sorted((o for o in found if isinstance(o, ox.BlankNode)), key=_natural)
+
+    # the values a property has, for the rows of a bag, in an order of their own (a
+    # graph has none)
+    def _bag_values(self, node, subject, path) -> list:
+        found = [
+            o
+            for o in (self.graph.objects(subject, path) if subject is not None else [])
+            if not isinstance(o, ox.BlankNode)
+        ]
+        if getattr(node.children[0], "language_tagged", False):
+            return [
+                {"value": o.value, "lang": getattr(o, "language", None) or ""}
+                for o in sorted(
+                    found, key=lambda o: (getattr(o, "language", None) or "", o.value)
+                )
+            ]
+        return sorted(o.value for o in found)
+
     def form_values(self) -> dict:
+        nested_nodes = self._nested_nodes
+
         def read(nodes, subject) -> dict:
             values = {}
             for node in nodes:
                 path = getattr(node, "predicate", None)
-                if isinstance(node.typ, colander.Mapping):
+                if getattr(node, "bag", False):
+                    values[node.name] = self._bag_values(node, subject, path)
+                elif getattr(node, "language_tagged", False):
+                    text, language = predicates.read_language_text(
+                        self, subject, str(path)
+                    )
+                    values[node.name] = {"value": text, "lang": language}
+                elif isinstance(node.typ, colander.Sequence):
+                    values[node.name] = [
+                        read(node.children[0].children, inner)
+                        for inner in nested_nodes(subject, path)
+                    ]
+                elif isinstance(node.typ, colander.Mapping):
                     inner = (
                         self.graph.value(subject, _N(path))
                         if path and subject is not None
@@ -717,7 +828,48 @@ class Record(Node):
                 path = getattr(node, "predicate", None)
                 if path is None or node.name not in data:
                     continue  # a field that is not stored as it is, or nothing was said
-                if isinstance(node.typ, colander.Mapping):
+                if getattr(node, "bag", False):
+                    wanted: list[tuple[str, str]] = []
+                    for said in data[node.name] or []:
+                        text = said.get("value") if isinstance(said, dict) else said
+                        language = said.get("lang") if isinstance(said, dict) else None
+                        row = ((text or "").strip(), language or "")
+                        if row[0] and row not in wanted:  # no value, or the same again
+                            wanted.append(row)
+                    self.graph.replace(subject, path, None)
+                    for text, language in wanted:
+                        term = (
+                            _N(text)
+                            if getattr(node, "as_uri", False)
+                            else ox.Literal(text, language=language or None)
+                        )
+                        self.graph.add_value(subject, path, term)
+                elif getattr(node, "language_tagged", False):
+                    said = data[node.name] or {}
+                    predicates.write_text(
+                        self,
+                        subject,
+                        path,
+                        said.get("value"),
+                        language=said.get("lang"),
+                    )
+                elif isinstance(node.typ, colander.Sequence):
+                    item, items = node.children[0], data[node.name] or []
+                    existing = self._nested_nodes(subject, path)
+                    for index, values in enumerate(items):
+                        if index < len(existing):
+                            inner = existing[index]
+                        else:  # one more, of the class its shape names
+                            inner = ox.BlankNode()
+                            self.graph.add_value(subject, path, inner)
+                            if item.node_class:
+                                self.graph.add_value(
+                                    inner, uri.RDF_TYPE, _N(item.node_class)
+                                )
+                        write(item.children, values, inner)
+                    for inner in existing[len(items) :]:  # one less
+                        self.graph.discard_node(subject, path, inner)
+                elif isinstance(node.typ, colander.Mapping):
                     write(
                         node.children,
                         data[node.name],

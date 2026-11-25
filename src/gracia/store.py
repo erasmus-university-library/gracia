@@ -258,7 +258,8 @@ class Store:
         self.flat = (
             f"{self.staging}_flat"  # the staged rows flattened, what the hooks work on
         )
-        self.hooks: list[str] | None = None  # SQL run on `flat`, see `configure`
+        # SQL run on `flat`, each with the slug of the type it is for: see `configure`
+        self.hooks: list[tuple[str, str]] | None = None
         self._provider = None
         self._roles: list | None = None
         if not _IDENT.match(triples):
@@ -1521,13 +1522,13 @@ class Store:
     def sync(self) -> None:
         self._configured()
 
-    def _configured(self) -> list[str]:
+    def _configured(self) -> list[tuple[str, str]]:
         if self._provider is None:
             return []
         if self.hooks is None:
             types = list(self._provider())
             self.hooks = [
-                statement.replace("@TRIPLES@", self.triples)
+                (res_type.slug, statement.replace("@TRIPLES@", self.triples))
                 for res_type in types
                 for statement in res_type.sql_hooks
             ]
@@ -1546,8 +1547,21 @@ class Store:
             f"CREATE OR REPLACE TABLE {self.flat} AS SELECT * FROM "
             f"flatten_triples({literal(self.staging)})"
         )
-        for statement in self._configured():
-            self.con.execute(statement.replace("@FLAT@", self.flat))
+        hooks = self._configured()
+        if hooks:
+            # only the hooks of the types that are in the batch (each is for the records
+            # of its own type): every statement is a round trip to the database, which
+            # may be in another process
+            found = {
+                row[0]
+                for row in self.con.execute(
+                    f"SELECT DISTINCT split_part(s, ':', 2) FROM {self.flat} "
+                    "WHERE starts_with(s, 'rec:')"
+                ).fetchall()
+            }
+            for slug, statement in hooks:
+                if slug in found:
+                    self.con.execute(statement.replace("@FLAT@", self.flat))
 
     def rederive(
         self, rec_type: str, numbers: tuple[int, int] | None = None
@@ -1579,8 +1593,9 @@ class Store:
             self.con.execute(
                 f"CREATE OR REPLACE TABLE {before} AS SELECT * FROM {flat}"
             )
-            for statement in self._configured():
-                self.con.execute(statement.replace("@FLAT@", flat))
+            for slug, statement in self._configured():
+                if slug == rec_type:  # the others are for other records
+                    self.con.execute(statement.replace("@FLAT@", flat))
             self.con.execute(
                 f"CREATE OR REPLACE TABLE {gone} AS SELECT * FROM {before} EXCEPT ALL "
                 "SELECT * "

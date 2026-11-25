@@ -5,6 +5,7 @@
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
 gracia:RepositoryShape a sh:NodeShape ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "archive" ;
     sh:targetClass gracia:Repository ;
     sh:description "The repository itself: its title, its types, its extensions and where its files are. There is one record of it." ;
     sh:property [

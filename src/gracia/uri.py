@@ -49,6 +49,9 @@ TITLE = (
 LABEL = (
     G_NS.label
 )  # record -> a short text for it, copied from its content (not edited)
+PROPERTY_TEMPLATE = G_NS.propertyTemplate  # property shape -> (template source...) list
+HEADER_TEMPLATE = G_NS.headerTemplate  # node shape -> the text of the bar of its node
+HEADER_ADDON_TEMPLATE = G_NS.headerAddOnTemplate  # node shape -> a badge before it
 EXTENSION = G_NS.extension  # repository -> a blank node: what it says of one extension
 EXTENSION_NAME = G_NS.extension_name  # that blank node -> the name of the extension
 EXTENSION_IS_ENABLED = G_NS.extension_is_enabled  # -> true or false, when it was said

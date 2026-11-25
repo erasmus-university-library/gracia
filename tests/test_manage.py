@@ -5,6 +5,7 @@ import time
 from importlib.resources import files
 
 import pyoxigraph as ox
+from harness import FOAF_PERSON
 from pyramid.registry import Registry
 from support import must_search
 from test_web import HeaderPolicy, WebCase
@@ -70,9 +71,8 @@ class ManageCase(WebCase):
         return re.findall(r'data-tab="([a-z]+)"[^>]*>([^<]+)', page), page
 
     def person(self):
-        from gracia import types
 
-        return types.available()["person"]
+        return FOAF_PERSON
 
 
 class ManageViewTest(ManageCase):

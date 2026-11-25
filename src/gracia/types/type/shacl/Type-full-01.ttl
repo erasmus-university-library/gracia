@@ -5,7 +5,8 @@
 @prefix dct: <http://purl.org/dc/terms/> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
-gracia:TypeShape a sh:NodeShape ; sh:targetClass gracia:Type ;
+gracia:TypeShape a sh:NodeShape ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "diagram-3" ; sh:targetClass gracia:Type ;
     sh:description "A kind of record: its name, the first part of its address, the class of its content and where the files that describe it are." ;
     sh:property [ sh:path gracia:name ; sh:name "Name" ; sh:order 1 ; dash:propertyRole dash:LabelRole ;
         sh:datatype xsd:string ; sh:minCount 1 ; sh:maxCount 1 ; sh:minLength 1 ] ,

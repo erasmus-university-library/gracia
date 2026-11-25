@@ -2,10 +2,11 @@ import unittest
 
 import duckdb
 import pyoxigraph as ox
+from harness import FOAF_PERSON
 from support import must_search
 from test_web import HeaderPolicy, WebCase
 
-from gracia import types, uri
+from gracia import uri
 from gracia.main import make_config
 from gracia.predicates import HookContext, gracia_label
 
@@ -24,7 +25,7 @@ class LabelCase(WebCase):
         self.application.create_repository(
             "test_repo",
             admin=("admin", "correct horse battery"),
-            content_types=[types.available()["person"]],
+            content_types=[FOAF_PERSON],
         )
         self.web = self.client(self.config)
 
@@ -150,8 +151,12 @@ class NameTest(LabelCase):
         )
         self.assertEqual(self.labels("rec:person:1"), ["Ada Lovelace"])
 
-    def test_a_name_that_is_there_is_kept(self):
+    def test_a_name_that_is_there_gives_way_when_the_two_parts_are(self):
         self.submit(name="Countess of Lovelace", givenName="Ada", familyName="Lovelace")
+        self.assertEqual(self.labels("rec:person:1"), ["Ada Lovelace"])
+
+    def test_a_name_that_is_there_is_kept_when_a_part_is_missing(self):
+        self.submit(name="Countess of Lovelace", givenName="Ada")
         self.assertEqual(self.labels("rec:person:1"), ["Countess of Lovelace"])
         self.submit(name="Ada")  # a name alone is fine
         self.assertEqual(self.labels("rec:person:2"), ["Ada"])
@@ -164,7 +169,7 @@ class NameTest(LabelCase):
                     response.status_int, 200
                 )  # the form again, with the error
                 self.assertIn(
-                    "Give a name, or both a given name and a family name", response.text
+                    "Give a name, or fill in given name and family name", response.text
                 )
         self.assertEqual(self.labels("rec:person:1"), [])  # no record was made
 

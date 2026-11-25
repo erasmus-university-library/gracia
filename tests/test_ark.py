@@ -1,6 +1,7 @@
 import unittest
 
 from extension_support import put_extension_state
+from harness import FOAF_PERSON
 from test_edit import ADMIN, EditCase
 from test_web import WebCase
 
@@ -101,7 +102,7 @@ class RepositoryTest(WebCase):
 
         self.application.create_repository("test_repo", ark=("12345", "lib"))
         with self.application.new_store("test_repo") as store:
-            person = types.available()["person"]
+            person = FOAF_PERSON
             record = types.add_content_type(store, "test_repo", person)
             self.assertEqual(record, "rec:type:5")
         self.assertEqual(

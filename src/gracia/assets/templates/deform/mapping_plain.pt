@@ -1,0 +1,10 @@
+<tal:def tal:define="errormsg errormsg|field.errormsg;
+                     item_template item_template|field.widget.item_template"
+         i18n:domain="deform">
+  <!-- the fields of a mapping, with no box of its own: it is an item of a sequence -->
+  <div tal:condition="errormsg" class="alert alert-danger py-1 mb-1">${errormsg}</div>
+  ${field.start_mapping()}
+  <div tal:repeat="child field.children"
+       tal:replace="structure child.render_template(item_template)"></div>
+  ${field.end_mapping()}
+</tal:def>

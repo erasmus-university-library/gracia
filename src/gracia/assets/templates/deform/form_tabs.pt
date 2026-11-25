@@ -11,6 +11,7 @@
               tabs python:field.widget.tabs(field)"
   tal:attributes="class css_class; action action"
   id="${formid}"
+  novalidate="novalidate"
   method="${method}"
   enctype="multipart/form-data"
   accept-charset="utf-8"
@@ -31,12 +32,15 @@
       <li class="nav-item" role="presentation" tal:repeat="tab tabs">
         <button type="button" class="nav-link${' active' if tab.active else ''}"
                 data-bs-toggle="tab" data-bs-target="#${tab.id}" role="tab"
-                aria-selected="${'true' if tab.active else 'false'}">${tab.title}<span
+                id="${tab.id}-tab" aria-controls="${tab.id}"
+                aria-selected="${'true' if tab.active else 'false'}"><i tal:condition="tab.icon"
+                   class="bi bi-${tab.icon} me-1" aria-hidden="true"></i>${tab.title}<span
                 tal:condition="tab.error" class="text-danger" title="This tab has an error"> ●</span></button>
       </li>
     </ul>
     <div class="tab-content">
       <div class="tab-pane${' active' if tab.active else ''}" id="${tab.id}" role="tabpanel"
+           aria-labelledby="${tab.id}-tab"
            tal:repeat="tab tabs">
         <tal:mapping tal:condition="tab.mapping is not None">
           <div class="alert alert-danger" tal:condition="tab.mapping.errormsg">${tab.mapping.errormsg}</div>
@@ -56,7 +60,8 @@
       <tal:loop tal:repeat="button buttons">
         <button id="${formid+button.name}" name="${button.name}" type="${button.type}"
                 class="btn ${button.css_class or ('btn-primary' if repeat.button.start else 'btn-secondary')}"
-                value="${button.value}" tal:condition="button.type != 'link'">${button.title}</button>
+                value="${button.value}" tal:condition="button.type != 'link'"><i
+                  tal:condition="button.name == 'save'" class="bi bi-floppy me-1" aria-hidden="true"></i>${button.title}</button>
         <a id="${formid+button.name}" class="btn ${button.css_class or 'btn-secondary'}"
            href="${button.value}" tal:condition="button.type == 'link'">${button.title}</a>
       </tal:loop>

@@ -1,0 +1,36 @@
+<div tal:define="item_tmpl item_template|field.widget.item_template;
+                 oid oid|field.oid;
+                 url url|None;
+                 path path|'';
+                 focus_index focus_index|None;
+                 labelled labelled|None;
+                 min_len min_len|field.widget.min_len;
+                 min_len min_len or 0;
+                 max_len max_len|field.widget.max_len;
+                 now_len len(subfields)"
+     class="bag mb-3"
+     id="${oid}" role="group" aria-labelledby="req-${oid}">
+  <!-- the values of a property that can have several (gracia.forms.BagWidget): a row for
+       each, always at least one, shown by the widget of the item; the last row has a + that
+       asks the server (htmx) for one more, the rows before it an x that takes them away -->
+  <input type="hidden" name="__start__" value="${field.name}:sequence"/>
+  <div class="bag-items">
+    <div tal:define="subfields [ x[1] for x in subfields ]"
+         tal:repeat="subfield subfields"
+         tal:replace="structure subfield.render_template(item_tmpl,
+                                                      parent=field,
+                                                      target=oid,
+                                                      url=url,
+                                                      path=path,
+                                                      index=repeat.subfield.index,
+                                                      last=repeat.subfield.index == now_len - 1,
+                                                      add_text=add_subitem_text,
+                                                      labelled=labelled,
+                                                      autofocus=repeat.subfield.index == focus_index,
+                                                      can_add=max_len is None or now_len < max_len,
+                                                      can_remove=now_len > min_len)" />
+  </div>
+  <div class="text-danger small mt-1" tal:condition="field.error and field.error.messages()"
+       tal:repeat="msg field.error.messages()">${msg}</div>
+  <input type="hidden" name="__end__" value="${field.name}:sequence"/>
+</div>

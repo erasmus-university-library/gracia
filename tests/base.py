@@ -41,7 +41,14 @@ def rec(name: str) -> str:
     return f"rec:{found[1]}:{found[2]}"
 
 
-RDF_FILES = sorted([*DATA.glob("*.ttl"), *DATA.glob("*.trig"), *DATA.glob("*.json")])
+# the numbered files are the test data; others in `data/` (the ontology) are not
+RDF_FILES = sorted(
+    [
+        *DATA.glob("[0-9][0-9]_*.ttl"),
+        *DATA.glob("[0-9][0-9]_*.trig"),
+        *DATA.glob("[0-9][0-9]_*.json"),
+    ]
+)
 
 
 class DbTestCase(unittest.TestCase):

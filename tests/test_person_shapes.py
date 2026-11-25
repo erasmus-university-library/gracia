@@ -42,10 +42,14 @@ class ProfilesTest(unittest.TestCase):
                 assets.load_shape(
                     path, f"{FOAF}Person"
                 )  # a ValueError when there is none
-        self.assertEqual(
-            assets.schemas_of("gracia.types:person/"),
-            ["Person-full-01.ttl", "Person-minimal-01.ttl"],
-        )
+        self.assertLessEqual(
+            {"Person-full-01.ttl", "Person-minimal-01.ttl"},
+            set(assets.schemas_of("gracia.types:person/")),
+        )  # others (the schemaorg one) may be there too
+
+    def test_the_schemaorg_profile_is_for_schema_person(self):
+        path = assets.resolve(f"{SHAPES}Person-schemaorg-01.ttl")
+        assets.load_shape(path, "https://schema.org/Person")
 
     def test_a_complete_person_follows_both(self):
         self.assertTrue(conforms("minimal", **GOOD))
@@ -59,7 +63,7 @@ class ProfilesTest(unittest.TestCase):
     def test_a_name_or_both_parts_it_is_made_of_and_never_two_names(self):
         for profile in ("minimal", "full"):
             with self.subTest(profile=profile):
-                # the write hook of foaf:name makes the name of the two parts
+                # the template of foaf:name makes the name of the two parts
                 self.assertTrue(
                     conforms(profile, givenName="Ada", familyName="Lovelace")
                 )

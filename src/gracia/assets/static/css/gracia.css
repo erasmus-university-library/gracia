@@ -98,3 +98,76 @@
 /* a mapping on one line (templates/deform/mapping_inline.pt): the first field is narrow */
 .mapping-inline > :first-child { flex: 0 0 9rem; }
 .mapping-inline > :not(:first-child) { flex: 1 1 0; min-width: 0; }
+
+/* the blank nodes of a property (templates/deform/blank_nodes.pt): <details> that have one
+   `name` are an accordion in the browser, one open at a time, with no script; Bootstrap's
+   accordion gives the look, and what its script does to a bar (the open look) is here */
+.blank-nodes > .accordion { border-radius: var(--bs-border-radius); overflow: hidden; --bar-height: 3.5rem; }
+/* a node is a box (the wrapper) with the <details> in it, and the x next to that, over the
+   end of the bar; the bar has a height of its own, so that the x can be as high as it is */
+.blank-node { position: relative; isolation: isolate; }
+.blank-node > details > summary {
+  list-style: none; cursor: pointer; height: var(--bar-height);
+  padding-top: 0; padding-bottom: 0; padding-right: 4.5rem;
+}
+.blank-node > details > summary::-webkit-details-marker { display: none; }
+.blank-node .bar-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.blank-node > details[open] > summary {
+  color: var(--bs-accordion-active-color); background-color: var(--bs-accordion-active-bg);
+  box-shadow: inset 0 calc(-1 * var(--bs-accordion-border-width)) 0 var(--bs-accordion-border-color);
+}
+/* a bar has no chevron, and lights up under the mouse (as the caret of a LanguageWidget
+   does); the x is not part of the bar, so it does not light up with it */
+.blank-node > details > summary::after { display: none; }
+.blank-node > details > summary:hover { background-color: var(--bs-tertiary-bg); }
+.blank-node > details[open] > summary:hover { background-color: var(--bs-primary-border-subtle); }
+/* the bar that has the focus (the tab key): a tint, and a ring inside the bar, over the x
+   as well (a ::after of the box, as the accordion clips a ring outside); Space or Enter
+   open it (the browser does that), the arrow keys move to the next bar and Delete takes
+   the node away (form.js) */
+.blank-node > details > summary:focus { box-shadow: none; }
+.blank-node > details[open] > summary:focus { box-shadow: none; }
+.blank-node > details > summary:focus-visible { outline: 0; background-color: var(--bs-primary-bg-subtle); }
+.blank-node:has(> details > summary:focus-visible)::after {
+  content: ""; position: absolute; top: 0; left: 0; right: 0; height: var(--bar-height); z-index: 5;
+  box-shadow: inset 0 0 0 .2rem rgba(var(--bs-primary-rgb), .5); pointer-events: none;
+}
+/* the x is an addon of the bar: a cell the height of the bar at its end, set off by a line,
+   as the addon of an input group is */
+.blank-node > .bar-addon {
+  position: absolute; top: 0; right: 0; height: var(--bar-height);
+  z-index: 4; /* Bootstrap puts a bar that is hovered (2) or has the focus (3) above its neighbours */
+  display: flex; align-items: center; padding: 0 1rem; border: 0; border-radius: 0;
+  border-left: var(--bs-border-width) solid rgba(var(--bs-emphasis-color-rgb), .15);
+  color: var(--bs-gray-500); line-height: 1; background: var(--bs-accordion-btn-bg);
+}
+.blank-node:has(> details[open]) > .bar-addon { background: var(--bs-accordion-active-bg); }
+.blank-node > .bar-addon:hover:not(:disabled) { background-color: var(--bs-tertiary-bg); color: var(--bs-gray-700); }
+.blank-node:has(> details[open]) > .bar-addon:hover:not(:disabled) { background-color: var(--bs-primary-border-subtle); }
+/* with the focus (the tab key) it is blue like the other addons, inside, as the accordion
+   clips what is outside */
+.blank-node > .bar-addon:focus-visible {
+  outline: 0; color: var(--bs-gray-700); box-shadow: inset 0 0 0 .2rem rgba(var(--bs-primary-rgb), .5);
+}
+.blank-node > .bar-addon:disabled { opacity: .4; }
+
+/* the language code of a LanguageWidget: a short input after the text */
+.language-text > input.language-code { flex: 0 0 5.5rem; width: 5.5rem; }
+.language-text > input.language-code::placeholder { color: #c4c8cc; opacity: 1; }
+
+
+/* the caret of a LanguageWidget and the + and x of a BagWidget have the colour of the
+   borders of the controls, as the inputs next to them have */
+.language-text > .dropdown-toggle,
+.bag-button {
+  --bs-btn-color: var(--bs-border-color);
+  --bs-btn-bg: var(--bs-body-bg);
+  --bs-btn-border-color: var(--bs-border-color);
+  --bs-btn-hover-color: var(--bs-border-color);
+  --bs-btn-hover-bg: var(--bs-tertiary-bg);
+  --bs-btn-hover-border-color: var(--bs-border-color);
+  --bs-btn-active-color: var(--bs-border-color);
+  --bs-btn-active-bg: var(--bs-tertiary-bg);
+  --bs-btn-active-border-color: var(--bs-border-color);
+  --bs-btn-focus-shadow-rgb: 134, 183, 254;
+}

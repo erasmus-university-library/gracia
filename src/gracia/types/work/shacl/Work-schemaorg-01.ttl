@@ -1,0 +1,516 @@
+@prefix sh:     <http://www.w3.org/ns/shacl#> .
+@prefix schema: <https://schema.org/> .
+@prefix gracia: <https://gracia.pub/ns/> .
+@prefix dash:   <http://datashapes.org/dash#> .
+@prefix xsd:    <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdf:    <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix ex:     <http://example.org/shapes#> .
+
+# ============================================================================
+# 1. Scholarly Work / Publication Shape (excludes Series, Collections & Files)
+# ============================================================================
+ex:CreativeWorkShape a sh:NodeShape ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "book" ;
+    sh:name "Creative work" ;
+    sh:targetClass schema:CreativeWork ,
+                   schema:Thesis ,
+                   schema:ScholarlyArticle ,
+                   schema:Article ,
+                   schema:Report ,
+                   schema:Book ,
+                   schema:Chapter ,
+                   schema:Dataset ,
+                   schema:SoftwareSourceCode ;
+
+    # Must carry at least one valid publication rdf:type
+    sh:property [
+        sh:path rdf:type ;
+        sh:qualifiedValueShape [
+            sh:in (
+                schema:CreativeWork
+                schema:Thesis
+                schema:ScholarlyArticle
+                schema:Article
+                schema:Report
+                schema:Book
+                schema:Chapter
+                schema:Dataset
+                schema:SoftwareSourceCode
+            )
+        ] ;
+        sh:qualifiedMinCount 1 ;
+        sh:message "Work must have a valid publication rdf:type (e.g. Thesis, ScholarlyArticle, Book, CreativeWork)."
+    ] ;
+
+    # Explicitly forbid container and file types on this shape
+    sh:property [
+        sh:path rdf:type ;
+        sh:qualifiedValueShape [
+            sh:in (
+                schema:Collection
+                schema:CreativeWorkSeries
+                schema:Periodical
+                schema:BookSeries
+                schema:Newspaper
+                schema:PublicationVolume
+                schema:PublicationIssue
+                schema:MediaObject
+                schema:DigitalDocument
+            )
+        ] ;
+        sh:qualifiedMaxCount 0 ;
+        sh:message "Container and media types (Collection, Series, Periodical, Volume, Issue, MediaObject) are excluded from CreativeWorkShape."
+    ] ;
+
+    # Primary title (required)
+    sh:property [
+        sh:path schema:name ;
+        sh:name "name" ;
+        sh:order 1 ;
+        dash:propertyRole dash:LabelRole ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "A work must have exactly one schema:name string."
+    ] ;
+
+    # Translated titles or subtitles
+    sh:property [
+        sh:path schema:alternateName ;
+        sh:name "alternate name" ;
+        sh:order 2 ;
+        sh:or (
+            [ sh:datatype xsd:string ]
+            [ sh:datatype rdf:langString ]
+        )
+    ] ;
+
+    # Abstract & general description (plain or language-tagged strings)
+    sh:property [
+        sh:path schema:abstract ;
+        sh:name "abstract" ;
+        sh:order 3 ;
+        sh:or (
+            [ sh:datatype xsd:string ]
+            [ sh:datatype rdf:langString ]
+        )
+    ] ;
+    sh:property [
+        sh:path schema:description ;
+        sh:name "description" ;
+        dash:editor dash:TextAreaEditor ;
+        sh:maxCount 1 ;
+        sh:order 4 ;
+        sh:or (
+            [ sh:datatype xsd:string ]
+            [ sh:datatype rdf:langString ]
+        )
+    ] ;
+
+    # Sub-classification (e.g., MasterThesis, DoctoralThesis, ConferencePaper)
+    sh:property [
+        sh:path schema:additionalType ;
+        sh:name "additional type" ;
+        sh:order 5 ;
+        sh:nodeKind sh:IRI
+    ] ;
+
+    # Authors (at least one Person or Organization)
+    sh:property [
+        sh:path schema:author ;
+        sh:name "author" ;
+        sh:order 6 ;
+        sh:minCount 1 ;
+        sh:or (
+            [ sh:node ex:PersonShape ]
+            [ sh:node ex:OrganizationShape ]
+        ) ;
+        sh:message "A work must have at least one schema:author (Person or Organization)."
+    ] ;
+
+    # Supervisors, advisors, or editors
+    sh:property [
+        sh:path schema:contributor ;
+        sh:name "contributor" ;
+        sh:order 7 ;
+        sh:or (
+            [ sh:node ex:PersonShape ]
+            [ sh:node ex:OrganizationShape ]
+        )
+    ] ;
+    sh:property [
+        sh:path schema:editor ;
+        sh:name "editor" ;
+        sh:order 8 ;
+        sh:or (
+            [ sh:node ex:PersonShape ]
+            [ sh:node ex:OrganizationShape ]
+        )
+    ] ;
+
+    # Degree-granting institution or publisher
+    sh:property [
+        sh:path schema:publisher ;
+        sh:name "publisher" ;
+        sh:order 9 ;
+        sh:node ex:OrganizationShape
+    ] ;
+
+    # Publication / defense date
+    sh:property [
+        sh:path schema:datePublished ;
+        sh:name "date published" ;
+        sh:order 10 ;
+        sh:maxCount 1 ;
+        sh:or (
+            [ sh:datatype xsd:date ]
+            [ sh:datatype xsd:gYearMonth ]
+            [ sh:datatype xsd:gYear ]
+        ) ;
+        sh:message "schema:datePublished must be an xsd:date, xsd:gYearMonth, or xsd:gYear."
+    ] ;
+
+    # Language & keywords
+    sh:property [
+        sh:path schema:inLanguage ;
+        sh:name "in language" ;
+        sh:order 11 ;
+        sh:datatype xsd:string
+    ] ;
+    sh:property [
+        sh:path schema:keywords ;
+        sh:name "keywords" ;
+        sh:order 12 ;
+        sh:or (
+            [ sh:datatype xsd:string ]
+            [ sh:datatype rdf:langString ]
+        )
+    ] ;
+
+    # Thesis-specific degree level (e.g., "Master of Science", "Doctor of Philosophy")
+    sh:property [
+        sh:path schema:inSupportOf ;
+        sh:name "in support of" ;
+        sh:order 17 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string
+    ] ;
+
+    # Article / Chapter pagination & Book ISBN
+    sh:property [
+        sh:path schema:pageStart ;
+        sh:name "page start" ;
+        sh:order 14 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string
+    ] ;
+    sh:property [
+        sh:path schema:pageEnd ;
+        sh:name "page end" ;
+        sh:order 15 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string
+    ] ;
+    sh:property [
+        sh:path schema:isbn ;
+        sh:name "ISBN" ;
+        sh:order 16 ;
+        sh:datatype xsd:string
+    ] ;
+
+    # Structured identifiers (DOI, Handle, internal repo ID, etc.)
+    sh:property [
+        sh:path schema:identifier ;
+        sh:name "identifier" ;
+        sh:order 18 ;
+        sh:node ex:PropertyValueShape
+    ] ;
+
+    # External authority or persistent resolver URIs
+    sh:property [
+        sh:path schema:sameAs ;
+        sh:name "same as" ;
+        sh:order 19 ;
+        sh:nodeKind sh:IRI
+    ] ;
+
+    # Repository landing page & license
+    sh:property [
+        sh:path schema:url ;
+        sh:name "URL" ;
+        sh:order 20 ;
+        sh:maxCount 1 ;
+        sh:nodeKind sh:IRI
+    ] ;
+    sh:property [
+        sh:path schema:license ;
+        sh:name "license" ;
+        sh:order 21 ;
+        sh:nodeKind sh:IRI
+    ] ;
+
+    # Containers: Collections, Series/Periodicals directly, Volumes, or Issues (blank nodes or IRIs)
+    sh:property [
+        sh:path schema:isPartOf ;
+        sh:name "is part of" ;
+        sh:order 13 ;
+        sh:or (
+            [ sh:node ex:CollectionShape ]
+            [ sh:node ex:CreativeWorkSeriesShape ]
+            [ sh:node ex:PublicationVolumeShape ]
+            [ sh:node ex:PublicationIssueShape ]
+        ) ;
+        sh:message "schema:isPartOf must reference a valid Collection, Series/Periodical, PublicationVolume, or PublicationIssue."
+    ] ;
+
+    # Attached files (PDFs, datasets, supplements)
+    sh:property [
+        sh:path schema:encoding ;
+        sh:name "encoding" ;
+        sh:order 22 ;
+        sh:node ex:MediaObjectShape
+    ] .
+
+# ============================================================================
+# 2. PublicationVolume Shape (supports both Blank Nodes and Named IRIs)
+# ============================================================================
+ex:PublicationVolumeShape a sh:NodeShape ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "journal-bookmark" ;
+    gracia:headerTemplate ( "[Volume {}]" schema:volumeNumber ) ;
+    sh:name "Publication volume" ;
+    sh:targetClass schema:PublicationVolume ;
+    sh:class schema:PublicationVolume ;
+
+    sh:property [
+        sh:path schema:volumeNumber ;
+        sh:name "volume number" ;
+        sh:order 1 ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "A PublicationVolume must have exactly one schema:volumeNumber string."
+    ] ;
+    sh:property [
+        sh:path schema:name ;
+        sh:name "name" ;
+        sh:order 2 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string
+    ] ;
+    sh:property [
+        sh:path schema:datePublished ;
+        sh:name "date published" ;
+        sh:order 3 ;
+        sh:maxCount 1 ;
+        sh:or (
+            [ sh:datatype xsd:date ]
+            [ sh:datatype xsd:gYearMonth ]
+            [ sh:datatype xsd:gYear ]
+        )
+    ] ;
+    sh:property [
+        sh:path schema:identifier ;
+        sh:name "identifier" ;
+        sh:order 5 ;
+        sh:node ex:PropertyValueShape
+    ] ;
+    sh:property [
+        sh:path schema:url ;
+        sh:name "URL" ;
+        sh:order 6 ;
+        sh:maxCount 1 ;
+        sh:nodeKind sh:IRI
+    ] ;
+    sh:property [
+        sh:path schema:isPartOf ;
+        sh:name "is part of" ;
+        sh:order 4 ;
+        sh:minCount 1 ;
+        sh:node ex:CreativeWorkSeriesShape ;
+        sh:message "A PublicationVolume must link to its parent Periodical/Series via schema:isPartOf."
+    ] .
+
+# ============================================================================
+# 3. PublicationIssue Shape (supports both Blank Nodes and Named IRIs)
+# ============================================================================
+ex:PublicationIssueShape a sh:NodeShape ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "journal-text" ;
+    gracia:headerTemplate ( "[Issue {}]" schema:issueNumber ) ;
+    sh:name "Publication issue" ;
+    sh:targetClass schema:PublicationIssue ;
+    sh:class schema:PublicationIssue ;
+
+    sh:property [
+        sh:path schema:issueNumber ;
+        sh:name "issue number" ;
+        sh:order 1 ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "A PublicationIssue must have exactly one schema:issueNumber string."
+    ] ;
+    # Useful for special issue titles (e.g., "Special Issue on Semantic Repositories")
+    sh:property [
+        sh:path schema:name ;
+        sh:name "name" ;
+        sh:order 2 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string
+    ] ;
+    sh:property [
+        sh:path schema:datePublished ;
+        sh:name "date published" ;
+        sh:order 3 ;
+        sh:maxCount 1 ;
+        sh:or (
+            [ sh:datatype xsd:date ]
+            [ sh:datatype xsd:gYearMonth ]
+            [ sh:datatype xsd:gYear ]
+        )
+    ] ;
+    sh:property [
+        sh:path schema:identifier ;
+        sh:name "identifier" ;
+        sh:order 5 ;
+        sh:node ex:PropertyValueShape
+    ] ;
+    sh:property [
+        sh:path schema:url ;
+        sh:name "URL" ;
+        sh:order 6 ;
+        sh:maxCount 1 ;
+        sh:nodeKind sh:IRI
+    ] ;
+    # Can link upward to a PublicationVolume blank node OR directly to a Periodical/Series
+    sh:property [
+        sh:path schema:isPartOf ;
+        sh:name "is part of" ;
+        sh:order 4 ;
+        sh:minCount 1 ;
+        sh:or (
+            [ sh:node ex:PublicationVolumeShape ]
+            [ sh:node ex:CreativeWorkSeriesShape ]
+        ) ;
+        sh:message "A PublicationIssue must link to a PublicationVolume or directly to a Periodical/Series."
+    ] .
+
+# ============================================================================
+# 4. File / PDF Attachment Shape (schema:MediaObject)
+# ============================================================================
+ex:MediaObjectShape a sh:NodeShape ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "file-earmark-play" ;
+    gracia:headerTemplate ( "{}" schema:name ) ;
+    gracia:headerAddOnTemplate ( "{}" schema:encodingFormat ) ;
+    sh:name "Media object" ;
+    sh:class schema:MediaObject ;
+
+    sh:property [
+        sh:path schema:contentUrl ;
+        sh:name "content URL" ;
+        sh:order 2 ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:nodeKind sh:IRI
+    ] ;
+    sh:property [
+        sh:path schema:encodingFormat ;
+        sh:name "encoding format" ;
+        sh:order 3 ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string
+    ] ;
+    sh:property [
+        sh:path schema:name ;
+        sh:name "name" ;
+        sh:order 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string
+    ] ;
+    sh:property [
+        sh:path schema:contentSize ;
+        sh:name "content size" ;
+        sh:order 4 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string
+    ] .
+
+# ============================================================================
+# 2. Structured Identifier Shape (schema:PropertyValue)
+# ============================================================================
+ex:PropertyValueShape a sh:NodeShape ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "fingerprint" ;
+    gracia:headerTemplate ( "{}" schema:value ) ;
+    gracia:headerAddOnTemplate ( "{}" schema:propertyID ) ;
+    sh:name "Property value" ;
+    sh:class schema:PropertyValue ;
+
+    # the kinds of identifier, and what the value of each looks like (the other kinds, a
+    # local one and one of some other source, can be anything)
+    sh:message "The value is not in the form of its kind: ORCID 0000-0002-1825-0097, ISNI 16 digits, OpenAlex A5023888391, Scopus 6 to 12 digits, ResearcherId A-1234-2008" ;
+    sh:or (
+        [ sh:property [ sh:path schema:propertyID ; sh:hasValue "ORCID" ] ;
+          sh:property [ sh:path schema:value ; sh:pattern "^\\d{4}-\\d{4}-\\d{4}-\\d{3}[\\dX]$" ;
+            sh:message "An ORCID iD is four groups of four digits, like 0000-0002-1825-0097." ] ;
+          sh:property [ sh:path schema:url ; sh:pattern "^https://orcid\\.org/" ;
+            sh:message "An ORCID URL starts with https://orcid.org/" ;
+            gracia:propertyTemplate ( "https://orcid.org/{}" schema:value ) ] ]
+        [ sh:property [ sh:path schema:propertyID ; sh:hasValue "ISNI" ] ;
+          sh:property [ sh:path schema:value ; sh:pattern "^\\d{15}[\\dX]$" ;
+            sh:message "An ISNI is 16 digits (the last may be X), like 0000000121032683." ] ;
+          sh:property [ sh:path schema:url ; sh:pattern "^https://isni\\.org/" ;
+            sh:message "An ISNI URL starts with https://isni.org/isni/" ;
+            gracia:propertyTemplate ( "https://isni.org/isni/{}" schema:value ) ] ]
+        [ sh:property [ sh:path schema:propertyID ; sh:hasValue "OpenAlex" ] ;
+          sh:property [ sh:path schema:value ; sh:pattern "^[A-Za-z]\\d+$" ;
+            sh:message "An OpenAlex id is a letter and digits, like A5023888391." ] ;
+          sh:property [ sh:path schema:url ; sh:pattern "^https://openalex\\.org/" ;
+            sh:message "An OpenAlex URL starts with https://openalex.org/" ;
+            gracia:propertyTemplate ( "https://openalex.org/{}" schema:value ) ] ]
+        [ sh:property [ sh:path schema:propertyID ; sh:hasValue "Scopus" ] ;
+          sh:property [ sh:path schema:value ; sh:pattern "^\\d{6,12}$" ;
+            sh:message "A Scopus id is 6 to 12 digits, like 57189222659." ] ;
+          sh:property [ sh:path schema:url ; sh:pattern "^https://www\\.scopus\\.com/" ;
+            sh:message "A Scopus URL starts with https://www.scopus.com/authid/detail.uri?authorId=" ;
+            gracia:propertyTemplate ( "https://www.scopus.com/authid/detail.uri?authorId={}" schema:value ) ] ]
+        [ sh:property [ sh:path schema:propertyID ; sh:hasValue "ResearcherId" ] ;
+          sh:property [ sh:path schema:value ; sh:pattern "^[A-Za-z]{1,3}-\\d{4}-\\d{4}$" ;
+            sh:message "A ResearcherId is like A-1234-2008." ] ;
+          sh:property [ sh:path schema:url ; sh:pattern "^https://www\\.webofscience\\.com/" ;
+            sh:message "A ResearcherId URL starts with https://www.webofscience.com/wos/author/rid/" ;
+            gracia:propertyTemplate ( "https://www.webofscience.com/wos/author/rid/{}" schema:value ) ] ]
+        [ sh:property [ sh:path schema:propertyID ; sh:in ( "Local" "External" ) ] ]
+    ) ;
+
+    # The kind of identifier
+    sh:property [
+        sh:path schema:propertyID ;
+        sh:name "property ID" ;
+        sh:order 1 ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+        sh:in ( "ORCID" "ISNI" "OpenAlex" "Scopus" "ResearcherId" "Local" "External" ) ;
+        sh:message "A PropertyValue identifier must have exactly one schema:propertyID string."
+    ] ;
+
+    # The identifier value itself
+    sh:property [
+        sh:path schema:value ;
+        sh:name "value" ;
+        sh:order 2 ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "A PropertyValue identifier must have exactly one schema:value string."
+    ] ;
+
+    # Optional resolvable URI for the identifier
+    sh:property [
+        sh:path schema:url ;
+        sh:name "URL" ;
+        sh:order 3 ;
+        dash:editor dash:URIEditor ;
+        sh:maxCount 1 ;
+        sh:nodeKind sh:IRI
+    ] .

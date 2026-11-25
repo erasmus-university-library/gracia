@@ -15,10 +15,24 @@ def read_text(record, subject, predicate_uri: str) -> str | None:
     return found.value if found is not None else None
 
 
+def read_language_text(record, subject, predicate_uri: str) -> tuple[str, str]:
+    found = record.graph.value(subject, predicate_uri) if subject is not None else None
+    return (found.value, getattr(found, "language", None) or "") if found else ("", "")
+
+
 def write_text(
-    record, subject, predicate_uri: str, text: str | None, as_uri: bool = False
+    record,
+    subject,
+    predicate_uri: str,
+    text: str | None,
+    as_uri: bool = False,
+    language: str | None = None,
 ) -> None:
-    term = (_N(text) if as_uri else ox.Literal(text)) if text else None
+    term = (
+        (_N(text) if as_uri else ox.Literal(text, language=language or None))
+        if text
+        else None
+    )
     record.graph.replace(subject, predicate_uri, term)
 
 

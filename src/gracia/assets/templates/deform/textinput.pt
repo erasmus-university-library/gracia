@@ -1,0 +1,30 @@
+<!--! deform's textinput.pt, with what a screen reader needs of a field that is wrong: aria-invalid, and aria-describedby the
+     message (the one of the field, or the one that `describedby` names, for a part of a composite widget) -->
+<span tal:define="name name|field.name;
+                  css_class css_class|field.widget.css_class;
+                  error_class error_class|field.widget.error_class;
+                  oid oid|field.oid;
+                  mask mask|field.widget.mask;
+                  mask_placeholder mask_placeholder|field.widget.mask_placeholder;
+                  style style|field.widget.style;
+                  autofocus autofocus|field.autofocus;
+                  describedby describedby|('error-' + oid)"
+      tal:omit-tag="">
+    <input type="text" name="${name}" value="${cstruct}"
+           tal:attributes="class string:form-control ${field.error and error_class or css_class or ''};
+                           required field.required and 'required' or None;
+                           style style;
+                           autofocus autofocus;
+                           aria-invalid 'true' if field.error else None;
+                           aria-describedby describedby if field.error else None;
+                           attributes|field.widget.attributes|{};"
+           id="${oid}"/>
+    <script tal:condition="mask" type="text/javascript">
+      deform.addCallback(
+         '${oid}',
+         function (oid) {
+            $("#" + oid).mask("${mask}",
+                 {placeholder:"${mask_placeholder}"});
+         });
+    </script>
+</span>

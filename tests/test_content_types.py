@@ -282,7 +282,10 @@ class RegistryTest(WebCase):
         registry = self.registry()
         with self.assertRaises(ValueError) as caught:
             types.find_content_type(registry, "nothing")
-        self.assertIn("there are: person", str(caught.exception))
+        self.assertIn(
+            "there are: collection, organization, person, series, work",
+            str(caught.exception),
+        )
         self.assertEqual(
             types.find_content_type(registry, "gracia.types.person").slug,
             "person",

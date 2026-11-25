@@ -1,0 +1,22 @@
+<!--! deform's textarea.pt, with what a screen reader needs of a field that is wrong: aria-invalid, and aria-describedby the
+     message (the one of the field, or the one that `describedby` names, for a part of a composite widget) -->
+<textarea tal:define="rows rows|field.widget.rows;
+                      cols cols|field.widget.cols;
+                      css_class css_class|field.widget.css_class;
+                      error_class error_class|field.widget.error_class;
+                      oid oid|field.oid;
+                      name name|field.name;
+                      style style|field.widget.style;
+                      autofocus autofocus|field.autofocus;
+                      describedby describedby|('error-' + oid)"
+          tal:attributes="rows rows;
+                          cols cols;
+                          class string:form-control ${field.error and error_class or css_class or ''};
+                          style style;
+                          required field.required and 'required' or None;
+                          autofocus autofocus;
+                          aria-invalid 'true' if field.error else None;
+                          aria-describedby describedby if field.error else None;
+                          attributes|field.widget.attributes|{};"
+          id="${oid}"
+          name="${name}">${cstruct}</textarea>

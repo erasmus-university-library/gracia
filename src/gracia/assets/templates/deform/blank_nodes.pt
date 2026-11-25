@@ -1,0 +1,47 @@
+<div tal:define="item_tmpl item_template|field.widget.item_template;
+                 oid oid|field.oid;
+                 url url|None;
+                 focus_index focus_index|None;
+                 icon icon|getattr(field.schema, 'icon', None);
+                 group group|oid;
+                 path path|'';
+                 open_index open_index|None;
+                 min_len min_len|field.widget.min_len;
+                 min_len min_len or 0;
+                 max_len max_len|field.widget.max_len;
+                 now_len len(subfields);
+                 failing [i for i, (_c, f) in enumerate(subfields) if f.error];
+                 open_index open_index if open_index is not None else (failing[0] if failing else -1)"
+     class="blank-nodes mb-3"
+     id="${oid}" role="group" aria-labelledby="req-${oid}">
+  <!-- a sequence of blank nodes (gracia.forms.BlankNodeWidget): an accordion of <details>
+       that have the same `name`, so that one is open at a time, in the browser, with no
+       script; the buttons ask the server (htmx) for the sequence with one more or one
+       less, and take its place; they are disabled where the cardinality says no -->
+  <input type="hidden" name="__start__" value="${field.name}:sequence"/>
+  <div class="accordion">
+    <div tal:define="subfields [ x[1] for x in subfields ]"
+         tal:repeat="subfield subfields"
+         tal:replace="structure subfield.render_template(item_tmpl,
+                                                      parent=field,
+                                                      group=group,
+                                                      target=oid,
+                                                      icon=icon,
+                                                      url=url,
+                                                      path=path,
+                                                      index=repeat.subfield.index,
+                                                      opened=repeat.subfield.index == open_index,
+                                                      autofocus=repeat.subfield.index == focus_index,
+                                                      removable=now_len > min_len)" />
+  </div>
+  <button type="button" class="btn btn-outline-secondary btn-sm mt-2 me-2"
+          tal:condition="url"
+          tal:attributes="disabled 'disabled' if (max_len is not None and now_len >= max_len) else None"
+          hx-post="${url}" hx-include="closest form"
+          hx-target="#${oid}" hx-swap="outerHTML"
+          hx-vals='{"sequence": "${path}", "action": "add"}'><i
+            tal:condition="icon" class="bi bi-${icon} me-1" aria-hidden="true"></i>${add_subitem_text}</button>
+  <span class="text-danger small" tal:condition="failing">
+    <strong>${len(failing)}</strong> of ${now_len} with errors</span>
+  <input type="hidden" name="__end__" value="${field.name}:sequence"/>
+</div>

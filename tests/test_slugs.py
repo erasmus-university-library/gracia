@@ -1,11 +1,11 @@
 import re
 import unittest
 
-from harness import open_store
+from harness import FOAF_PERSON, open_store
 from support import must_search
 from test_web import HeaderPolicy, WebCase
 
-from gracia import types, uri
+from gracia import uri
 from gracia.main import make_config
 from gracia.predicates import HookContext
 from gracia.predicates.gracia_slug import SlugPredicate
@@ -218,7 +218,7 @@ class SlugCase(WebCase):
         self.application.create_repository(
             "test_repo",
             admin=("admin", "correct horse battery"),
-            content_types=[types.available()["person"]],
+            content_types=[FOAF_PERSON],
         )
         self.web = self.client(self.config)  # goes on to where a record has moved
         self.raw = self.client(self.config)  # shows the redirect

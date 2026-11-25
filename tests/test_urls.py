@@ -1,9 +1,8 @@
 import re
 import tempfile
 
+from harness import FOAF_PERSON
 from test_web import HeaderPolicy, WebCase
-
-from gracia import types
 
 # the attributes that carry an address: the ones of HTML, htmx, and what our scripts
 # read
@@ -37,7 +36,7 @@ class AbsoluteUrlsTest(WebCase):
         self.application.create_repository(
             "test_repo",
             admin=("admin", "correct horse battery"),
-            content_types=[types.available()["person"]],
+            content_types=[FOAF_PERSON],
         )
         self.web = self.client()
 

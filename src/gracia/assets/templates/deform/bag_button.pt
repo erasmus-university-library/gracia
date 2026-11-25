@@ -1,0 +1,14 @@
+<tal:button tal:define="last last|True; label label|''" i18n:domain="deform">
+  <button type="button" class="btn btn-outline-secondary bag-button bag-add"
+          tal:condition="last" title="${add_text}" aria-label="${add_text}"
+          tal:attributes="disabled None if can_add else 'disabled'"
+          hx-post="${url}" hx-include="closest form"
+          hx-target="#${target}" hx-swap="outerHTML"
+          hx-vals='{"sequence": "${path}", "action": "add"}'><i class="bi bi-plus-lg" aria-hidden="true"></i></button>
+  <button type="button" class="btn btn-outline-secondary bag-button bag-remove"
+          tal:condition="not last" title="Remove ${label}" aria-label="Remove ${label}"
+          tal:attributes="disabled None if can_remove else 'disabled'"
+          hx-post="${url}" hx-include="closest form"
+          hx-target="#${target}" hx-swap="outerHTML"
+          hx-vals='{"sequence": "${path}", "action": "remove", "index": ${index}}'><i class="bi bi-x-lg" aria-hidden="true"></i></button>
+</tal:button>

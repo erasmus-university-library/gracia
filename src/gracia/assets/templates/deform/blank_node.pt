@@ -1,0 +1,57 @@
+<div tal:define="title title|field.title;
+                 group group|field.oid;
+                 target target|group;
+                 url url|None;
+                 path path|'';
+                 index index|0;
+                 opened opened|True;
+                 autofocus autofocus|False;
+                 removable removable|True;
+                 values cstruct.values() if hasattr(cstruct, 'values') else [];
+                 summary next((v for v in values if isinstance(v, str) and v), None);
+                 icon icon|None;
+                 fields cstruct if hasattr(cstruct, 'get') else {};
+                 header getattr(field.schema, 'header', None);
+                 addon getattr(field.schema, 'header_addon', None);
+                 head_text header.render_names(fields) if header else None;
+                 addon_text addon.render_names(fields) if addon else None"
+     class="accordion-item blank-node"
+     i18n:domain="deform">
+  <!-- one blank node of a sequence (blank_nodes.pt): its bar (the summary) has the icon of
+       the shape, the badge (gracia:headerAddOnTemplate) and the text (gracia:headerTemplate,
+       else the first value it has, else the title; template.js keeps them up to date as the
+       fields are typed in). The button that takes the node away is an addon of the bar, but
+       not in the summary, where a screen reader may not find a button: it is next to the
+       <details> (which shows only its summary when it is shut) and is put over the end of
+       the bar by the style. -->
+  <details name="${group}"
+           tal:attributes="open 'open' if opened else None;
+                           data-autofocus 'data-autofocus' if autofocus else None">
+    <summary class="accordion-button collapsed">
+      <i tal:condition="icon" class="bi bi-${icon} me-2" aria-hidden="true"></i>
+      <span class="badge text-bg-secondary fw-normal me-2" tal:condition="addon is not None"
+            data-header-template="${addon.as_json()}" data-fallback=""
+            tal:attributes="hidden None if addon_text else 'hidden'">${addon_text}</span>
+      <span class="bar-text flex-grow-1" tal:condition="header is not None"
+            data-header-template="${header.as_json()}" data-fallback="${title}">${head_text or title}</span>
+      <span class="bar-text flex-grow-1" tal:condition="header is None">${summary or title}</span>
+      <span class="badge text-bg-danger me-3" tal:condition="field.error">errors</span>
+    </summary>
+    <div class="accordion-body">
+      <span tal:replace="structure field.serialize(cstruct)"/>
+      <tal:errors condition="field.error"
+                  repeat="msg field.error.messages()">
+        <p tal:condition="msg" class="form-text text-danger mb-0"
+           i18n:translate="">${msg}</p>
+      </tal:errors>
+    </div>
+  </details>
+  <button type="button" class="bar-addon bar-remove"
+          aria-label="Remove ${title} ${index + 1}"
+          title="Remove (or the Delete key in the bar)"
+          tal:condition="url"
+          tal:attributes="disabled None if removable else 'disabled'"
+          hx-post="${url}" hx-include="closest form"
+          hx-target="#${target}" hx-swap="outerHTML"
+          hx-vals='{"sequence": "${path}", "action": "remove", "index": ${index}}'><i class="bi bi-x-lg" aria-hidden="true"></i></button>
+</div>

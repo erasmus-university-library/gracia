@@ -319,7 +319,8 @@ class Cache:
     def invalidate(self, repo: str) -> None:
         for name in self.KEPT:
             self._shared(name).pop(repo, None)
-        self.docs.drop(repo)
+        if self._docs is not None:  # nothing to drop where it was never opened
+            self._docs.drop(repo)
 
     def _table(self, repo: str, name: str) -> dict:
         return self._shared(name).setdefault(repo, {})

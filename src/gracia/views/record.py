@@ -1,10 +1,14 @@
+import itertools
+import secrets
+
 import deform
 import pyoxigraph as ox
-from pyramid.httpexceptions import HTTPFound
+from pyramid.httpexceptions import HTTPBadRequest, HTTPFound
+from pyramid.response import Response
 from pyramid.view import view_config
 
 from gracia import static, uri
-from gracia.forms import Form
+from gracia.forms import Form, change_sequence
 from gracia.graph import Graph, ParseError
 from gracia.resources import Record, Type
 from gracia.store import DuplicateValue
@@ -76,6 +80,33 @@ class RecordView(View):
         if problems:  # a record made with this form would be incomplete
             return self.page("", errors=problems, status=501)
         return self.respond()
+
+    # What the buttons of a sequence of blank nodes of the form ask (htmx): the
+    # form as it stands, and `sequence` (the path of the field in it), `action`
+    # (add or remove) and the `index` of the one to remove. The answer is that
+    # sequence.
+    @view_config(
+        context=Record, name="sequence", request_method="POST", permission="edit"
+    )
+    @view_config(context=Type, name="sequence", request_method="POST", permission="add")
+    def sequence(self):
+        post = self.request.POST
+        form = Form(
+            self.record.edit_schema(self.request),
+            tabs="Record",
+            counter=itertools.count(secrets.randbelow(2**31)),  # ids no page has
+        )
+        try:
+            html = change_sequence(
+                form,
+                post.items(),
+                post["sequence"],
+                post["action"],
+                int(post["index"]) if post.get("index") else None,
+            )
+        except (KeyError, ValueError):
+            raise HTTPBadRequest("not a sequence of this form") from None
+        return Response(html, content_type="text/html", charset="utf-8")
 
     # ---- the page
     # ------------------------------------------------------------------------

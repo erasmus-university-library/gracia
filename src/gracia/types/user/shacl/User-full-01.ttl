@@ -5,7 +5,8 @@
 @prefix dct: <http://purl.org/dc/terms/> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
-gracia:UserShape a sh:NodeShape ; sh:targetClass gracia:User ;
+gracia:UserShape a sh:NodeShape ;
+    dash:propertyRole dash:IconRole ; sh:defaultValue "person-badge" ; sh:targetClass gracia:User ;
     sh:description "Someone who can log in: a user id and a password, in the groups that give their permissions." ;
     sh:property [ sh:path gracia:userid ; sh:name "User id" ; sh:order 1 ;
         dash:propertyRole dash:LabelRole, dash:KeyInfoRole ;

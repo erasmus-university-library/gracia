@@ -4,12 +4,12 @@ from base import DbTestCase
 
 RECORDS = """
 @prefix gracia: <https://gracia.pub/ns/> .
-@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix schema: <https://schema.org/> .
 <rec:person:1> a gracia:Record ;
-    gracia:resource [ a foaf:Person ; foaf:name "Ada Lovelace" ] .
+    gracia:resource [ a schema:Person ; schema:name "Ada Lovelace" ] .
 <rec:person:2> a gracia:Record ;
     gracia:resource_uri <https://orcid.org/0000-0002> ;
-    gracia:resource [ a foaf:Person ; foaf:name "Grace Hopper" ] .
+    gracia:resource [ a schema:Person ; schema:name "Grace Hopper" ] .
 """
 
 
