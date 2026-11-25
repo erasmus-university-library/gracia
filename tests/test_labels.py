@@ -69,7 +69,7 @@ class LabelTest(LabelCase):
     def test_the_title_of_the_edit_form_is_the_label(self):
         self.add_person("Ada Lovelace")
         page = self.web.get("/test_repo/person/1/edit", headers=ADMIN).text
-        self.assertRegex(page, r'<h1 class="h3 mb-0">\s*Ada Lovelace\s*</h1>')
+        self.assertRegex(page, r'<h1 class="h3 mb-0 form-heading">\s*Ada Lovelace\s*</h1>')
         self.assertIn("rec:person:1", page)  # the key stays as the subtitle
 
     def test_the_label_is_a_read_only_field_that_is_shown_and_not_taken_from_the_form(

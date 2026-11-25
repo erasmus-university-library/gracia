@@ -311,6 +311,18 @@
    dialog: it does here, so that a theme that sets the variable has it. */
 .modal { --bs-modal-box-shadow: 0 1rem 3rem rgba(0, 0, 0, .25); }
 .modal-content { box-shadow: var(--bs-modal-box-shadow); }
+/* The header of a dialog, and the header of every page (the one of the layout), casts a
+   shadow on what scrolls under it: down only (the negative spread keeps it from the sides). */
+:root { --header-shadow: 0 .6rem .6rem -.5rem rgba(0, 0, 0, .22); }
+.modal-header, body > header {
+  position: relative; z-index: 1; box-shadow: var(--header-shadow);
+}
+/* The header of an edit or add form stays in view while the form scrolls (the layer of
+   Bootstrap's `sticky-top`, under its dropdowns and dialogs). It needs a background of its
+   own, as the form passes under it. */
+header:has(.form-heading) {
+  position: sticky; top: 0; z-index: 1020; background: var(--bs-body-bg);
+}
 .modal.covered .modal-header { position: relative; }
 .modal.covered .modal-header::after {
   content: ""; position: absolute; inset: 0; background: rgba(255, 255, 255, .55);

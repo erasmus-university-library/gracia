@@ -263,6 +263,7 @@ class TypeInfo:
     def __init__(self, class_uri: str):
         self.class_uri = class_uri
         self.name = self.slug = self.schema = self.assets = self.package = None
+        self.doc: str | None = None  # the doc template its type record gets
         self.system = False
         self.record_class = None
 
@@ -304,6 +305,7 @@ def add_gracia_type(config, content_type, system: bool = False) -> None:
             content_type.package,
             system,
         )
+        info.doc = getattr(content_type, "doc", None)
         registry.registerUtility(info, IGraciaType, name=content_type.slug)
 
     config.action(("gracia type", content_type.class_uri), register)

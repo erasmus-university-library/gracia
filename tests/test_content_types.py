@@ -489,6 +489,13 @@ class CommandsTest(DbTestCase):
             code = cli.main(["-c", str(self.ini), "-d", str(self.db), *args])
         return code, out.getvalue(), err.getvalue()
 
+    def application_repository(self, repo: str):
+        """The repository, as the commands open it (read it inside `with`)."""
+        args = cli.build_parser().parse_args(
+            ["-c", str(self.ini), "-d", str(self.db), "-r", repo, "types", "list"]
+        )
+        return cli._repository(args)
+
     def create(self, *ids: str):
         password = self.tmp / "pw"
         password.write_text("sekretsekret\n")
@@ -564,6 +571,73 @@ class CommandsTest(DbTestCase):
         )
         self.assertEqual(code, 0)
         self.assertIn("person: added", out)
+
+    def test_add_takes_the_doc_template_of_a_type(self):
+        self.config()
+        self.create("test_repo")
+        code, out, err = self.run_cli(
+            "-r",
+            "test_repo",
+            "types",
+            "add",
+            "person",
+            "work",
+            "--doc",
+            "work=doc-schemaorg-01.xsl",
+        )
+        self.assertEqual(code, 0, err)
+        self.assertIn("work: added", out)
+        listing = self.run_cli("-r", "test_repo", "types", "list")[1]
+        (line,) = (x for x in listing.splitlines() if x.startswith("work "))
+        self.assertTrue(line.endswith("doc-schemaorg-01.xsl"), line)
+
+    def test_add_gives_a_type_the_doc_template_it_names(self):
+        self.config()
+        self.create("test_repo")
+        self.run_cli("-r", "test_repo", "types", "add", "work", "series")
+        listing = self.run_cli("-r", "test_repo", "types", "list")[1]
+        lines = {x.split()[0]: x for x in listing.splitlines()}
+        self.assertTrue(lines["work"].endswith("doc-schemaorg-01.xsl"), lines["work"])
+        self.assertTrue(lines["series"].endswith(" -"), lines["series"])
+
+    def test_a_doc_template_that_is_not_there_is_a_clear_error(self):
+        self.config()
+        self.create("test_repo")
+        for given in ("work=nothing.xsl", "person=doc-full-01.xsl", "work", "=x"):
+            code, _, err = self.run_cli(
+                "-r", "test_repo", "types", "add", "work", "--doc", given
+            )
+            self.assertEqual(code, 1, given)
+            self.assertIn("--doc", err, given)
+        self.assertNotIn("work", self.run_cli("-r", "test_repo", "types", "list")[1])
+
+    def test_repo_set_makes_the_timezone_and_the_locale_of_the_repository(self):
+        self.config()
+        self.create("test_repo")
+        code, out, err = self.run_cli(
+            "-r",
+            "test_repo",
+            "repo",
+            "set",
+            "timezone=Europe/Amsterdam",
+            "locale=nl-NL",
+        )
+        self.assertEqual(code, 0, err)
+        self.assertIn("timezone=Europe/Amsterdam", out)
+        with self.application_repository("test_repo") as repository:
+            self.assertEqual(str(repository.timezone()), "Europe/Amsterdam")
+            self.assertEqual(repository.locale(), "nl-NL")
+        self.run_cli("-r", "test_repo", "repo", "set", "locale=")  # cleared
+        with self.application_repository("test_repo") as repository:
+            self.assertEqual(repository.locale(), "")
+
+    def test_repo_set_says_what_is_wrong(self):
+        self.config()
+        self.create("test_repo")
+        for given in ("timezone=Mars/Base", "locale=xx-XX", "colour=blue", "nope"):
+            code, _, err = self.run_cli("-r", "test_repo", "repo", "set", given)
+            self.assertEqual(code, 1, given)
+            self.assertTrue(err, given)
 
     def test_what_is_not_there_is_an_error(self):
         self.config()

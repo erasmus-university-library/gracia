@@ -23,6 +23,9 @@ _UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 _NUMBER = re.compile(r"^[1-9][0-9]{0,17}$")
 _N = ox.NamedNode
 
+# what `gracia repo set` sets: the timezone and the locale of dates
+REPOSITORY_SETTINGS = {"timezone": uri.TIMEZONE, "locale": uri.LOCALE}
+
 _ADMINS = (Allow, "group:admin", ALL_PERMISSIONS)
 TYPE_ACLS = {
     uri.REPOSITORY_CLASS: [_ADMINS, DENY_ALL],
@@ -170,6 +173,33 @@ class Repository:
             return ""
         found = record.graph.value(record.resource, _N(predicate))
         return found.value if found is not None and found.value else ""
+
+    def set_settings(self, values: dict[str, str]) -> None:
+        """Sets the timezone and the locale of the repository (`SETTINGS`); an empty
+        value clears one (UTC, ISO 8601). A name that is not valid is a ValueError."""
+        for name, value in values.items():
+            if name not in REPOSITORY_SETTINGS:
+                raise ValueError(
+                    f"no setting {name!r} (there are: {', '.join(REPOSITORY_SETTINGS)})"
+                )
+            if name == "locale" and value not in dates.FORMATS:
+                raise ValueError(f"{value!r} is not a locale of dates")
+            if name == "timezone" and value:
+                try:
+                    zoneinfo.ZoneInfo(value)
+                except (zoneinfo.ZoneInfoNotFoundError, ValueError, OSError):
+                    raise ValueError(f"{value!r} is not a time zone") from None
+        record = self.record()
+        subject, graph = record.resource, record.graph
+        if subject is None:
+            raise LookupError(
+                f"the record of repository {self.__name__} has no content"
+            )
+        for name, value in values.items():
+            graph.discard_plain(subject, REPOSITORY_SETTINGS[name])
+            if value:
+                graph.add_value(subject, REPOSITORY_SETTINGS[name], ox.Literal(value))
+        self.store.put(graph)
 
     def timezone(self) -> datetime.tzinfo:
         try:

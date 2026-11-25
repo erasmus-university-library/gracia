@@ -114,7 +114,7 @@ class ExtensionTest(ExtensionsCase):
     def test_every_extension_there_is_is_known_by_title(self):
         self.assertEqual(
             [e.name for e in self.repo().extensions()],
-            ["ark", "demo", "ns_prefix", "depends", "search"],
+            ["ark", "citations", "demo", "ns_prefix", "depends", "search"],
         )
         self.assertEqual(self.repo().extension("ark").title, "ARK")
 

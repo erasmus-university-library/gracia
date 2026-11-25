@@ -5,6 +5,7 @@ description = "RDF resources in DuckDB: flattened triples with integer ids, impo
 requires-python = ">=3.12"
 dependencies = [
     "chameleon>=4.6.0",
+    "citeproc-py>=0.12.3",
     "colander>=2.0",
     "deform>=3.0.1",
     "duckdb>=2.0",

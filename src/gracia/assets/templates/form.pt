@@ -1,6 +1,6 @@
 <html metal:use-macro="layout.macros['layout']">
   <metal:slot fill-slot="header">
-    <h1 class="h3 mb-0">${heading}</h1>
+    <h1 class="h3 mb-0 form-heading">${heading}</h1>
     <div class="text-muted">${subtitle}</div>
   </metal:slot>
   <metal:slot fill-slot="content">

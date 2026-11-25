@@ -13,11 +13,20 @@ trap 'rm -rf "$TMP"' EXIT
 
 (umask 077; echo sekretsekret > "$TMP/password")
 gracia repo create test --admin admin --admin-password-file "$TMP/password"
-gracia -r test types add person organization series collection work
-
+gracia -r test types add person organization series collection work --doc work=doc-schemaorg-01.xsl
+gracia -r test repo set timezone=Europe/Amsterdam locale=nl-NL
+gracia -r test extensions enable citations
+echo '{"style": "apa"}' | gracia -r test extensions import citations
 awk -v n="$COUNT" '
 function pick(list, size) { return list[int(rand() * size) + 1] }
 function day(year) { return sprintf("%04d-%02d-%02d", year, 1 + int(rand() * 12), 1 + int(rand() * 28)) }
+# some sentences of dummy abstract text (the words are picked, not meant)
+function abstract(  sentences, text, k) {
+  sentences = 2 + int(rand() * 3); text = ""
+  for (k = 1; k <= sentences; k++)
+    text = text (k > 1 ? " " : "") sprintf("We study %s %s of %s and show that %s %s %s. %s", tolower(pick(adjective, 10)), tolower(pick(noun, 10)), tolower(pick(topic, 10)), tolower(pick(verb, 6)), tolower(pick(noun, 10)), pick(outcome, 6), pick(closing, 5))
+  return text
+}
 function ark(type, number) { return "<ark:/99999/ir/" type "/" number ">" }
 function node(type, number) {
   printf "<rec:%s:%d> a gracia:Record ;\n  gracia:resource_uri %s ;\n", type, number, ark(type, number)
@@ -32,6 +41,9 @@ BEGIN {
   split("Computation Notation Reasoning Memory Search Types Proofs Machines Patterns Data", noun, " ")
   split("Book ScholarlyArticle Thesis Report Article", work_type, " ")
   split("en nl de fr", language, " ")
+  split("improves reduces explains predicts preserves bounds", verb, " ")
+  split("in practice#under mild assumptions#for large inputs#on every benchmark#beyond what was known#in a single pass", outcome, "#")
+  split("Our results are discussed.#The method is evaluated on real data.#Open problems remain.#A proof is given.#We conclude with directions for future work.", closing, "#")
   print "@prefix gracia: <https://gracia.pub/ns/> ."
   print "@prefix schema: <https://schema.org/> ."
   print "@prefix xsd: <http://www.w3.org/2001/XMLSchema#> ."
@@ -81,7 +93,7 @@ BEGIN {
       journal = 2 * (int(rand() * int(series / 2)) + 1)
       year = 1950 + int(rand() * 76); issued = day(year); first = 1 + int(rand() * 300)
       printf "  gracia:resource [ a schema:ScholarlyArticle ; schema:name \"%s %s of %s %d\" ; schema:author ( %s )", pick(adjective, 10), pick(noun, 10), pick(topic, 10), i, ark("person", int(rand() * n) + 1)
-      printf " ; schema:pageStart \"%d\" ; schema:pageEnd \"%d\" ; schema:datePublished \"%s\"^^xsd:date ; schema:inLanguage \"en\"", first, first + 5 + int(rand() * 20), issued
+      printf " ; schema:pageStart \"%d\" ; schema:pageEnd \"%d\" ; schema:datePublished \"%s\"^^xsd:date ; schema:inLanguage \"en\" ; schema:abstract \"%s\"", first, first + 5 + int(rand() * 20), issued, abstract()
       printf " ; schema:volumeNumber \"%d\" ; schema:issueNumber \"%d\" ; schema:isPartOf %s ] .\n", year - 1949, 1 + int(rand() * 12), ark("series", journal)
       continue
     }
@@ -91,6 +103,9 @@ BEGIN {
     # now and then a contributor in a role: a person who advised it, an organization that paid
     if (i % 5 == 0) printf " ; schema:contributor [ a schema:Role ; schema:roleName <http://example.org/vocab/role/Expert> ; schema:contributor %s ]", ark("person", int(rand() * n) + 1)
     if (i % 7 == 0) printf " ; schema:contributor [ a schema:Role ; schema:roleName <http://example.org/vocab/role/Funder> ; schema:contributor %s ]", ark("organization", int(rand() * orgs) + 1)
+    printf " ; schema:abstract \"%s\"", abstract()
+    if (i % 2 == 0) printf " ; schema:pageStart \"%d\" ; schema:pageEnd \"%d\"", 1 + int(rand() * 200), 201 + int(rand() * 300)
+    if (i % 2) printf " ; schema:volumeNumber \"%d\"", 1 + int(rand() * 40)
     printf " ; schema:publisher %s ; schema:isPartOf %s ; schema:datePublished \"%s\"^^xsd:date ; schema:inLanguage \"%s\" ; schema:keywords \"%s, %s\"", ark("organization", int(rand() * orgs) + 1), (i % 2 ? ark("series", int(rand() * series) + 1) : ark("collection", int(rand() * collections) + 1)), day(1950 + int(rand() * 76)), pick(language, 4), tolower(pick(topic, 10)), tolower(pick(noun, 10))
     print " ] ."
   }

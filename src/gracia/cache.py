@@ -128,6 +128,20 @@ class DocStore(GraphStore):
                 found = self._compiled[repository.__name__] = self._compile(repository)
             return found
 
+    @staticmethod
+    def citation_style(repository) -> str | None:
+        """The style the docs get their citation in; None when the extension is off."""
+        try:
+            found = repository.extension("citations")
+        except KeyError:  # not registered: a bare repository, made by a script
+            return None
+        return found.style if found.enabled else None
+
+    def fingerprint(self, repository, compiled: xslt.Compiled) -> str:
+        """What a kept doc was made with: the stylesheet and the citation style."""
+        style = self.citation_style(repository)
+        return compiled.fingerprint + (f"+citation:{style}" if style else "")
+
     def drop(self, repo: str) -> None:
         with self._lock:
             old = self._compiled.pop(repo, None)
@@ -194,6 +208,8 @@ class DocStore(GraphStore):
             return {}
         out, compiled = self._run(repository, {"records": json.dumps(ids)}, rdfxml)
         made = {doc["record"]: doc for doc in json.loads(out)}
+        if style := self.citation_style(repository):
+            self._cite(style, made)
         entries = []
         for uri, doc in made.items():
             if "error" in doc:
@@ -205,13 +221,26 @@ class DocStore(GraphStore):
                     (
                         repository.__name__,
                         ids[uri],
-                        etags[ids[uri]] + compiled.fingerprint,
+                        etags[ids[uri]] + self.fingerprint(repository, compiled),
                         json.dumps(doc).encode(),
                     )
                 )
         if entries and self._env is not None:
             self.put_many(entries)
         return made
+
+    @staticmethod
+    def _cite(style: str, made: dict[str, dict]) -> None:
+        """Renders the CSL JSON of the batch in the style: `doc["citation"]`."""
+        from gracia import citations
+
+        blobs = {
+            uri: doc["csl"]
+            for uri, doc in made.items()
+            if "error" not in doc and isinstance(doc.get("csl"), str)
+        }
+        for uri, text in citations.render(style, blobs).items():
+            made[uri]["citation"] = text
 
     def schema(self, repository, slugs: list[str]) -> list[dict]:
         types = "".join(f"<type slug={quoteattr(slug)}/>" for slug in slugs)
@@ -372,7 +401,9 @@ class Cache:
         if current is None:
             return None
         if self.keeps_docs:
-            fingerprint = self.docs.compiled(repository).fingerprint
+            fingerprint = self.docs.fingerprint(
+                repository, self.docs.compiled(repository)
+            )
             if (
                 kept := self.docs.get(repo, record_id, current[0], fingerprint)
             ) is not None:

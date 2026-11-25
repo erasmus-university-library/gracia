@@ -1,5 +1,6 @@
 import argparse
 import contextlib
+import copy
 import datetime
 import getpass
 import json
@@ -739,7 +740,8 @@ def cmd_types_list(args) -> int:
             for res_type in node.types.values():
                 print(
                     f"{res_type.slug:16} {res_type.record:20} {res_type.name:12} "
-                    f"{res_type.class_uri}  {res_type.schema or '-'}"
+                    f"{res_type.class_uri}  {res_type.schema or '-'}  "
+                    f"{res_type.doc_template or '-'}"
                 )
         finally:
             node.close()
@@ -763,6 +765,21 @@ def _repository(args):
         finally:
             node.close()
             config_.end()
+
+
+def cmd_repo_set(args) -> int:
+    values = {}
+    for item in args.settings:
+        name, sep, value = item.partition("=")
+        if not sep:
+            raise ValueError(f"{item!r}: expected NAME=VALUE (timezone, locale)")
+        values[name] = value
+    with _repository(args) as node:
+        node.set_settings(values)
+    print(
+        f"{args.repo}: " + ", ".join(f"{k}={v or '(none)'}" for k, v in values.items())
+    )
+    return 0
 
 
 def _extension(node, name: str):
@@ -818,6 +835,26 @@ def cmd_extensions_import(args) -> int:
     return 0
 
 
+def _with_docs(found: list, given: list[str]) -> list:
+    """The content types, with the doc template `--doc SLUG=FILE` chooses for them."""
+    by_slug = {res_type.slug: res_type for res_type in found}
+    for item in given:
+        slug, _, name = item.partition("=")
+        if slug not in by_slug or not name:
+            raise ValueError(f"--doc {item!r}: expected SLUG=FILE of a type to add")
+        res_type = by_slug[slug]
+        try:
+            assets.resolve(assets.join(res_type.assets, assets.DOC_DIR + name))
+        except (FileNotFoundError, ValueError) as err:
+            raise ValueError(
+                f"--doc {item!r}: {name} is not a doc template of {slug} ({err})"
+            ) from None
+        chosen = copy.copy(res_type)
+        chosen.doc = name
+        by_slug[slug] = chosen
+    return [by_slug[res_type.slug] for res_type in found]
+
+
 def cmd_types_add(args) -> int:
     with _application(args) as application:
         if not application.has_repository(args.repo):
@@ -826,6 +863,7 @@ def cmd_types_add(args) -> int:
             found = [
                 types.find_content_type(registry, name) for name in args.content_types
             ]
+        found = _with_docs(found, args.doc)
         with application.new_store(args.repo) as store:
             for res_type in found:
                 record = types.add_content_type(store, args.repo, res_type)
@@ -1007,6 +1045,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="file with the password of the first user, mode 0600 (else asked for)",
     )
     q.set_defaults(func=cmd_repo_create)
+    q = rsub.add_parser(
+        "set", help="set the timezone and the locale of the repository (-r)"
+    )
+    q.add_argument(
+        "settings",
+        nargs="+",
+        metavar="NAME=VALUE",
+        help="timezone=Europe/Amsterdam, locale=nl-NL (an empty value clears it)",
+    )
+    q.set_defaults(func=cmd_repo_set)
 
     p = sub.add_parser(
         "serve-db",
@@ -1133,6 +1181,14 @@ def build_parser() -> argparse.ArgumentParser:
         "add", help="add content types, by slug or package, to the repository (-r)"
     )
     q.add_argument("content_types", nargs="+", metavar="CONTENT_TYPE")
+    q.add_argument(
+        "--doc",
+        action="append",
+        default=[],
+        metavar="SLUG=FILE",
+        help="the doc template (a file of the type's doc/ dir) of a type to add, "
+        "instead of the one it names itself (repeat it for more types)",
+    )
     q.set_defaults(func=cmd_types_add)
 
     p = sub.add_parser(
