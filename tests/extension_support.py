@@ -18,4 +18,4 @@ def put_extension_state(
         for quad in ox.parse(text.encode(), format=ox.RdfFormat.TURTLE):
             owner = content if quad.subject == PLACEHOLDER else quad.subject
             data.add(ox.Quad(owner, quad.predicate, quad.object, ox.DefaultGraph()))
-        store.put(data)
+        store.put_multi(data)

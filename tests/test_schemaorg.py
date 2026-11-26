@@ -183,7 +183,7 @@ class RecursiveShapesTest(ConfiguredCase):
                 )
             )
         )
-        self.application["test_repo"].store.put(record_graph)
+        self.application["test_repo"].store.put_multi(record_graph)
 
     def test_a_parent_is_a_link_or_a_node_written_in_the_record(self):
         self.application.create_repository(

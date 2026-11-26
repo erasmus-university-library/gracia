@@ -1,13 +1,15 @@
 import datetime
 import threading
 import time
+from typing import cast
 
+from harness import etag_of, graph_of, stopped_worker
 from pyramid.registry import Registry
 from test_actions import STAMP2, BatchCase
 from test_etags import record
 
 from gracia.actions import Worker
-from gracia.cache import GraphStore
+from gracia.cache import EtagStore, GraphStore
 from gracia.store import fetch_one
 
 
@@ -93,7 +95,7 @@ class GraphCacheStatsTest(BatchCase):
         super().setUp()
         self.put(record("rec:org:1"), record("rec:work:1", refs=["rec:org:1"]))
 
-    def test_the_entries_of_a_repository_and_of_all_of_them_and_the_space(self):
+    def test_the_graphs_of_a_repository_and_the_space_of_them(self):
         graphs = GraphStore(self.tmp / "stats")
         self.addCleanup(graphs.close)
         etag = "0123456789abcdef"
@@ -101,32 +103,74 @@ class GraphCacheStatsTest(BatchCase):
             [("main", n, etag, b"<x/>" * 100) for n in range(1, 6)]
             + [("other", 1, etag, b"<y/>")]
         )
-        self.assertEqual(
-            (graphs.count("main"), graphs.count("other"), graphs.count("nobody")),
-            (5, 1, 0),
-        )
-        self.assertEqual(
-            graphs.count("main", limit=3), 3
-        )  # counted no further than that
-        stats = graphs.stats()
-        self.assertEqual(stats["entries"], 6)
-        self.assertGreater(stats["bytes"], 0)
-        self.assertGreater(stats["file"], 0)
-        self.assertGreater(stats["limit"], stats["file"])
+        main, other = graphs.repo_stats("main"), graphs.repo_stats("other")
+        self.assertEqual((main["entries"], other["entries"]), (5, 1))
+        self.assertEqual(graphs.repo_stats("nobody")["entries"], 0)
+        self.assertGreater(main["bytes"], 5 * 400)  # the keys and the values
+        self.assertGreater(main["bytes"], other["bytes"])
+        capped = graphs.repo_stats("main", limit=3)
+        self.assertEqual((capped["entries"], capped["capped"]), (3, True))  # no further
+        self.assertFalse(main["capped"])
 
-    def test_the_cache_says_what_it_holds_and_none_without_a_directory(self):
+    def test_every_cache_says_what_it_holds_of_a_repository(self):
+        cache = self.app.cache
         record_id = self.store.record_id_of("rec:work:1")
-        self.assertEqual(self.app.cache.etags_held("main"), 0)
-        self.app.cache.etags("main", [record_id])
-        self.assertEqual(self.app.cache.etags_held("main"), 1)
-        self.assertEqual(self.app.cache.etags_held("other"), 0)
-        self.app.cache.graph("main", record_id)
-        found = self.app.cache.graph_stats("main")
-        self.assertEqual((found["repo_entries"], found["entries"]), (1, 1))  # ty: ignore[not-subscriptable]
-        self.assertTrue(found["directory"].endswith("cache"))  # ty: ignore[not-subscriptable]
-        self.app.cache._graph_dir = None
-        self.app.cache._graphs = None
-        self.assertIsNone(self.app.cache.graph_stats("main"))
+
+        def held(repo="main"):
+            stats = cache.repo_stats(repo)
+            return stats["modified_at"], {c["name"]: c for c in stats["caches"]}
+
+        _, before = held()
+        self.assertEqual(
+            [c["name"] for c in before.values()],
+            ["etags", "slugs", "referencing", "graphs", "docs"],
+        )
+        self.assertEqual(before["etags"]["entries"], 0)
+        worker = stopped_worker(self.app)
+        graph_of(self.app, "main", record_id)  # asks for the etag too, and the worker
+        worker.turn()  # to make the graph for the cache
+        self.store.con.execute(
+            "INSERT INTO slugs (rec_type, slug, record_uri, is_deleted) "
+            "VALUES ('work', 'w', 'rec:work:1', false)"
+        )
+        with self.app.new_store("main") as cached:
+            cached.slug_lookup("work", "w")
+            cached.referencing_records(record_type=6)  # a page and its total
+            cached.count_referencing_records(record_type=6)
+        modified, now = held()
+        self.assertIsInstance(modified, datetime.datetime)
+        self.assertEqual(
+            {name: c["entries"] for name, c in now.items() if name != "docs"},
+            {"etags": 1, "slugs": 1, "referencing": 2, "graphs": 1},
+        )
+        self.assertTrue(all(c["bytes"] > 0 for n, c in now.items() if c["entries"]))
+        self.assertEqual(held("other")[1]["etags"]["entries"], 0)  # another repository
+        # a write: what the open caches kept is deleted when the cache sees it, not when
+        # it is asked for again
+        self.put(record("rec:org:2", stamp="2026-06-01T00:00:00.000000Z"))
+        later, after = held()
+        self.assertGreater(later, modified)
+        for name in ("etags", "slugs", "referencing"):
+            self.assertEqual(
+                (after[name]["entries"], after[name]["stale"]), (0, 0), name
+            )
+        etag_of(self.app, "main", record_id)  # and kept again as it is asked for
+        self.assertEqual(
+            (held()[1]["etags"]["entries"], held()[1]["etags"]["stale"]), (1, 0)
+        )
+        # a request that was running wrote under the old time: that is what is old
+        cast(EtagStore, cache.stamped("etags")).put_many(
+            "main", cache.repo_last_modified_at("main") - 1, {1: "x"}
+        )
+        self.assertEqual(held()[1]["etags"]["stale"], 1)
+        self.put(record("rec:org:3", stamp="2026-07-01T00:00:00.000000Z"))
+        self.assertEqual(held()[1]["etags"]["stale"], 0)  # and goes with the next write
+        # without a directory the graphs and docs are not kept
+        cache._graph_dir = None
+        cache._graphs = None
+        none = held()[1]
+        self.assertNotIn("entries", none["graphs"])
+        self.assertNotIn("entries", none["docs"])
 
 
 class WorkerStatusTest(BatchCase):

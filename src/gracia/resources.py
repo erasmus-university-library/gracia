@@ -123,7 +123,10 @@ class Repository:
     @cached_property
     def store(self):
         db = self.application.db
-        store = self.store = new_store(self.application.database, self.__name__, db)
+        store = self.store = new_store(
+            self.application.database, self.__name__, db, self.application.cache
+        )
+        store.repository = self
         self._owns_store = db is None
         self.configure()
         request = get_current_request()
@@ -199,7 +202,7 @@ class Repository:
             graph.discard_plain(subject, REPOSITORY_SETTINGS[name])
             if value:
                 graph.add_value(subject, REPOSITORY_SETTINGS[name], ox.Literal(value))
-        self.store.put(graph)
+        self.store.put_multi(graph)
 
     def timezone(self) -> datetime.tzinfo:
         try:
@@ -244,7 +247,12 @@ class Repository:
 
     @cached_property
     def types(self) -> dict[str, "Type"]:
-        records, found = self.application.cache.types(self.__name__, self._type_records)
+        cache = self.application.cache
+        cache.refresh()  # a repository that was written has dropped what was kept
+        kept = cache.registry.setdefault("types", {})
+        if self.__name__ not in kept:
+            kept[self.__name__] = self._type_records()
+        records, found = kept[self.__name__]
         found_types = {}
         for record in records:
             res_type = Type.read(self, record, found)
@@ -266,7 +274,7 @@ class Repository:
             classes
         )  # the list has the classes: the resource uris
         records = [by_class[c] for c in classes if c in by_class]
-        return records, self.store.get(records) if records else Graph()
+        return records, self.store.get_multi(records)
 
     def resolve_type(self, href: str) -> Path:
         slug, _, name = href.removeprefix("type:").partition("/")
@@ -326,7 +334,7 @@ class Repository:
         groups = list(
             by_resource.values()
         )  # `gracia:memberOf` has the resource uris of the groups
-        found = store.get(groups) if groups else Graph()
+        found = store.get_multi(groups)
         names = set()
         for group in groups:
             inner = found.value(_N(group), _N(uri.RESOURCE))
@@ -564,7 +572,7 @@ class Type(Node):
         if _NUMBER.match(key):
             number = key
         elif uri.SLUG_NAME.match(key):
-            found = self._slug(key)
+            found = self.store.slug_lookup(self.slug, key)
             if found is None:
                 raise KeyError(key)
             if found[1]:
@@ -575,19 +583,11 @@ class Type(Node):
         record = self._record(number)
         if record is None:
             if number == key:  # a number that was deleted is a slug of its own
-                found = self._slug(key)
+                found = self.store.slug_lookup(self.slug, key)
                 if found is not None and found[1]:
                     raise RecordDeleted(key)
             raise KeyError(key)
         return record
-
-    def _slug(self, key: str) -> tuple[int, bool] | None:
-        return self.application.cache.slug(
-            self.repository.__name__,
-            self.slug,
-            key,
-            lambda: self.store.slug_lookup(self.slug, key),
-        )
 
     def _record(self, number: str) -> "Record | None":
         record_uri = uri.record_uri(self.slug, int(number))
@@ -1189,7 +1189,7 @@ class Record(Node):
 
     def save(self) -> None:
         store = self.store
-        store.put(self.graph)
+        store.put_multi(self.graph)
         self.__name__ = store.current_slug(self.uri) or self.uri.rsplit(":", 1)[1]
         if self.type.slug == "type":  # a type was made or changed: its roles are new
             self.repository.sync_roles()

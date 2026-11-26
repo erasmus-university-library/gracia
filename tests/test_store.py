@@ -315,7 +315,7 @@ class LostRaceTest(DbTestCase):
             with self.subTest(error=type(error).__name__), open_store(self.db) as store:
                 store.con = FailOnce(store.con, error)
                 with mock.patch("gracia.store.time.sleep"):
-                    store.put(self.quads(type(error).__name__))
+                    store.put_multi(self.quads(type(error).__name__))
                 self.assertEqual(store.con.failures, 1)
                 self.assertEqual(len(store.get(self.SUBJECTS[type(error).__name__])), 1)
 
@@ -327,5 +327,5 @@ class LostRaceTest(DbTestCase):
                 mock.patch("gracia.store.time.sleep"),
                 self.assertRaises(duckdb.ConstraintException),
             ):
-                store.put(self.quads())
+                store.put_multi(self.quads())
             self.assertEqual(store.con.failures, store_module.LOAD_ATTEMPTS)

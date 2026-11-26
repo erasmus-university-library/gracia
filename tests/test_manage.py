@@ -5,7 +5,7 @@ import time
 from importlib.resources import files
 
 import pyoxigraph as ox
-from harness import FOAF_PERSON
+from harness import FOAF_PERSON, etag_of, graph_of, stopped_worker
 from pyramid.registry import Registry
 from support import must_search
 from test_web import HeaderPolicy, WebCase
@@ -105,16 +105,18 @@ class ManageViewTest(ManageCase):
         _, page = self.tabs("/test_repo/manage?tab=settings")
         self.assertIn('class="tab-pane active" id="tab-settings"', page)
 
-    def test_the_types_tab_lists_the_types_and_each_is_a_link_to_its_manage_page(self):
+    def test_the_types_tab_lists_the_types_and_each_row_is_a_link_to_its_manage_page(
+        self,
+    ):
         self.application.create_repository("archive", content_types=[self.person()])
         _, page = self.tabs("/archive/manage")
         cards = type_cards(page)
         self.assertEqual(
             list(cards), ["repository", "type", "user", "group", "person"]
-        )  # a card for each type
+        )  # a row for each type
         self.assertEqual(
             re.findall(
-                r'<a href="([^"]+)" class="btn[^>]*>Manage</a>', "".join(cards.values())
+                r'<a href="([^"]+)" class="stretched-link', "".join(cards.values())
             ),
             [f"http://localhost/archive/{slug}/manage" for slug in cards],
         )
@@ -205,14 +207,16 @@ class CountsTest(ManageCase):
                     f"<rec:person:{n}> a <{uri.RECORD_CLASS}> ; "
                     f" <{uri.RESOURCE}> [ a <http://xmlns.com/foaf/0.1/Person> ] ."
                 )
-                store.put(
+                store.put_multi(
                     ox.Dataset(ox.parse(text.encode(), format=ox.RdfFormat.TURTLE))
                 )
         cards = type_cards(self.tabs("/archive/manage")[1])
-        self.assertIn("3 records", cards["person"])
-        self.assertIn(
-            "1 record<", cards["repository"]
-        )  # the one record of the repository
+
+        def records(slug: str) -> str:
+            return re.findall(r'<td class="text-end">([^<]*)</td>', cards[slug])[0]
+
+        self.assertEqual(records("person"), "3")
+        self.assertEqual(records("repository"), "1")  # the one record of the repository
 
     def test_the_predicates_tab_counts_the_values_of_each_property(self):
         cards = predicate_cards(self.tabs("/test_repo/manage?tab=predicates")[1])
@@ -226,8 +230,8 @@ def type_cards(page: str) -> dict[str, str]:
     pane = page[page.index('id="tab-types"') : page.index('id="tab-settings"')]
     return {
         must_search(r'id="type-([^"]+)"', c)[1]: c
-        for c in re.split(r'(?=<div class="type )', pane)
-        if c.startswith('<div class="type ')
+        for c in re.split(r"(?=<tr id=\"type-)", pane)
+        if c.startswith('<tr id="type-')
     }
 
 
@@ -380,68 +384,83 @@ class StatsTabTest(ManageCase):
                 for k in range(1, n + 1)
             )
         )
-        self.store.put(ox.Dataset(ox.parse(text.encode(), format=ox.RdfFormat.TURTLE)))
+        self.store.put_multi(
+            ox.Dataset(ox.parse(text.encode(), format=ox.RdfFormat.TURTLE))
+        )
 
-    def test_the_fieldsets_are_types_then_cache_then_pending_actions(self):
+    def test_the_fieldsets_are_cache_then_pending_actions(self):
         pane = self.pane()
         positions = [
-            pane.index(f'id="{name}"')
-            for name in ("stats-types", "stats-cache", "stats-search", "stats-actions")
+            pane.index(f'id="{name}"') for name in ("stats-cache", "stats-actions")
         ]
         self.assertEqual(positions, sorted(positions))
         self.assertEqual(
-            re.findall(r"<legend[^>]*>([^<]+)", pane),
-            ["Types", "Cache", "Search", "Pending actions"],
+            re.findall(r"<legend[^>]*>([^<]+)", pane), ["Cache", "Pending actions"]
         )
+        for gone in ("stats-types", "stats-search"):  # they have their own tabs
+            self.assertNotIn(f'id="{gone}"', pane)
+
+    def types_tab(self, repo="test_repo") -> str:
+        _, page = self.tabs(f"/{repo}/manage?tab=types")
+        return page[page.index('id="tab-types"') : page.index('id="tab-settings"')]
 
     def test_the_types_have_their_records_the_published_ones_and_the_size_of_their_sources(  # noqa: E501
         self,
     ):
         self.add_people(4)
-        pane = self.pane()
-        row = self.text(pane, "stats-type-person")
+        pane = self.types_tab()
+        row = self.text(pane, "type-person")
         self.assertRegex(
-            row, r"^person person 4 2 \d"
+            row, r"person 4 2 \d"
         )  # four records, two of them published, then the size
         self.assertRegex(
             row, r"\d+(\.\d)? (B|KB) \d+(\.\d)? (B|KB) \d{4}-\d\d-\d\d \d\d:\d\d UTC"
         )
-        total = self.text(pane, "stats-types-total")
+        total = self.text(pane, "types-total")
         records = sum(self.store.count_records_by_type().values())
         self.assertTrue(total.startswith(f"All {records:,}"))
         self.assertIn(
-            "stats-type-repository", pane
+            'id="type-repository"', pane
         )  # the types a repository is made of are there too
 
     def test_a_type_with_no_records_is_there_with_none(self):
         self.application.create_repository("archive", content_types=[self.person()])
-        _, page = self.tabs("/archive/manage?tab=stats")
         self.assertRegex(
-            self.text(page, "stats-type-person"), r"^Person person 0 0 0 B$"
+            self.text(self.types_tab("archive"), "type-person"), r"person 0 0 0 B$"
         )
 
-    def test_the_pages_the_etags_in_memory_and_the_graphs_of_the_cache(self):
+    def test_the_pages_and_what_each_cache_keeps_of_the_repository(self):
         self.add_people(3)
         pages = self.store.etag_stats()["pages"]
         self.assertEqual(self.text(self.pane(), "stats-pages").split()[0], f"{pages:,}")
-        self.assertEqual(self.text(self.pane(), "stats-etags-held").split()[0], "0")
-        record_id = self.store.record_id_of("rec:person:1")
-        self.application.cache.etags("test_repo", [record_id])  # asked for, so held
-        self.assertEqual(self.text(self.pane(), "stats-etags-held").split()[0], "1")
-        self.assertTrue(
-            self.text(self.pane(), "stats-graphs").startswith("0 in this repository")
+        self.assertRegex(self.text(self.pane(), "stats-written"), r"^\d{4}-\d\d-\d\d")
+        self.assertRegex(
+            self.text(self.pane(), "stats-written"), r"\(\d+ (s|min|h|d) ago"
         )
-        self.application.cache.graph("test_repo", record_id)  # ty: ignore[invalid-argument-type]
-        self.assertTrue(
-            self.text(self.pane(), "stats-graphs").startswith(
-                "1 in this repository, 1 in all"
-            )
-        )
-        self.assertIn(self.cache_dir, self.pane())  # where it is kept
 
-    def test_without_a_graph_directory_it_says_there_is_no_graph_cache(self):
+        def entries(name: str) -> str:
+            return self.text(self.pane(), f"stats-kept-{name}").split()[1]
+
+        self.assertEqual(entries("etags"), "0")
+        record_id = self.store.record_id_of("rec:person:1")
+        etag_of(self.application, "test_repo", record_id)  # asked for, so kept
+        self.assertEqual(entries("etags"), "1")
+        self.assertEqual(entries("graphs"), "0")
+        worker = stopped_worker(self.application)
+        graph_of(self.application, "test_repo", record_id)
+        worker.turn()  # the graph is made for the cache by the worker
+        self.assertEqual(entries("graphs"), "1")
+        self.assertRegex(
+            self.text(self.pane(), "stats-kept-etags"), r"^etags 1 \d+(\.\d)? B"
+        )
+        for name in ("etags", "slugs", "referencing", "graphs", "docs"):
+            self.assertIn(f"stats-kept-{name}", self.pane())
+
+    def test_without_a_cache_directory_the_graphs_and_docs_say_there_is_no_cache(self):
         self.application.cache._graph_dir = None
-        self.assertIn("No graph cache", self.text(self.pane(), "stats-graphs"))
+        self.assertIn("no cache", self.text(self.pane(), "stats-kept-graphs"))
+        self.assertIn("no cache", self.text(self.pane(), "stats-kept-docs"))
+        self.assertNotIn("no cache", self.text(self.pane(), "stats-kept-etags"))
 
     def test_the_pending_work_is_what_the_queue_holds(self):
         self.add_people(3)
@@ -515,9 +534,7 @@ class StatsTabTest(ManageCase):
         dialog = must_search(
             r'<div class="job-panel"[^>]*data-compact="true"[^>]*>', pane
         )[0]
-        self.assertIn(
-            'data-filter="job=update_cache,rebuild_search,process_actions"', dialog
-        )
+        self.assertIn('data-filter="job=update_cache,process_actions"', dialog)
         self.assertIn("http://localhost/test_repo/jobs/list", dialog)
         self.assertIn('data-progress-dialog=""', pane)
         self.assertRegex(
@@ -567,7 +584,7 @@ class LogoTest(ManageCase):
     def test_the_pages_of_a_repository_and_of_what_is_in_it_go_to_the_repository(self):
         self.application.create_repository("archive", content_types=[self.person()])
         with self.application.new_store("archive") as store:
-            store.put(
+            store.put_multi(
                 ox.Dataset(
                     ox.parse(
                         b'<rec:person:1> <https://gracia.pub/ns/label> "Ada" .',

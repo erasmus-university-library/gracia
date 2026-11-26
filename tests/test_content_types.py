@@ -411,7 +411,7 @@ class CounterTest(WebCase):
 
     def put(self, store, *uris):
         text = "".join(f'<{i}> <urn:p> "x" .\n' for i in uris)
-        store.put(ox.Dataset(ox.parse(text.encode(), format=ox.RdfFormat.TURTLE)))
+        store.put_multi(ox.Dataset(ox.parse(text.encode(), format=ox.RdfFormat.TURTLE)))
 
     def test_a_type_nobody_has_heard_of_counts_from_one(self):
         with self.application.new_store("test_repo") as store:
@@ -444,7 +444,7 @@ class CounterTest(WebCase):
         with self.application.new_store("test_repo") as store:
             before = store.mint_id("gizmo")
             with self.assertRaises(ValueError):  # an orphan blank node: put refuses it
-                store.put(
+                store.put_multi(
                     ox.Dataset(
                         [
                             ox.Quad(

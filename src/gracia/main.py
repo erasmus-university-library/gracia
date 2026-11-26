@@ -25,6 +25,7 @@ from gracia.jobs import job as jobs_job
 from gracia.jobs.stage import load_modules
 from gracia.security import UsersPolicy
 from gracia.views import deform as views_deform
+from gracia.views import xslt as views_xslt
 
 
 def init(
@@ -170,6 +171,7 @@ def includeme(config: Configurator) -> None:
     # nodes that say so with `@traversable`
     config.scan("gracia.resources")
     config.add_renderer(views_deform.RENDERER, views_deform.DeformViewRenderer)
+    config.add_renderer(".xslt", views_xslt.XsltRenderer)  # a stylesheet makes the view
     config.add_directive("add_gracia_job", jobs_job.add_gracia_job)
     # a request that does not say what it wants gets data; a browser (it asks for
     # text/html

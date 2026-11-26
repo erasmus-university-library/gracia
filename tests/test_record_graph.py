@@ -157,7 +157,7 @@ class RecordGraphTest(EtagCase):
         other = open_store(self.db, repo="other", create=True)
         self.addCleanup(other.close)
         other.set_type_ids([("work", 6)])
-        other.put(record("rec:work:1"))
+        other.put_multi(record("rec:work:1"))
         self.assertEqual(
             self.subjects(
                 fetch_one(other.con.execute("SELECT graph FROM record_graph()"))[0]

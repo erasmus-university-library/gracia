@@ -93,7 +93,7 @@ class RepositoryEndpointsTest(WebCase):
             quad = ox.Quad(
                 ox.NamedNode("rec:thing:2"), ox.NamedNode(EX + "p"), ox.Literal("x")
             )
-            store.put(ox.Dataset([quad]))
+            store.put_multi(ox.Dataset([quad]))
         web = self.client()
         self.assertEqual(
             web.get("/test_repo/").json["rows"], web.get("/archive/").json["rows"] + 1

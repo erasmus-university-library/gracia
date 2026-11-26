@@ -191,7 +191,7 @@ class JobsCase(unittest.TestCase):
             else "@prefix gracia: <https://gracia.pub/ns/> .\n"
         )
         with self.application.new_store("test_repo") as store:
-            store.put(
+            store.put_multi(
                 ox.Dataset(
                     ox.parse((header + text).encode(), format=ox.RdfFormat.TURTLE)
                 )

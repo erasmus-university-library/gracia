@@ -1,4 +1,5 @@
 import inspect
+from datetime import UTC, datetime
 from html import escape
 
 import colander
@@ -32,6 +33,19 @@ def _size(number) -> str:
 
 def _when(moment) -> str:
     return moment.strftime("%Y-%m-%d %H:%M UTC") if moment else ""
+
+
+def _age(moment) -> str:
+    """How long ago a time was (the times of the database are UTC, without a zone)."""
+    if not moment:
+        return ""
+    seconds = max(
+        0, int((datetime.now(UTC).replace(tzinfo=None) - moment).total_seconds())
+    )
+    for unit, span in (("d", 86400), ("h", 3600), ("min", 60)):
+        if seconds >= span:
+            return f"{seconds // span} {unit}"
+    return f"{seconds} s"
 
 
 class Manage(View):
@@ -116,29 +130,62 @@ class RepositoryManage(Manage):
     # ---- Types
     # ------------------------------------------------------------------------------
 
+    def _type_rows(self) -> tuple[list[dict], dict]:
+        """A row for each type that is installed (and for one that has records and is
+        not): what it is, how many records it has, their size and when one last changed;
+        the totals of all."""
+        request, repository = self.request, self.context
+        installed = {res_type.slug: res_type for res_type in repository.types.values()}
+        found = request.store.type_stats()
+        empty = {"records": 0, "published": 0, "bytes": 0, "modified": None}
+        rows = []
+        for slug in [*installed, *(slug for slug in found if slug not in installed)]:
+            stats, res_type = found.get(slug, empty), installed.get(slug)
+            shape = (
+                res_type.shacl_shape(include_record_shape=False) if res_type else None
+            )
+            rows.append(
+                {
+                    "name": res_type.name if res_type else slug,
+                    "slug": slug,
+                    # what the shape of the type says of itself (the schema file it is on)
+                    "description": forms.shape_description(*shape) if shape else "",
+                    "system": bool(
+                        res_type and res_type.class_uri in uri.SYSTEM_CLASSES
+                    ),
+                    "url": (
+                        request.resource_url(res_type, "manage")
+                        if res_type and request.has_permission("manage", res_type)
+                        else None
+                    ),
+                    "records": f"{stats['records']:,}",
+                    "published": f"{stats['published']:,}",
+                    "size": _size(stats["bytes"]),
+                    "average": _size(stats["bytes"] / stats["records"])
+                    if stats["records"]
+                    else "",
+                    "modified": _when(stats["modified"]),
+                }
+            )
+        totals = {
+            "records": f"{sum(s['records'] for s in found.values()):,}",
+            "size": _size(sum(s["bytes"] for s in found.values())),
+            "modified": _when(
+                max(
+                    (s["modified"] for s in found.values() if s["modified"]),
+                    default=None,
+                )
+            ),
+        }
+        return rows, totals
+
     def pane_types(self, state):
-        request = self.request
-        records = request.store.count_records_by_type()  # the records of each type
-        types = [
-            {
-                "records": records.get(res_type.slug, 0),
-                "name": res_type.name,
-                "slug": res_type.slug,
-                # what the shape of the type says of itself (the schema file it is on)
-                "description": forms.shape_description(*shape)
-                if (shape := res_type.shacl_shape(include_record_shape=False))
-                else "",
-                "system": res_type.class_uri in uri.SYSTEM_CLASSES,
-                "url": (
-                    request.resource_url(res_type, "manage")
-                    if request.has_permission("manage", res_type)
-                    else None
-                ),
-            }
-            for res_type in self.context.types.values()
-        ]
+        types, totals = self._type_rows()
         return fragment(
-            request, "gracia:assets/templates/repository_tab_types.pt", types=types
+            self.request,
+            "gracia:assets/templates/repository_tab_types.pt",
+            types=types,
+            totals=totals,
         )
 
     # ---- Settings
@@ -351,6 +398,7 @@ class RepositoryManage(Manage):
                     [],
                     f"The doc stylesheets could not make the schema: {err}",
                 )
+            records_total = sum(request.store.count_records_by_type().values())
             for definition in search.definitions_for(repository):
                 rows = search.compare(offered, definition)
                 counts = indexes.field_stats(repository.__name__, definition)
@@ -371,6 +419,10 @@ class RepositoryManage(Manage):
                         "name": definition.name,
                         "state": indexes.status(repository.__name__, definition),
                         "documents": f"{documents:,}",
+                        # of the records there are: what the index lacks is what is not
+                        # in it yet
+                        "of": f"{records_total:,}",
+                        "size": _size(stats[0]["bytes"]),
                         "rows": rows,
                     }
                 )
@@ -499,75 +551,29 @@ class RepositoryManage(Manage):
     def pane_stats(self, state):
         request, repository = self.request, self.context
         store, application = request.store, request.root
-        installed = {res_type.slug: res_type for res_type in repository.types.values()}
-        found = store.type_stats()
-        empty = {"records": 0, "published": 0, "bytes": 0, "modified": None}
-        types = []
-        for slug in [*installed, *(slug for slug in found if slug not in installed)]:
-            stats, res_type = found.get(slug, empty), installed.get(slug)
-            types.append(
-                {
-                    "name": res_type.name if res_type else slug,
-                    "slug": slug,
-                    "system": bool(
-                        res_type and res_type.class_uri in uri.SYSTEM_CLASSES
-                    ),
-                    "records": stats["records"],
-                    "published": stats["published"],
-                    "size": _size(stats["bytes"]),
-                    "average": _size(stats["bytes"] / stats["records"])
-                    if stats["records"]
-                    else "",
-                    "modified": _when(stats["modified"]),
-                }
-            )
-        total = sum(stats["records"] for stats in found.values())
-        totals = {
-            "records": total,
-            "size": _size(sum(stats["bytes"] for stats in found.values())),
-            "modified": _when(
-                max(
-                    (s["modified"] for s in found.values() if s["modified"]),
-                    default=None,
-                )
-            ),
-        }
+        total = sum(s["records"] for s in store.type_stats().values())
         cache = application.cache
         pages = store.etag_stats()
-        graphs = cache.graph_stats(repository.__name__)
-        held = cache.etags_held(repository.__name__)
+        kept = cache.repo_stats(repository.__name__)
         cache_stats = {
             "pages": pages["pages"],
             "missing": max(0, total - pages["pages"]),  # records that have no etag yet
             "pages_size": _size(pages["bytes"]),
             "modified": _when(pages["modified"]),
-            "etags_held": held,
-            "graphs": graphs
-            and {
-                "directory": graphs["directory"],
-                "repo_entries": f"{graphs['repo_entries']:,}"
-                + ("+" if graphs["repo_entries"] >= 100_000 else ""),
-                "entries": f"{graphs['entries']:,}",
-                "bytes": _size(graphs["bytes"]),
-                "file": _size(graphs["file"]),
-                "limit": _size(graphs["limit"]),
-            },
+            "written": _when(kept["modified_at"]),
+            "age": _age(kept["modified_at"]),
+            "kept": [
+                {
+                    "name": row["name"],
+                    "kept": "entries" in row,  # no directory: the graphs and docs
+                    "entries": f"{row.get('entries', 0):,}"
+                    + ("+" if row.get("capped") else ""),
+                    "stale": f"{row.get('stale', 0):,}" if row.get("stale") else "",
+                    "bytes": _size(row.get("bytes", 0)),
+                }
+                for row in kept["caches"]
+            ],
         }
-        indexes = application.indexes
-        definitions = search.definitions_for(repository) if indexes else []
-        rows = indexes.stats(repository.__name__, definitions) if indexes else None
-        search_stats = rows and [
-            {
-                "name": row["name"],
-                "state": row["state"],
-                "documents": f"{row['documents']:,}",
-                # of the records there are: what the index lacks is what is not in it
-                # yet
-                "of": f"{sum(s['records'] for s in found.values()):,}",
-                "size": _size(row["bytes"]),
-            }
-            for row in rows
-        ]
         pending = store.pending_summary()
         worker = cache.worker
         actions = {
@@ -591,21 +597,13 @@ class RepositoryManage(Manage):
                 ),
             }
             for job in all_jobs(request.registry)
-            if job.name in ("update_cache", "rebuild_search", "process_actions")
+            if job.name in ("update_cache", "process_actions")
             and request.has_permission(job.start_permission, jobs_node)
         }
         return fragment(
             request,
             "gracia:assets/templates/repository_tab_stats.pt",
-            types=types,
-            totals=totals,
             cache=cache_stats,
-            search=search_stats,
-            search_note=(
-                "No search index: set gracia.index_dir."
-                if indexes is None
-                else "Search is turned off in this repository (the Search extension)."
-            ),
             actions=actions,
             buttons=buttons,
             refresh_url=self.action("stats"),

@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS etags (
 );
 -- The table is kept in the order a listing reads it, newest created first (`record_type`, `sort_key`
 -- DESC, `record_id`): every write sorts it again before it commits (`Store._sort_etags`), so that
--- `Store.referrers` can read it with LIMIT and no ORDER BY, and stop after one page.
+-- `Store.referencing_records` can read it with LIMIT and no ORDER BY, and stop after one page.
 --
 -- No index on it, and none must be made: a write that recomputes many etags deletes and inserts that many
 -- rows, and with an ART index the commit of that (measured: 746,000 rows, 5.6 s of a 9.4 s write) is

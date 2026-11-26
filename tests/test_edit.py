@@ -108,8 +108,10 @@ class EditCase(WebCase):
         application.create_repository("test_repo", admin=ADMIN)
         with application.new_store("test_repo") as store:
             people = PEOPLE.replace("@ASSETS@", self.person_assets)
-            store.put(ox.Dataset(ox.parse(people.encode(), format=ox.RdfFormat.TURTLE)))
-            store.put(
+            store.put_multi(
+                ox.Dataset(ox.parse(people.encode(), format=ox.RdfFormat.TURTLE))
+            )
+            store.put_multi(
                 init.user_dataset(
                     "rec:user:2", EDITOR[0], EDITOR[1], ["ark:/99999/ir/group/2"]
                 )

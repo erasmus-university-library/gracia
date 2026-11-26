@@ -142,14 +142,16 @@ class ValidateTest(unittest.TestCase):
 class WithTheStoreTest(DbTestCase):
     def test_validate_what_get_returns(self):
         with open_store(self.db) as store:
-            store.put(
+            store.put_multi(
                 data(
                     '<rec:thing:1> a ex:Person ; ex:name "A" ; ex:address [ ex:city '
                     '"Ghent" ] .'
                 )
             )
-            store.put(data("<rec:thing:2> a ex:Person ; ex:address [ ex:zip 1 ] ."))
-            report = validate(store.get([REC["a"], REC["b"]]), SHAPES)
+            store.put_multi(
+                data("<rec:thing:2> a ex:Person ; ex:address [ ex:zip 1 ] .")
+            )
+            report = validate(store.get_multi([REC["a"], REC["b"]]), SHAPES)
         self.assertEqual(set(report.by_resource()), {REC["b"]})
 
     def test_validate_a_whole_parsed_file(self):

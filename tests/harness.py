@@ -6,6 +6,7 @@ from pyramid import testing
 from pyramid.registry import Registry
 from webtest import TestApp
 
+from gracia.actions import Worker
 from gracia.application import Application
 from gracia.main import init, make_config, opened, shutdown
 from gracia.store import Store
@@ -47,6 +48,32 @@ def open_store(path=":memory:", triples: str = "triples", repo: str = "main", **
     return Store(
         duckdb.connect(str(path)), triples, repo, close_connection=True, **kwargs
     )
+
+
+def etag_of(application, repo: str, record_id: int | None) -> str:
+    """The etag of a record that is there, as the cache of the application has it."""
+    assert record_id is not None
+    with application.new_store(repo) as store:
+        etag = store.etags([record_id])[record_id]
+    assert etag is not None
+    return etag
+
+
+def graph_of(application, repo: str, record_id: int | None) -> str:
+    """The compound graph of a record as RDF/XML, from the cache of the application
+    ("" if there is no such record)."""
+    assert record_id is not None
+    with application.new_store(repo) as store:
+        return store.get_multi([record_id], compound_records=True, format="rdfxml")
+
+
+def stopped_worker(application) -> Worker:
+    """A worker that is not running, set on the cache before the reads that ask it to
+    make records again (`Worker.rework`): a test makes it work with `worker.turn()`."""
+    worker = Worker(application, application.registry)
+    worker.stop()
+    application.cache.worker = worker
+    return worker
 
 
 def open_application(

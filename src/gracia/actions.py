@@ -11,8 +11,7 @@ from pathlib import Path
 import pyoxigraph as ox
 from pyramid.threadlocal import manager
 
-from gracia.cache import dataset_rdfxml
-from gracia.graph import serialize_bytes
+from gracia.graph import dataset_rdfxml, serialize_bytes
 
 # the most rows a batch takes off the queue, and so the most records of an event ...
 BATCH = 5000
@@ -183,7 +182,7 @@ def process_batch(
         taken, bound = store.take_actions(limit, max_bytes)
         if not taken:
             return []
-        sources = store.closure_sources(
+        sources = store.fetch_compound_graphs(
             i for i, _, action in taken if action != "delete"
         )
         entries = []
@@ -219,6 +218,8 @@ class Worker:
         self._stopped = False
         self._wake = threading.Event()
         self._written: dict[str, object] = {}  # when each was written, then
+        self._rework: dict[str, set[int]] = {}  # repo: records to make again
+        self._rework_lock = threading.Lock()
         self._first = True
         self._line: deque[str] = (
             deque()
@@ -257,6 +258,31 @@ class Worker:
 
     def wake(self) -> None:
         self._wake.set()
+
+    def rework(self, repo: str, record_ids) -> None:
+        """Asks the worker to make records again, and returns at once: their graphs for
+        the graph cache, their docs, and what follows a change (the search index). It is
+        asked by a read of records that the cache did not have."""
+        with self._rework_lock:
+            self._rework.setdefault(repo, set()).update(record_ids)
+        self._wake.set()
+
+    def _make_again(self, repo: str, record_ids: list[int]) -> None:
+        with self.application.new_store(repo) as store:
+            compounds = store.fetch_compound_graphs(record_ids)
+            record_uris = {}
+            if compounds:
+                listed = ", ".join(str(record_id) for record_id in compounds)
+                rows = store.con.execute(
+                    f"SELECT record_id, record_uri FROM etags WHERE record_id IN ({listed})"
+                ).fetchall()
+                for record_id, record_uri in rows:
+                    record_uris[record_id] = record_uri
+        entries = []
+        for record_id, (etag, text) in compounds.items():
+            entries.append((record_id, record_uris[record_id], "update", etag, text))
+        if entries:
+            deliver(self.application, self.registry, repo, entries)
 
     def _run(self) -> None:
         while not self._stopped:
@@ -306,6 +332,15 @@ class Worker:
 
     def turn(self) -> bool:
         self._notice()
+        with self._rework_lock:
+            asked, self._rework = self._rework, {}
+        for repo, record_ids in asked.items():
+            try:
+                self._make_again(repo, sorted(record_ids))
+            except Exception:
+                log.exception("the records of %s could not be made again", repo)
+        if asked:
+            return True  # and the queues are next, at once
         for _ in range(len(self._line)):
             repo = self._line.popleft()
             due = self._retry.get(repo)

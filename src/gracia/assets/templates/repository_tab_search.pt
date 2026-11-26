@@ -12,8 +12,9 @@
     <legend class="h5"><code>${section['name']}</code>
       <span class="badge ${'text-bg-success' if section['state'] == 'ok' else 'text-bg-warning'} ms-2 fs-6">${
         {'ok': 'ok', 'stale': 'needs a rebuild', 'missing': 'not made yet'}[section['state']]}</span></legend>
+    <p class="mb-1" id="search-counts-${section['name']}">
+      <strong>${section['documents']}</strong> documents of ${section['of']} records, ${section['size']}</p>
     <p class="small text-muted">
-      <span tal:condition="section['state'] == 'ok'">${section['documents']} documents.</span>
       <span tal:condition="section['state'] == 'stale'">The fields changed since the index was made: it keeps answering what it had and is not written to until it is made again.</span>
       <span tal:condition="section['state'] == 'missing'">Nothing has been indexed yet.</span>
       A greyed field is one the docs of the types can have and the index does not.

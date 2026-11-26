@@ -218,6 +218,17 @@ def serialize_bytes(data, **kwargs) -> bytes:
     return out
 
 
+def dataset_rdfxml(dataset) -> bytes:
+    """The flat RDF/XML of a dataset, as the graph cache keeps it."""
+    return serialize_bytes(dataset, format=ox.RdfFormat.RDF_XML)
+
+
+def rdfxml(ntriples: str) -> bytes:
+    return dataset_rdfxml(
+        ox.Dataset(ox.parse(ntriples.encode(), format=ox.RdfFormat.N_TRIPLES))
+    )
+
+
 class Graph:
     def __init__(self, dataset: ox.Dataset | None = None):
         self.dataset = ox.Dataset() if dataset is None else dataset
@@ -274,6 +285,23 @@ class Graph:
 
     # ---- reading
     # -------------------------------------------------------------------------
+
+    def labels(self) -> dict[str, tuple[str, str | None]]:
+        """The label and the slug of each record in the graph: `{record uri: (label,
+        slug)}` (a compound graph has those of the records it is made of too)."""
+        found: dict[str, tuple[str, str | None]] = {}
+        for quad in self.dataset:
+            subject = quad.subject
+            if not isinstance(subject, ox.NamedNode):
+                continue
+            if not subject.value.startswith("rec:"):
+                continue
+            label, slug = found.get(subject.value, ("", None))
+            if quad.predicate.value == uri.LABEL:
+                found[subject.value] = (quad.object.value, slug)
+            elif quad.predicate.value == uri.SLUG:
+                found[subject.value] = (label, quad.object.value)
+        return found
 
     def objects(self, subject, predicate) -> list:
         subject, predicate = _term(subject), _term(predicate)

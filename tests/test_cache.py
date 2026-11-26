@@ -1,13 +1,14 @@
 import time
-from unittest import mock
+from typing import cast
 
 import pyoxigraph as ox
-from harness import open_application, open_store
+from harness import open_application, open_store, stopped_worker
 from test_etags import TYPES, EtagCase, record
 
 from gracia import cache as cache_module
-from gracia import uri
-from gracia.cache import Cache, GraphStore, rdfxml
+from gracia.cache import Cache, EtagStore, GraphStore
+from gracia.graph import Graph, rdfxml
+from gracia.store import new_store
 
 
 class CacheCase(EtagCase):
@@ -22,30 +23,38 @@ class CacheCase(EtagCase):
         )
         self.app = open_application(self, self.db, cache_dir=self.tmp / "cache")
         self.cache = self.app.cache
+        self.worker = stopped_worker(self.app)  # asked by a read of what is not kept
+        self.cached = self.app.new_store("main")  # a store that has the cache
+        self.etag_cache = cast(EtagStore, self.cache.stamped("etags"))
+        self.addCleanup(self.cached.close)
 
     def rid(self, rec_uri: str) -> int:
         return self.store.record_id_of(rec_uri)
 
     def queries(self, cache: Cache | None = None) -> list[str]:
+        """What is asked of the database from now on: a `cursor` of the database, and
+        each `sql` statement of the store that has the cache."""
         asked = []
-
-        def counting(name, real):
-            return lambda *a, **k: (asked.append(name), real(*a, **k))[1]
-
         database = (cache or self.cache)._database
-        database.cursor = counting("cursor", database.cursor)
-        patcher = mock.patch.object(
-            cache_module, "new_store", counting("new_store", cache_module.new_store)
-        )
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        cursor, con = database.cursor, self.cached.con
+        database.cursor = lambda: (asked.append("cursor"), cursor())[1]
+
+        class Counting:
+            def execute(_, sql, *args, **kwargs):  # noqa: N805
+                asked.append("sql")
+                return con.execute(sql, *args, **kwargs)
+
+            def __getattr__(_, name):  # noqa: N805
+                return getattr(con, name)
+
+        self.cached.con = Counting()
         return asked
 
 
 class EtagsTest(CacheCase):
     def test_many_record_ids_in_one_go_with_the_etag_and_the_types(self):
         ids = [self.rid(u) for u in ("rec:work:1", "rec:person:2")]
-        got = self.cache.etags("main", [*ids, 999])
+        got = self.cached.etags([*ids, 999])
         self.assertEqual(got[ids[0]], self.etag("rec:work:1"))
         self.assertEqual(got[ids[1]], self.etag("rec:person:2"))
         self.assertIsNone(got[999])
@@ -53,48 +62,48 @@ class EtagsTest(CacheCase):
 
     def test_it_is_asked_once_and_only_for_what_is_not_there_yet(self):
         a, b = self.rid("rec:work:1"), self.rid("rec:work:2")
-        self.cache.etags("main", [a])
+        self.cached.etags([a])
         asked = self.queries()
-        self.cache.etags("main", [a])
-        self.assertEqual(asked.count("new_store"), 0)
-        self.cache.etags("main", [a, b])
+        self.cached.etags([a])
+        self.assertEqual(asked.count("sql"), 0)
+        self.cached.etags([a, b])
         self.assertEqual(
-            asked.count("new_store"), 1
+            asked.count("sql"), 1
         )  # one query for the one that was missing
-        self.cache.etags("main", [a, b, 999])
-        self.cache.etags("main", [999])  # a record that is not there is remembered too
-        self.assertEqual(asked.count("new_store"), 2)
+        self.cached.etags([a, b, 999])
+        self.cached.etags([999])  # a record that is not there is remembered too
+        self.assertEqual(asked.count("sql"), 2)
 
     def test_the_files_are_not_read_while_they_do_not_change(self):
-        self.cache.etags("main", [self.rid("rec:work:1")])
+        self.cached.etags([self.rid("rec:work:1")])
         asked = self.queries()
         for _ in range(3):
-            self.cache.etags("main", [self.rid("rec:work:1")])
+            self.cached.etags([self.rid("rec:work:1")])
         self.assertEqual(asked, [])  # not even the table of the times
 
     def test_a_write_gives_a_new_last_modified_at_and_the_new_etag(self):
         work = self.rid("rec:work:1")
-        before = self.cache.etags("main", [work])[work]
+        before = self.cached.etags([work])[work]
         stamp = self.cache.repo_last_modified_at("main")
         self.put(
             record("rec:org:1", refs=["rec:org:2"], stamp="2026-06-01T00:00:00.000000Z")
         )  # something work 1 is made of
-        after = self.cache.etags("main", [work])[work]
+        after = self.cached.etags([work])[work]
         self.assertNotEqual(after, before)
         self.assertEqual(after, self.etag("rec:work:1"))
         self.assertGreater(self.cache.repo_last_modified_at("main"), stamp)
         # the etags of the old time are deleted, not just not read
-        self.assertEqual(self.cache.etag_store.get_many("main", stamp, [work]), {})
+        self.assertEqual(self.etag_cache.get_many("main", stamp, [work]), {})
 
     def test_a_deleted_record_is_none_after_the_write(self):
         person = self.rid("rec:person:2")
-        self.assertIsNotNone(self.cache.etags("main", [person])[person])
+        self.assertIsNotNone(self.cached.etags([person])[person])
         self.store.delete(["rec:person:2"])
-        self.assertIsNone(self.cache.etags("main", [person])[person])
+        self.assertIsNone(self.cached.etags([person])[person])
 
     def test_a_write_that_bypasses_the_store_is_seen(self):
         work = self.rid("rec:work:1")
-        self.cache.etags("main", [work])
+        self.cached.etags([work])
         stamp = self.cache.repo_last_modified_at("main")
         self.store.con.execute(
             "UPDATE triples SET lit = 'raw' WHERE s = 'rec:person:2' AND lit = 'x'"
@@ -109,7 +118,7 @@ class EtagsTest(CacheCase):
 
     def test_a_request_that_was_running_cannot_fill_the_new_last_modified_at(self):
         work = self.rid("rec:work:1")
-        store = self.cache.etag_store
+        store = self.etag_cache
         old = self.cache.repo_last_modified_at("main")
         self.put(record("rec:person:2"), record("rec:org:1", refs=["rec:org:2"]))
         self.cache.check()
@@ -118,22 +127,22 @@ class EtagsTest(CacheCase):
         # what the late request writes: under the key it took
         store.put_many("main", old, {work: "stale"})
         self.assertEqual(store.get_many("main", new, [work]), {})
-        self.assertNotEqual(self.cache.etags("main", [work])[work], "stale")
+        self.assertNotEqual(self.cached.etags([work])[work], "stale")
 
     def test_the_etags_of_old_times_are_deleted_in_a_range(self):
-        store = self.cache.etag_store
+        store = self.etag_cache
         for repo in ("main", "other"):
             store.put_many(repo, 100, {1: "a", 2: None})
-        self.assertEqual(store.count("main", 100), 2)
+        self.assertEqual(store.repo_stats("main", 100)["entries"], 2)
         store.sweep("main", 101)
-        self.assertEqual(store.count("main", 100), 0)
+        self.assertEqual(store.repo_stats("main", 100)["entries"], 0)
         self.assertEqual(
-            store.count("other", 100), 2
+            store.repo_stats("other", 100)["entries"], 2
         )  # another repository is left alone
         self.assertEqual(store.get_many("other", 100, [1, 2]), {1: "a", 2: None})
 
     def test_a_range_delete_goes_on_over_the_batches(self):
-        env = self.cache.etag_store._env
+        env = self.etag_cache._env
         with env.begin(write=True) as txn:
             for i in range(25):
                 txn.put(b"k%03d" % i, b"v")
@@ -157,7 +166,7 @@ class EtagsTest(CacheCase):
 
     def test_a_rebuild_of_the_etags_is_a_write_for_the_cache(self):
         work = self.rid("rec:work:1")
-        self.cache.etags("main", [work])
+        self.cached.etags([work])
         stamp = self.cache.repo_last_modified_at("main")
         time.sleep(0.01)
         self.store.rebuild_etags()
@@ -174,35 +183,26 @@ class EtagsTest(CacheCase):
 
 
 class SlugsTest(CacheCase):
-    def test_a_slug_is_kept_until_the_repository_is_written(self):
-        calls = []
-
-        def load():
-            calls.append(1)
-            return (self.rid("rec:person:1"), False)
-
-        for _ in range(2):
-            self.assertEqual(
-                self.cache.slug("main", "person", "ada", load),
-                (self.rid("rec:person:1"), False),
+    def test_a_slug_is_kept_until_the_repository_is_written_and_none_is_not_kept(self):
+        for rec_type, record_uri in (("person", "rec:person:1"), ("org", "rec:org:1")):
+            self.store.con.execute(
+                "INSERT INTO slugs (rec_type, slug, record_uri, is_deleted) "
+                f"VALUES ('{rec_type}', 'ada', '{record_uri}', false)"
             )
-        self.assertEqual(len(calls), 1)
-        self.put(record("rec:person:2", stamp="2026-06-01T00:00:00.000000Z"))
-        self.cache.slug("main", "person", "ada", load)
-        self.assertEqual(len(calls), 2)
-
-    def test_the_same_slug_of_two_types_is_two_entries_and_none_is_not_kept(self):
-        self.cache.slug("main", "person", "ada", lambda: (1, False))
-        self.assertEqual(
-            self.cache.slug("main", "org", "ada", lambda: (2, True)), (2, True)
-        )
-        self.assertEqual(
-            self.cache.slug("main", "person", "ada", lambda: (9, False)), (1, False)
-        )
-        nothing = []
+        person, org = self.rid("rec:person:1"), self.rid("rec:org:1")
+        asked = self.queries()
         for _ in range(2):
-            self.cache.slug("main", "person", "no", lambda: nothing.append(1))
-        self.assertEqual(len(nothing), 2)
+            self.assertEqual(self.cached.slug_lookup("person", "ada"), (person, False))
+        self.assertEqual(asked.count("sql"), 1)
+        # the same slug of another type is an entry of its own
+        self.assertEqual(self.cached.slug_lookup("org", "ada"), (org, False))
+        self.assertEqual(asked.count("sql"), 2)
+        for _ in range(2):  # a slug that is not there may be made next: not kept
+            self.assertIsNone(self.cached.slug_lookup("person", "no"))
+        self.assertEqual(asked.count("sql"), 4)
+        self.put(record("rec:person:2", stamp="2026-06-01T00:00:00.000000Z"))
+        self.cached.slug_lookup("person", "ada")
+        self.assertEqual(asked.count("sql"), 5)  # asked again after a write
 
 
 class ReferencingTest(CacheCase):
@@ -361,10 +361,10 @@ class ReferencingTest(CacheCase):
         self.assertIn(
             gone, self.store.referencing_records(record_type=work, include_deleted=True)
         )
-        self.assertEqual(self.cache.etags("main", [gone]), {gone: None})
+        self.assertEqual(self.cached.etags([gone]), {gone: None})
         live = self.rid("rec:work:2")
         self.assertEqual(
-            self.cache.etags("main", [live, gone]),
+            self.cached.etags([live, gone]),
             {live: self.etag("rec:work:2"), gone: None},
         )
 
@@ -400,130 +400,226 @@ class ReferencingTest(CacheCase):
         self.assertEqual(self.store.count_referencing_records(org, state="nope"), 0)
         self.assertEqual(self.store.count_referencing_records(org), 4)  # none: all
 
-    def test_it_is_asked_once_and_again_after_a_write(self):
+    def test_a_page_and_the_total_are_kept_until_the_repository_is_written(self):
         org = self.rid("rec:org:1")
-        calls = []
-
-        def load():
-            calls.append(1)
-            return self.store.referencing_records(org)
-
-        first = self.cache.referencing_records("main", load, org, limit=20, offset=0)
-        self.assertEqual(
-            self.cache.referencing_records("main", load, org, limit=20, offset=0), first
-        )
-        self.assertEqual(len(calls), 1)
-        self.cache.referencing_records("main", load, org, limit=20, offset=20)
-        self.assertEqual(len(calls), 2)  # another page is another key
+        asked = self.queries()
+        first = self.cached.referencing_records(org)
+        self.assertEqual(self.cached.referencing_records(org), first)
+        self.assertEqual(asked.count("sql"), 1)
+        self.cached.referencing_records(org, offset=20)  # another page, another key
+        self.assertEqual(asked.count("sql"), 2)
+        # the total is a key of its own, the same for every page
+        self.assertEqual(self.cached.count_referencing_records(org), 2)
+        self.assertEqual(self.cached.count_referencing_records(org), 2)
+        self.assertEqual(asked.count("sql"), 3)
+        self.cached.count_referencing_records(org, record_type=7)  # another filter
+        self.assertEqual(asked.count("sql"), 4)
+        self.cached.count_referencing_records(org, ignore_cache=True)  # not kept
+        self.cached.referencing_records(org, ignore_cache=True)
+        self.assertEqual(asked.count("sql"), 6)
         self.put(
             record(
                 "rec:work:3", refs=["rec:org:1"], stamp="2026-06-01T00:00:00.000000Z"
             )
         )
-        self.cache.referencing_records("main", load, org, limit=20, offset=0)
-        self.assertEqual(len(calls), 3)
-
-    def test_the_total_is_kept_apart_from_the_pages(self):
-        org = self.rid("rec:org:1")
-        calls = []
-
-        def load():
-            calls.append(1)
-            return self.store.count_referencing_records(org)
-
-        self.assertEqual(self.cache.referencing_records_total("main", load, org), 2)
-        self.assertEqual(self.cache.referencing_records_total("main", load, org), 2)
-        self.assertEqual(len(calls), 1)
-        self.assertEqual(
-            self.cache.referencing_records_total("main", load, org, record_type=7), 2
-        )
-        self.assertEqual(len(calls), 2)  # another filter, another total
+        self.assertEqual(self.cached.count_referencing_records(org), 3)  # after a write
+        self.assertEqual(len(self.cached.referencing_records(org)), 3)
 
 
 class GraphTest(CacheCase):
     @staticmethod
-    def subjects(xml: bytes) -> set[str]:
+    def subjects(xml: str) -> set[str]:
         return {
             q.subject.value
             for q in ox.parse(xml, format=ox.RdfFormat.RDF_XML)
             if isinstance(q.subject, ox.NamedNode)
         }
 
+    def graph(self, record_id: int, store=None) -> str:
+        """The compound graph of a record as RDF/XML ("" if there is none)."""
+        return (store or self.cached).get_multi(
+            [record_id], compound_records=True, format="rdfxml"
+        )
+
     def test_the_graph_is_rdfxml_of_the_record_and_everything_it_is_made_of(self):
-        xml = self.cache.graph("main", self.rid("rec:work:1"))
         self.assertEqual(
-            self.subjects(xml),  # ty: ignore[invalid-argument-type]
+            self.subjects(self.graph(self.rid("rec:work:1"))),
             {"rec:work:1", "rec:person:1", "rec:org:1"},
         )
         self.assertEqual(
-            self.subjects(self.cache.graph("main", self.rid("rec:person:2"))),  # ty: ignore[invalid-argument-type]
-            {"rec:person:2"},
+            self.subjects(self.graph(self.rid("rec:person:2"))), {"rec:person:2"}
         )
+        self.assertEqual(self.graph(999), "")  # a record that is not there has none
 
-    def test_a_record_that_is_not_there_has_no_graph(self):
-        self.assertIsNone(self.cache.graph("main", 999))
+    @staticmethod
+    def triples(xml: str) -> set:
+        return set(ox.parse(xml, format=ox.RdfFormat.RDF_XML))
 
-    def test_it_is_made_once_per_etag(self):
+    def kept(self) -> int:
+        return self.cache.graph_store.repo_stats("main")["entries"]  # ty: ignore[missing-union-attribute]
+
+    def test_a_graph_the_cache_lacks_is_made_by_the_worker_once_per_etag(self):
         work = self.rid("rec:work:1")
-        first = self.cache.graph("main", work)
+        first = self.graph(work)  # from the database, and the worker is asked
+        self.assertEqual(self.kept(), 0)  # the read did not keep it
+        self.worker.turn()
+        self.assertEqual(self.kept(), 1)  # and only what was asked for
         asked = self.queries()
-        self.assertEqual(self.cache.graph("main", work), first)
-        self.assertEqual(
-            asked.count("new_store"), 0
-        )  # neither the etag nor the graph was asked for
-
-    def test_a_write_to_what_the_record_is_made_of_makes_the_graph_again(self):
-        work = self.rid("rec:work:1")
-        first = self.cache.graph("main", work)
+        second = self.graph(work)
+        self.assertEqual(asked.count("sql"), 0)  # neither the etag nor the graph
+        self.assertEqual(self.triples(second), self.triples(first))
+        # a write to what it is made of: from the database again, and made again
         self.put(
             record(
                 "rec:org:1", refs=["rec:person:2"], stamp="2026-06-01T00:00:00.000000Z"
             )
         )
-        second = self.cache.graph("main", work)
-        self.assertNotEqual(second, first)
-        self.assertEqual(
-            self.subjects(second),  # ty: ignore[invalid-argument-type]
-            {"rec:work:1", "rec:person:1", "rec:org:1", "rec:person:2"},
-        )
-
-    def test_a_write_elsewhere_keeps_the_graph(self):
-        work = self.rid("rec:work:2")
-        first = self.cache.graph("main", work)
+        made_of = {"rec:work:1", "rec:person:1", "rec:org:1", "rec:person:2"}
+        self.assertEqual(self.subjects(self.graph(work)), made_of)
+        self.worker.turn()
+        self.assertEqual(self.subjects(self.graph(work)), made_of)
+        # a write elsewhere keeps it: the etag is asked for again, the graph is not
+        work2 = self.rid("rec:work:2")
+        self.graph(work2)
+        self.worker.turn()
+        kept = self.graph(work2)
         self.put(
-            record(
-                "rec:person:2", refs=["rec:org:2"], stamp="2026-06-01T00:00:00.000000Z"
-            )
+            record("rec:org:3", stamp="2026-07-01T00:00:00.000000Z")
         )  # work 2 is not made of it
         asked = self.queries()
-        self.assertEqual(self.cache.graph("main", work), first)
-        self.assertEqual(
-            asked.count("new_store"), 1
-        )  # the etag was asked for again, the graph was not
+        self.assertEqual(self.graph(work2), kept)
+        self.assertEqual(asked.count("sql"), 1)
 
     def test_a_deleted_record_has_no_graph_any_more(self):
         person = self.rid("rec:person:2")
-        self.assertIsNotNone(self.cache.graph("main", person))
+        self.assertTrue(self.graph(person))
         self.store.delete(["rec:person:2"])
-        self.assertIsNone(self.cache.graph("main", person))
+        self.assertEqual(self.graph(person), "")
 
     def test_without_a_directory_the_graph_is_made_every_time(self):
         cache = Cache(self.app.database, self.app.registry)
+        store = new_store(self.app.database, "main", cache=cache)
+        self.addCleanup(store.close)
         work = self.rid("rec:work:1")
         self.assertEqual(
-            self.subjects(cache.graph("main", work)),  # ty: ignore[invalid-argument-type]
-            self.subjects(cache.graph("main", work)),  # ty: ignore[invalid-argument-type]
+            self.subjects(self.graph(work, store)), self.subjects(self.graph(work))
         )
-        self.assertIsNone(cache._graph_store())
+        self.assertIsNone(cache.graph_store)
 
     def test_the_graphs_of_repositories_are_apart(self):
         other = open_store(self.db, repo="other", create=True)
         self.addCleanup(other.close)
         other.set_type_ids(TYPES)
-        other.put(record("rec:org:1", refs=["rec:org:2"], res="ark:/1/other/1"))
+        other.put_multi(record("rec:org:1", refs=["rec:org:2"], res="ark:/1/other/1"))
         org = self.rid("rec:org:1")
-        self.assertNotEqual(
-            self.cache.graph("main", org), self.cache.graph("other", org)
+        cached = self.app.new_store("other")
+        self.addCleanup(cached.close)
+        self.assertNotEqual(self.graph(org), self.graph(org, cached))
+
+    def test_the_compound_graphs_from_the_database_are_what_the_cache_keeps(self):
+        work = self.rid("rec:work:1")
+        etag, text = self.store.fetch_compound_graphs([work])[work]
+        self.assertEqual(etag, self.etag("rec:work:1"))
+        sources = dict(
+            self.store.con.execute(
+                "SELECT record_uri(record_id), source FROM records"
+            ).fetchall()
+        )
+        self.assertEqual(  # the record first, then what it is made of
+            text,
+            "\n".join(sources[u] for u in ("rec:work:1", "rec:person:1", "rec:org:1")),
+        )
+        self.assertEqual(self.store.fetch_compound_graphs([999]), {})
+        self.assertEqual(  # the same triples: the labels of the blank nodes are the same
+            set(ox.parse(self.graph(work), format=ox.RdfFormat.RDF_XML)),
+            set(ox.parse(rdfxml(text), format=ox.RdfFormat.RDF_XML)),
+        )
+
+    def test_the_labels_of_the_sources_are_valid_nodeids_and_the_graphs_merge(self):
+        xml = self.graph(
+            self.rid("rec:work:1")
+        )  # not canonicalized: as the database made
+        labels = {
+            t.value
+            for q in ox.parse(xml, format=ox.RdfFormat.RDF_XML)  # which RDF/XML accepts
+            for t in (q.subject, q.object)
+            if isinstance(t, ox.BlankNode)
+        }
+        self.assertTrue(labels)
+        self.assertTrue(all(label.startswith("b") for label in labels))
+        self.assertIn('nodeID="b', xml)
+        # so the graphs of two records merge without duplicates: person 1's graph adds
+        # nothing to work 1's
+        both = self.cached.get_multi(
+            [self.rid("rec:work:1"), self.rid("rec:person:1")], compound_records=True
+        )
+        self.assertEqual(
+            len(both), len(self.cached.get_multi([self.rid("rec:work:1")], True))
+        )
+
+
+class GetMultiTest(CacheCase):
+    def test_a_record_by_uri_or_by_id_is_its_own_triples_only(self):
+        work = self.rid("rec:work:1")
+        graph = self.cached.get_multi(["rec:work:1", work, ox.NamedNode("rec:org:1")])
+        self.assertEqual(
+            {q.subject.value for q in graph if isinstance(q.subject, ox.NamedNode)},
+            {
+                "rec:work:1",
+                "rec:org:1",
+            },  # nothing it is made of; what is not there: nothing
+        )
+        self.assertEqual(
+            set(self.cached.get("rec:work:1")), set(self.cached.get_multi([work]))
+        )
+        self.assertEqual(len(self.cached.get_multi([999, "rec:nothing:1"])), 0)
+        self.assertEqual(len(self.cached.get_multi([])), 0)
+
+    def test_the_compound_records_of_many_are_one_graph_whatever_the_source(self):
+        ids = [self.rid(u) for u in ("rec:work:1", "rec:work:2")]
+        want = self.store.get_multi(
+            ids, compound_records=True
+        )  # no cache: the database
+        got = self.cached.get_multi(ids, compound_records=True)  # not kept yet
+        self.assertEqual(set(got), set(want))
+        self.worker.turn()
+        self.assertEqual(self.cache.graph_store.repo_stats("main")["entries"], 2)  # ty: ignore[missing-union-attribute]
+        got = self.cached.get_multi(ids, compound_records=True)  # kept
+        self.assertEqual(set(got), set(want))
+        asked = self.queries()
+        got = self.cached.get_multi(ids, compound_records=True, ignore_cache=True)
+        self.assertEqual(set(got), set(want))
+        self.assertGreater(asked.count("sql"), 0)  # not from the cache
+
+    def test_the_formats(self):
+        work = self.rid("rec:work:1")
+        graph = self.cached.get_multi([work], compound_records=True)
+        for fmt in ("rdfxml", "ntriples", "turtle"):
+            text = self.cached.get_multi([work], compound_records=True, format=fmt)
+            self.assertIsInstance(text, str, fmt)
+            self.assertEqual(len(Graph.parse(text, fmt)), len(graph), fmt)
+        self.worker.turn()  # now it is kept
+        kept = self.cache.graph_store.get("main", work, self.etag("rec:work:1"))  # ty: ignore[missing-union-attribute]
+        self.assertEqual(  # one that is kept passes through as it is
+            self.cached.get_multi([work], compound_records=True, format="rdfxml"),
+            kept.decode(),  # ty: ignore[missing-union-attribute]
+        )
+        self.assertEqual(self.cached.get_multi([999], format="rdfxml"), "")
+
+    def test_the_labels_and_slugs_of_the_records_in_a_graph(self):
+        graph = self.cached.get_multi(["rec:work:1", "rec:org:1"])
+        self.assertEqual(
+            graph.labels(), {}
+        )  # the records of these tests have neither a label nor a slug
+        text = (
+            '<rec:person:9> <https://gracia.pub/ns/label> "Ada" ; '
+            '<https://gracia.pub/ns/slug> "ada" .\n'
+            '<rec:person:8> <https://gracia.pub/ns/label> "Bob" .\n'
+            '<http://ex/x> <https://gracia.pub/ns/label> "Not a record" .'
+        )
+        self.assertEqual(
+            Graph.parse(text, "turtle").labels(),
+            {"rec:person:9": ("Ada", "ada"), "rec:person:8": ("Bob", None)},
         )
 
 
@@ -566,60 +662,6 @@ class GraphStoreTest(CacheCase):
         self.assertEqual(graphs.get("main", 39, etag), b"x" * 20_000)
         self.assertIsNone(graphs.get("main", 1, etag))
 
-    def test_the_labels_of_the_sources_are_valid_nodeids_and_are_kept(self):
-        _, text = self.store.closure_source(self.rid("rec:work:1"))
-        xml = rdfxml(
-            text
-        )  # not canonicalized: the labels are the ones the database made
-        quads = list(
-            ox.parse(xml, format=ox.RdfFormat.RDF_XML)
-        )  # and RDF/XML accepts them
-        labels = {
-            t.value
-            for q in quads
-            for t in (q.subject, q.object)
-            if isinstance(t, ox.BlankNode)
-        }
-        self.assertTrue(labels)
-        self.assertTrue(all(label.startswith("b") for label in labels))
-        self.assertIn(b'nodeID="b', xml)
-
-    def test_the_graphs_of_two_records_merge_without_duplicates(self):
-        graphs = [
-            ox.Dataset(
-                ox.parse(
-                    self.cache.graph("main", self.rid(u)), format=ox.RdfFormat.RDF_XML
-                )
-            )
-            for u in ("rec:work:1", "rec:person:1")
-        ]
-        merged = ox.Dataset()
-        for graph in graphs:
-            for quad in graph:
-                merged.add(quad)
-        self.assertEqual(
-            len(merged), len(graphs[0])
-        )  # person 1's graph adds nothing to work 1's
-        self.assertLess(len(merged), len(graphs[0]) + len(graphs[1]))
-
-
-class ClosureSourceTest(CacheCase):
-    def test_the_etag_and_the_sources_of_the_record_first_and_then_what_it_is_made_of(
-        self,
-    ):
-        etag, text = self.store.closure_source(self.rid("rec:work:1"))
-        self.assertEqual(etag, self.etag("rec:work:1"))
-        sources = dict(
-            self.store.con.execute(
-                "SELECT record_uri(record_id), source FROM records"
-            ).fetchall()
-        )
-        self.assertEqual(
-            text,
-            "\n".join(sources[u] for u in ("rec:work:1", "rec:person:1", "rec:org:1")),
-        )
-        self.assertIsNone(self.store.closure_source(999))
-
 
 class SizesTest(CacheCase):
     def test_the_sizes_are_the_defaults_and_what_the_config_sets(self):
@@ -640,4 +682,4 @@ class SizesTest(CacheCase):
         self.addCleanup(cache.close)
         self.assertEqual(cache._sizes["etags"], 8 * 1024**2)
         self.assertEqual(cache._sizes["slugs"], cache_module.SLUG_CACHE_BYTES)
-        self.assertEqual(cache.etag_store._env.info()["map_size"], 8 * 1024**2)
+        self.assertEqual(cache.stamped("etags")._env.info()["map_size"], 8 * 1024**2)

@@ -6,13 +6,12 @@ import unittest
 from pathlib import Path
 
 import pyoxigraph as ox
-from harness import open_application
+from harness import etag_of, graph_of, open_application
 from pyramid.registry import Registry
 from test_web import WebCase
 
 from gracia import types
 from gracia.actions import RecordsChanged, process_pending
-from gracia.graph import serialize_bytes
 from gracia.store import fetch_one
 from gracia.utils import assets, xslt
 
@@ -75,7 +74,7 @@ class DocsCase(WebCase):
             ox.parse((PREFIXES + "".join(turtle)).encode(), format=ox.RdfFormat.TURTLE)
         )
         with self.application.new_store("test_repo") as store:
-            store.put(data)
+            store.put_multi(data)
 
     def rid(self, rec_uri: str) -> int:
         with self.application.new_store("test_repo") as store:
@@ -90,7 +89,8 @@ class DocsCase(WebCase):
         return self.cache.docs.compiled(self.library())
 
     def doc(self, rec_uri: str) -> dict:
-        return self.cache.doc(self.application["test_repo"], self.rid(rec_uri), rec_uri)  # ty: ignore[invalid-explicit-return]
+        with self.application["test_repo"] as repository:
+            return repository.store.get_doc(rec_uri)
 
 
 class DocTest(DocsCase):
@@ -177,7 +177,7 @@ class DocTest(DocsCase):
     def test_a_repository_with_no_types_has_the_base_docs(self):
         with self.application.new_store("test_repo") as store:
             store.con.execute("DELETE FROM triples WHERE s = 'rec:repository:1'")
-        self.cache.etags("test_repo", [])  # nothing: the point is the compile below
+        self.cache.check()  # the repository was written: the compile below is new
         self.application.cache.docs.drop("test_repo")
         self.assertEqual(self.doc("rec:thing:1")["slug"], "gear")
 
@@ -188,18 +188,11 @@ class DocTest(DocsCase):
 
     def test_one_run_makes_the_docs_of_records_of_many_types(self):
         ids = {u: self.rid(u) for u in ("rec:person:1", "rec:thing:1")}
-        merged = ox.Dataset(
-            quad
-            for i in ids.values()
-            for quad in ox.parse(
-                self.cache.graph("test_repo", i), format=ox.RdfFormat.RDF_XML
-            )
-        )
-        made = self.cache.docs.bulk_update(
-            self.library(),
-            ids,
-            serialize_bytes(merged, format=ox.RdfFormat.RDF_XML).decode(),
-        )
+        with self.application.new_store("test_repo") as store:
+            xml = store.get_multi(
+                ids.values(), compound_records=True, format="rdfxml"
+            )  # the compound graphs of both, one input
+        made = self.cache.docs.bulk_update(self.library(), ids, xml)
         self.assertEqual(set(made), set(ids))
         self.assertIn("given_name", made["rec:person:1"])
         self.assertNotIn("given_name", made["rec:thing:1"])
@@ -207,7 +200,7 @@ class DocTest(DocsCase):
     def test_a_record_that_is_not_in_the_input_is_an_error_and_the_others_are_made(
         self,
     ):
-        xml = self.cache.graph("test_repo", self.rid("rec:thing:1")).decode()  # ty: ignore[missing-union-attribute]
+        xml = graph_of(self.application, "test_repo", self.rid("rec:thing:1"))
         made = self.cache.docs.bulk_update(
             self.library(), {"rec:thing:1": 1, "rec:thing:99": 2}, xml
         )
@@ -216,7 +209,7 @@ class DocTest(DocsCase):
 
     def person_doc(self, repository) -> dict:
         rid = self.rid("rec:person:1")
-        xml = self.cache.graph("test_repo", rid).decode()  # ty: ignore[missing-union-attribute]
+        xml = graph_of(self.application, "test_repo", rid)
         return self.cache.docs.bulk_update(repository, {"rec:person:1": rid}, xml)[
             "rec:person:1"
         ]
@@ -267,9 +260,7 @@ class DocCacheTest(DocsCase):
         store = self.cache.docs
         rid, etag = (
             self.rid("rec:person:1"),
-            self.cache.etags("test_repo", [self.rid("rec:person:1")])[
-                self.rid("rec:person:1")
-            ],
+            etag_of(self.application, "test_repo", self.rid("rec:person:1")),
         )
         fingerprint = self.compiled().fingerprint
         self.assertIsNotNone(store.get("test_repo", rid, etag, fingerprint))
@@ -278,22 +269,25 @@ class DocCacheTest(DocsCase):
         self.assertEqual(len(calls), 1)
 
     def test_a_doc_that_cannot_be_made_is_not_kept(self):
-        self.assertIsNone(
-            self.cache.doc(self.application["test_repo"], 99999, "rec:thing:99")
-        )
+        with self.application["test_repo"] as repository:
+            self.assertIsNone(repository.store.get_doc("rec:thing:99"))
+            self.assertIsNone(repository.store.get_doc("rec:nothing:1"))
+        with self.application.new_store("test_repo") as store:  # no stylesheets here
+            with self.assertRaises(ValueError):
+                store.get_doc("rec:thing:1")
 
     def test_without_a_cache_directory_a_doc_is_made_every_time(self):
         app = open_application(self, str(self.tmp / "gracia.db"))
         self.assertFalse(app.cache.keeps_docs)
-        rid = self.rid("rec:thing:1")
-        doc = app.cache.doc(app["test_repo"], rid, "rec:thing:1")
-        self.assertEqual(doc["slug"], "gear")  # ty: ignore[not-subscriptable]
+        with app["test_repo"] as repository:
+            doc = repository.store.get_doc("rec:thing:1")
+        self.assertEqual(doc["slug"], "gear")
 
     def test_a_deleted_record_loses_its_doc(self):
         self.doc("rec:thing:1")
         rid = self.rid("rec:thing:1")
         self.cache.forget("test_repo", [rid])
-        etag = self.cache.etags("test_repo", [rid])[rid]
+        etag = etag_of(self.application, "test_repo", rid)
         self.assertIsNone(
             self.cache.docs.get("test_repo", rid, etag, self.compiled().fingerprint)
         )
@@ -326,7 +320,7 @@ class WorkerTest(DocsCase):
         self.assertEqual(docs_["rec:thing:1"]["type"], "thing")
         self.assertTrue(all("error" not in d for d in docs_.values()))
         rid = self.rid("rec:person:1")
-        etag = self.cache.etags("test_repo", [rid])[rid]
+        etag = etag_of(self.application, "test_repo", rid)
         kept = self.cache.docs.get("test_repo", rid, etag, self.compiled().fingerprint)
         self.assertEqual(json.loads(kept), docs_["rec:person:1"])  # ty: ignore[invalid-argument-type]
 
@@ -424,7 +418,7 @@ class SwitchingDocTemplateTest(DocsCase):
                         ox.Literal(name),
                     )
                 )
-            store.put(ox.Dataset(quads))
+            store.put_multi(ox.Dataset(quads))
 
     def test_the_form_with_no_template_gives_the_doc_of_the_base(self):
         self.assertIn("given_name", self.doc("rec:person:1"))

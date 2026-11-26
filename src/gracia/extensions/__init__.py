@@ -72,7 +72,7 @@ def _write(repository, name: str, enabled: bool | None, settings: dict) -> None:
     ) in parsed:  # what the Turtle says of the placeholder is said of the content
         owner = subject if quad.subject == placeholder else quad.subject
         record_graph.add(ox.Quad(owner, quad.predicate, quad.object, graph))
-    store.put(record_graph)
+    store.put_multi(record_graph)
     repository.extension_states = None
 
 

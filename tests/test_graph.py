@@ -107,13 +107,13 @@ class GetTest(DbTestCase):
     def test_get_several_and_unknown_and_node_arguments(self):
         self.load(DATA / "01_simple.ttl")
         with open_store(self.db) as store:
-            both = store.get([REC["book1"], node("alice"), EX + "nobody"])
+            both = store.get_multi([REC["book1"], node("alice"), EX + "nobody"])
             self.assertEqual(set(both.subjects()), {node("book1"), node("alice")})
             self.assertEqual(len(store.get(node("alice"))), 1)
             self.assertEqual(len(store.get("http://example.org/nobody")), 0)
-            self.assertEqual(len(store.get([])), 0)
+            self.assertEqual(len(store.get_multi([])), 0)
             self.assertEqual(
-                len(store.get([REC["alice"], REC["alice"]])), 1
+                len(store.get_multi([REC["alice"], REC["alice"]])), 1
             )  # no duplicates
 
     def test_get_expands_lists_and_blank_nodes(self):
@@ -130,10 +130,10 @@ class PutTest(DbTestCase):
     def test_put_new_resources_from_a_parsed_file(self):
         ds = parse(DATA / "02_bnodes.ttl")
         with open_store(self.db) as store:
-            counts = store.put(ds)
+            counts = store.put_multi(ds)
             self.assertEqual(counts["delete"], 0)
             self.assertGreater(counts["insert"], 0)
-            got = store.get(ds.subjects())
+            got = store.get_multi(ds.subjects())
         for root in ds.subjects():
             self.assertTrue(iso(got.extract(root), ds.extract(root)), root)
 
@@ -141,7 +141,7 @@ class PutTest(DbTestCase):
         ds = parse(DATA / "05_shared.ttl")
         original = ds.extract(REC["alice"])
         with open_store(self.db) as store:
-            store.put(ds)
+            store.put_multi(ds)
             stored = store.get(REC["alice"])
 
         def bnodes(d):
@@ -153,7 +153,7 @@ class PutTest(DbTestCase):
         self.load(DATA / "04_complex.ttl")
         with open_store(self.db) as store:
             before = len(self.rows(store))
-            store.put(store.get([REC["doc1"], REC["doc4"]]))
+            store.put_multi(store.get_multi([REC["doc1"], REC["doc4"]]))
             self.assertEqual(len(self.rows(store)), before)
 
     def test_put_replaces_the_resource_as_a_whole(self):
@@ -172,7 +172,7 @@ class PutTest(DbTestCase):
                 )
             )  # second value
             book.add(ox.Quad(node("book1"), node("isbn"), ox.Literal("123")))
-            counts = store.put(book)
+            counts = store.put_multi(book)
             self.assertGreater(counts["delete"], 0)
             self.assertTrue(iso(store.get(REC["book1"]), book))
             self.assertEqual(len(store.get(REC["alice"])), 1)  # untouched
@@ -187,9 +187,9 @@ class PutTest(DbTestCase):
             ]
         )
         with open_store(self.db) as store:
-            store.put(ds)
+            store.put_multi(ds)
             self.assertTrue(
-                iso(store.get([node("new1"), node("new2"), node("alice")]), ds)
+                iso(store.get_multi([node("new1"), node("new2"), node("alice")]), ds)
             )
             self.assertEqual(len(store.get(REC["book1"])), 5)  # untouched
 
@@ -200,7 +200,7 @@ class PutTest(DbTestCase):
             ox.Quad(node("a"), node("plain"), ox.Literal("x")),
         ]
         with open_store(self.db) as store:
-            store.put(ox.Dataset(quads))
+            store.put_multi(ox.Dataset(quads))
             self.assertTrue(iso(store.get(node("a")), quads))
 
     def test_blank_node_orphans_are_an_error_and_nothing_is_stored(self):
@@ -215,12 +215,12 @@ class PutTest(DbTestCase):
                 [("thing", 30)]
             )  # a record of a type that is not there is an error to ask for
             with self.assertRaisesRegex(ValueError, "belong to no resource"):
-                store.put(ds)
+                store.put_multi(ds)
             self.assertEqual(len(store.get(node("a"))), 0)
 
     def test_empty_dataset_is_a_no_op(self):
         with open_store(self.db) as store:
-            self.assertEqual(dict(store.put(ox.Dataset())), {})
+            self.assertEqual(dict(store.put_multi(ox.Dataset())), {})
 
     def test_strict_refuses_warnings(self):
         b = ox.BlankNode()
@@ -236,12 +236,12 @@ class PutTest(DbTestCase):
                 [("thing", 30)]
             )  # a record of a type that is not there is an error to ask for
             with self.assertRaisesRegex(ValueError, "self-loop"):
-                store.put(ds, strict=True)
+                store.put_multi(ds, strict=True)
             self.assertEqual(len(store.get(node("a"))), 0)
 
     def test_put_then_cli_export(self):
         with open_store(self.db) as store:
-            store.put(parse(DATA / "01_simple.ttl"))
+            store.put_multi(parse(DATA / "01_simple.ttl"))
         code, out, err = self.gracia(
             "export", "-f", "ntriples", "-u", REC["alice"], "-u", REC["book1"]
         )

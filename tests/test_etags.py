@@ -59,7 +59,7 @@ class EtagCase(DbTestCase):
         self.store.set_type_ids(TYPES)
 
     def put(self, *records: Graph) -> None:
-        self.store.put(Graph(ox.Dataset(q for graph in records for q in graph)))
+        self.store.put_multi(Graph(ox.Dataset(q for graph in records for q in graph)))
 
     def etag(self, rec_uri: str):
         found = self.store.etag_info(rec_uri)
@@ -394,17 +394,17 @@ class WhenTheyAreMadeTest(EtagCase):
         fresh = open_store(self.tmp / "other.db")
         self.addCleanup(fresh.close)
         with self.assertRaisesRegex(Exception, "unknown record uri: rec:nobody:1"):
-            fresh.put(record("rec:nobody:1"))
+            fresh.put_multi(record("rec:nobody:1"))
         self.assertEqual(
             fetch_one(fresh.con.execute("SELECT count(*) FROM records"))[0], 0
         )
         fresh.set_type_ids([("nobody", 41)])
-        fresh.put(record("rec:nobody:1"))
+        fresh.put_multi(record("rec:nobody:1"))
         self.assertIsNotNone(fresh.etag_info("rec:nobody:1"))
         with self.assertRaisesRegex(
             Exception, "Conversion Error"
         ):  # nor a number that is too high
-            fresh.put(record("rec:nobody:10000000"))
+            fresh.put_multi(record("rec:nobody:10000000"))
 
     def test_a_rebuild_says_which_etags_were_wrong(self):
         self.put(
@@ -485,7 +485,7 @@ class WhenTheyAreMadeTest(EtagCase):
         self.put(record("rec:org:1"))
         before = self.rows()
         with self.assertRaises(ValueError):
-            self.store.put(
+            self.store.put_multi(
                 Graph(
                     ox.Dataset(
                         ox.parse(
@@ -506,7 +506,7 @@ class WhenTheyAreMadeTest(EtagCase):
                 for q in record(f"rec:work:{n}", refs=["rec:org:1"])
             )
         )
-        self.store.put(batch)
+        self.store.put_multi(batch)
         self.assertEqual(len(self.rows()), 41)
         self.assert_made_again_equals_a_rebuild()
         again = Graph(
@@ -521,8 +521,15 @@ class WhenTheyAreMadeTest(EtagCase):
             )
         )
         self.put(record("rec:person:1"))
-        self.store.put(again)  # all of them again, and now pointing at a person too
-        self.assertEqual(self.store.referrers("rec:person:1").total, 40)
+        self.store.put_multi(
+            again
+        )  # all of them again, and now pointing at a person too
+        self.assertEqual(
+            self.store.count_referencing_records(
+                self.store.record_id_of("rec:person:1")
+            ),
+            40,
+        )
         self.assert_made_again_equals_a_rebuild()
 
     def test_the_records_made_of_many_changed_ones_are_found_by_unnesting(self):
@@ -551,7 +558,7 @@ def microseconds(text: str) -> int:
     return (when - datetime(1970, 1, 1, tzinfo=UTC)) // timedelta(microseconds=1)
 
 
-class PagingTest(EtagCase):
+class ListingTest(EtagCase):
     def setUp(self):
         super().setUp()
         self.put(record("rec:person:1"))
@@ -569,9 +576,6 @@ class PagingTest(EtagCase):
                     for k in range(first, first + n)
                 ]
             )
-
-    def numbers(self, page) -> list[int]:
-        return [int(u.rsplit(":", 1)[1]) for u, _ in page.items]
 
     def physical(self) -> list[int]:
         return [
@@ -600,131 +604,7 @@ class PagingTest(EtagCase):
         ]
         self.assertEqual(self.physical(), sorted_)  # as stored, with no ORDER BY
 
-    def test_the_pages_have_twenty_records_and_the_last_has_the_rest(self):
-        sizes = {
-            0: [0],
-            1: [1],
-            19: [19],
-            20: [20],
-            21: [20, 1],
-            39: [20, 19],
-            40: [20, 20],
-            41: [20, 20, 1],
-        }
-        for total in sorted(sizes):
-            self.add(total - self.count)
-            found = [
-                len(self.store.referrers("rec:person:1", page=n).items)
-                for n in range(1, len(sizes[total]) + 1)
-            ]
-            self.assertEqual(found, sizes[total], f"{total} records")
-            first = self.store.referrers("rec:person:1")  # no page asked for: page 1
-            self.assertEqual(
-                (first.page, first.pages, first.total), (1, len(sizes[total]), total)
-            )
-
-    def test_page_one_is_the_newest_and_the_pages_go_back_in_time_with_the_newest_first_on_a_page(  # noqa: E501
-        self,
-    ):
-        self.add(45)
-        pages = [self.store.referrers("rec:person:1", page=n) for n in (1, 2, 3)]
-        self.assertEqual(
-            self.numbers(pages[0]), list(range(45, 25, -1))
-        )  # the newest 20
-        self.assertEqual(self.numbers(pages[1]), list(range(25, 5, -1)))
-        self.assertEqual(
-            self.numbers(pages[2]), list(range(5, 0, -1))
-        )  # what is left, the oldest
-        self.assertEqual(
-            self.numbers(self.store.referrers("rec:person:1")), self.numbers(pages[0])
-        )  # the default
-
-    def test_a_new_record_is_first_on_page_one_and_moves_the_others_down_a_place(self):
-        self.add(45)
-        before = [
-            self.numbers(self.store.referrers("rec:person:1", page=n))
-            for n in (1, 2, 3)
-        ]
-        self.add(1)
-        after = [
-            self.numbers(self.store.referrers("rec:person:1", page=n))
-            for n in (1, 2, 3)
-        ]
-        self.assertEqual(
-            after[0], [46, *before[0][:-1]]
-        )  # the new one first, the last of the page went down
-        self.assertEqual(after[1], [before[0][-1], *before[1][:-1]])
-        self.assertEqual(after[2], [before[1][-1], *before[2]])
-
-    def test_editing_a_record_does_not_move_it_but_changes_its_etag(self):
-        self.add(45)
-        before = self.store.referrers(
-            "rec:person:1", page=2
-        )  # work 7 is on page 2 (25 down to 6)
-        self.put(
-            record(
-                "rec:work:7",
-                refs=["rec:person:1"],
-                created=created(7),
-                stamp="2027-01-01T00:00:00.000000Z",
-            )
-        )
-        after = self.store.referrers("rec:person:1", page=2)
-        self.assertEqual(self.numbers(after), self.numbers(before))
-        changed = [
-            u
-            for (u, a), (_, b) in zip(after.items, before.items, strict=False)
-            if a != b
-        ]
-        self.assertEqual(changed, ["rec:work:7"])
-
-    def test_both_totals_are_known_and_the_pages_count_the_ones_asked_for(self):
-        self.add(30)
-        self.add(
-            25, published=False
-        )  # 55 in all, 30 of them published (the unpublished are the newest)
-        everyone = self.store.referrers("rec:person:1")
-        self.assertEqual(
-            (everyone.total, everyone.total_all, everyone.total_published), (30, 55, 30)
-        )
-        self.assertEqual((everyone.pages, len(everyone.items)), (2, 20))
-        self.assertEqual(
-            self.numbers(everyone)[:2], [30, 29]
-        )  # the unpublished are not in it
-        every = self.store.referrers("rec:person:1", published=False)
-        self.assertEqual(
-            (every.total, every.total_all, every.total_published, every.pages),
-            (55, 55, 30, 3),
-        )
-        self.assertEqual(
-            self.numbers(self.store.referrers("rec:person:1", page=2, published=False))[
-                :3
-            ],
-            [35, 34, 33],
-        )
-
-    def test_a_listing_can_be_of_one_type(self):
-        self.add(25)
-        self.put(record("rec:person:2", refs=["rec:person:1"], created=created(99)))
-        both = self.store.referrers("rec:person:1")
-        works = self.store.referrers("rec:person:1", source_type="work")
-        people = self.store.referrers("rec:person:1", source_type="person")
-        self.assertEqual((both.total, works.total, people.total), (26, 25, 1))
-        self.assertEqual(people.items[0][0], "rec:person:2")
-
-    def test_a_page_that_is_not_there_is_an_error_and_a_record_nothing_points_at_has_an_empty_listing(  # noqa: E501
-        self,
-    ):
-        self.add(45)
-        for page in (0, 4, -1):
-            with self.assertRaises(ValueError):
-                self.store.referrers("rec:person:1", page=page)
-        nobody = self.store.referrers("rec:work:1")
-        self.assertEqual((nobody.items, nobody.total, nobody.pages), ([], 0, 1))
-        unknown = self.store.referrers("rec:nothing:1")  # a type without a number
-        self.assertEqual((unknown.items, unknown.total), ([], 0))
-
-    def test_random_writes_edits_and_deletes_give_the_pages_a_model_gives(self):
+    def test_random_writes_edits_and_deletes_give_the_listing_a_model_gives(self):
         rng = random.Random(7)
         model: dict[int, tuple[int, bool]] = {}  # work -> (created, published)
         for step in range(90):
@@ -764,121 +644,30 @@ class PagingTest(EtagCase):
                     key=lambda item: (-item[1], uri.record_id(6, item[0]))
                 )  # newest created first
                 newest_first = [w for w, _ in chosen]
+                person = self.store.record_id_of("rec:person:1")
+                self.assertEqual(
+                    self.store.count_referencing_records(
+                        person, include_non_public=not only_published
+                    ),
+                    len(newest_first),
+                    f"step {step}",
+                )
                 pages = max(1, -(-len(newest_first) // 20))
-                listing = self.store.referrers("rec:person:1", published=only_published)
-                self.assertEqual(
-                    (listing.pages, listing.total),
-                    (pages, len(newest_first)),
-                    f"step {step}",
-                )
-                self.assertEqual(
-                    (listing.total_all, listing.total_published),
-                    (len(model), sum(1 for _, (_, p) in model.items() if p)),
-                    f"step {step}",
-                )
                 for page in range(1, pages + 1):
-                    got = self.numbers(
-                        self.store.referrers(
-                            "rec:person:1", page=page, published=only_published
+                    got = [
+                        i % uri.TYPE_BASE
+                        for i in self.store.referencing_records(
+                            person,
+                            offset=(page - 1) * 20,
+                            limit=20,
+                            include_non_public=not only_published,
                         )
-                    )
+                    ]
                     self.assertEqual(
                         got,
                         newest_first[(page - 1) * 20 : page * 20],
                         f"step {step}, page {page}, published={only_published}",
                     )
-
-
-class RecordsPageTest(EtagCase):
-    def setUp(self):
-        super().setUp()
-        self.put(
-            *[
-                record(f"rec:work:{n}", created=created(n), published=n % 5 != 0)
-                for n in range(1, 46)
-            ],
-            record("rec:person:1"),
-        )  # another type: not in the listing
-
-    def numbers(self, page) -> list[int]:
-        return [int(u.rsplit(":", 1)[1]) for u, _ in page.items]
-
-    def test_the_published_records_are_the_listing_and_both_totals_are_known(self):
-        listing = self.store.records_page("work")
-        self.assertEqual(
-            (listing.total, listing.total_all, listing.total_published, listing.pages),
-            (36, 45, 36, 2),
-        )
-        self.assertEqual(
-            self.numbers(listing)[:3], [44, 43, 42]
-        )  # 45 is not published; newest first
-        every = self.store.records_page("work", published=False)
-        self.assertEqual((every.total, every.pages), (45, 3))
-        self.assertEqual(
-            self.numbers(self.store.records_page("work", page=1, published=False)),
-            list(range(45, 25, -1)),
-        )
-        self.assertEqual(
-            self.numbers(self.store.records_page("work", page=3, published=False)),
-            list(range(5, 0, -1)),
-        )
-
-    def test_a_page_that_is_not_there_is_an_error_and_a_type_with_no_records_has_an_empty_page(  # noqa: E501
-        self,
-    ):
-        for page in (0, 4):
-            with self.assertRaises(ValueError):
-                self.store.records_page("work", page=page, published=False)
-        empty = self.store.records_page("org")
-        self.assertEqual((empty.items, empty.total, empty.pages), ([], 0, 1))
-
-    def test_a_repository_that_has_no_etags_yet_gives_the_same_pages_from_the_records(
-        self,
-    ):
-        bare = open_store(self.tmp / "bare.db")  # its etags are gone
-        self.addCleanup(bare.close)
-        bare.set_type_ids(TYPES)
-        bare.put(
-            Graph(
-                ox.Dataset(
-                    q
-                    for n in range(1, 46)
-                    for q in record(
-                        f"rec:work:{n}", created=created(n), published=n % 5 != 0
-                    )
-                )
-            )
-        )
-        bare.con.execute("DELETE FROM etags")
-        self.assertEqual(bare.count_etags(), 0)
-        for published in (True, False):
-            for page in range(
-                1, self.store.records_page("work", published=published).pages + 1
-            ):
-                kept = self.store.records_page("work", page=page, published=published)
-                fallback = bare.records_page("work", page=page, published=published)
-                self.assertEqual(
-                    self.numbers(fallback),
-                    self.numbers(kept),
-                    f"page {page}, published={published}",
-                )
-                self.assertEqual(
-                    (fallback.total_all, fallback.total_published),
-                    (kept.total_all, kept.total_published),
-                )
-        self.assertTrue(
-            all(etag == "" for _, etag in bare.records_page("work").items)
-        )  # no etag to give
-
-    def test_the_labels_and_slugs_of_records(self):
-        found = self.store.labels(["rec:work:1", "rec:work:2", "rec:work:999"])
-        self.assertEqual(
-            sorted(found), ["rec:work:1", "rec:work:2"]
-        )  # one that is not there is not in it
-        self.assertEqual(
-            found["rec:work:1"], ("", None)
-        )  # made without a label or a slug
-        self.assertEqual(self.store.labels([]), {})
 
 
 class OracleTest(EtagCase):
@@ -918,7 +707,7 @@ class OracleTest(EtagCase):
                     else f"ark:/1/moved/{step}"
                 )
                 resource_uris[target] = res
-                self.store.put(
+                self.store.put_multi(
                     record(
                         target,
                         refs=refs,
@@ -983,7 +772,7 @@ class IndexTest(DbTestCase):
         store = open_store(self.db)
         self.addCleanup(store.close)
         store.set_type_ids(TYPES)
-        store.put(record("rec:work:1"))
+        store.put_multi(record("rec:work:1"))
         self.assertEqual(self.indexes(store), [])
         constraints = {
             (r[0], r[1])
@@ -1115,7 +904,7 @@ class DeltaTest(EtagCase):
             )
         )
         before = self.etags_of_works()
-        self.store.put(both)
+        self.store.put_multi(both)
         self.assertEqual(self.walked, [2])  # the two seeds
         self.assertTrue(all(before[n] != self.etag(f"rec:work:{n}") for n in before))
         self.assert_made_again_equals_a_rebuild()

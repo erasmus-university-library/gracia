@@ -2,11 +2,12 @@ import shutil
 import tempfile
 
 import pyoxigraph as ox
-from harness import open_application
+from harness import etag_of, graph_of, open_application
 from jobs_support import JobsCase, person
 
 from gracia.actions import RecordsChanged, process_pending
 from gracia.application import Application
+from gracia.graph import rdfxml
 from gracia.jobs import context, runner
 from gracia.jobs.repository_jobs import ProcessActionsJob, UpdateCacheJob
 from gracia.jobs.stage import read_graphs
@@ -48,8 +49,8 @@ class GraphJobsCase(JobsCase):
 
     def kept(self, rec_uri: str) -> bytes | None:
         record_id = self.store.record_id_of(rec_uri)
-        etag = self.application.cache.etags("test_repo", [record_id])[record_id]
-        return self.application.cache._graph_store().get("test_repo", record_id, etag)  # ty: ignore[invalid-argument-type, missing-union-attribute]
+        etag = etag_of(self.application, "test_repo", record_id)
+        return self.application.cache.graph_store.get("test_repo", record_id, etag)  # ty: ignore[invalid-argument-type, missing-union-attribute]
 
 
 class ExportGraphsTest(GraphJobsCase):
@@ -65,7 +66,7 @@ class ExportGraphsTest(GraphJobsCase):
             record_id = self.store.record_id_of(item["id"])
             self.assertEqual(
                 item["etag"],
-                self.application.cache.etags("test_repo", [record_id])[record_id],
+                etag_of(self.application, "test_repo", record_id),
             )
             quads = list(
                 ox.parse(item["source"].encode(), format=ox.RdfFormat.N_TRIPLES)
@@ -173,7 +174,7 @@ class ExportQueueTest(GraphJobsCase):
             (waiting, waiting, self.store.last_transaction()),
         )
         record_id = self.store.record_id_of("rec:person:14")
-        etag = self.application.cache.etags("test_repo", [record_id])[record_id]
+        etag = etag_of(self.application, "test_repo", record_id)
         self.assertEqual(
             (items["rec:person:14"]["etag"], items["rec:person:14"]["action"]),
             (etag, "insert"),
@@ -230,11 +231,9 @@ class UpdateCacheTest(GraphJobsCase):
             dataset.canonicalize(ox.CanonicalizationAlgorithm.RDFC_1_0)
             return {str(q) for q in dataset}
 
-        made = self.application.cache.graph("test_repo", record_id)  # ty: ignore[invalid-argument-type]
-        self.assertEqual(made, kept)
-        from gracia.cache import rdfxml
-
-        _etag, text = self.store.closure_source(record_id)  # ty: ignore[invalid-argument-type, not-iterable]
+        made = graph_of(self.application, "test_repo", record_id)
+        self.assertEqual(made.encode(), kept)
+        _etag, text = self.store.fetch_compound_graphs([record_id])[record_id]  # ty: ignore[invalid-argument-type]
         self.assertEqual(triples(rdfxml(text)), triples(kept))
 
     def test_a_graph_is_made_again_only_when_the_record_changed(self):

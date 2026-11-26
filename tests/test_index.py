@@ -48,7 +48,9 @@ class IndexCase(EditCase):
     def setUp(self):
         super().setUp()
         with self.application.new_store("test_repo") as store:
-            store.put(ox.Dataset(ox.parse(PEOPLE.encode(), format=ox.RdfFormat.TURTLE)))
+            store.put_multi(
+                ox.Dataset(ox.parse(PEOPLE.encode(), format=ox.RdfFormat.TURTLE))
+            )
 
     def store(self):
         return self.application.new_store("test_repo")
@@ -60,7 +62,9 @@ class IndexCase(EditCase):
         )
         text = re.sub(r'foaf:name "[^"]*"', f'foaf:name "{name}"', text)
         with self.store() as store:
-            store.put(ox.Dataset(ox.parse(text.encode(), format=ox.RdfFormat.TURTLE)))
+            store.put_multi(
+                ox.Dataset(ox.parse(text.encode(), format=ox.RdfFormat.TURTLE))
+            )
 
 
 class DependenciesTest(IndexCase):

@@ -3,17 +3,14 @@ import json
 import logging
 import os
 import tempfile
-from datetime import datetime, timedelta
 import threading
+from datetime import datetime, timedelta
 from pathlib import Path
 from xml.sax.saxutils import quoteattr
 
 import duckdb
 import lmdb
-import pyoxigraph as ox
 
-from gracia.graph import serialize_bytes
-from gracia.store import new_store
 from gracia.uri import XSL_NS
 from gracia.utils import assets, xslt
 
@@ -22,6 +19,8 @@ log = logging.getLogger(__name__)
 GRAPH_CACHE_BYTES = (
     2 * 1024**3
 )  # the most LMDB maps; the file only grows as far as it is filled
+
+STATS_LIMIT = 100_000  # entries counted for the stats of a repository, no more
 
 
 class GraphStore:
@@ -59,29 +58,24 @@ class GraphStore:
                     txn.drop(self._env.open_db(None, txn=txn), delete=False)
         raise ValueError(f"{len(entries)} graphs do not fit the graph cache")
 
-    def count(self, repo: str, limit: int = 100_000) -> int:
+    def repo_stats(self, repo: str, limit: int = STATS_LIMIT) -> dict:
+        """What is kept of a repository: `entries`, and `bytes` (the keys and values; the
+        file is shared). Counted no further than `limit` entries (`capped`)."""
         prefix = repo.encode() + b"\0"
-        found = 0
-        with self._env.begin() as txn:
+        found = size = 0
+        capped = False
+        with self._env.begin(buffers=True) as txn:
             cursor = txn.cursor()
             if cursor.set_range(prefix):
-                for key in cursor.iternext(values=False):
-                    if not key.startswith(prefix) or found >= limit:
+                for key, value in cursor.iternext():
+                    if bytes(key[: len(prefix)]) != prefix:
+                        break
+                    if found >= limit:
+                        capped = True
                         break
                     found += 1
-        return found
-
-    def stats(self) -> dict:
-        with self._env.begin() as txn:
-            stat = txn.stat()
-        pages = stat["branch_pages"] + stat["leaf_pages"] + stat["overflow_pages"]
-        data = self._path / "data.mdb"
-        return {
-            "entries": stat["entries"],
-            "bytes": pages * stat["psize"],
-            "file": data.stat().st_size if data.exists() else 0,
-            "limit": self._env.info()["map_size"],
-        }
+                    size += len(key) + len(value)
+        return {"entries": found, "stale": 0, "bytes": size, "capped": capped}
 
     def delete_many(self, repo: str, record_ids) -> None:
         with self._env.begin(write=True) as txn:
@@ -204,17 +198,31 @@ class StampedStore:
                     txn.drop(self._env.open_db(None, txn=txn), delete=False)
         raise ValueError(f"{len(found)} entries do not fit the cache")
 
-    def count(self, repo: str, last_modified_at: int) -> int:
-        prefix = self._prefix(repo) + last_modified_at.to_bytes(8, "big")
-        found = 0
-        with self._env.begin() as txn:
+    def repo_stats(
+        self, repo: str, last_modified_at: int, limit: int = STATS_LIMIT
+    ) -> dict:
+        """What is kept of a repository: the `entries` of its current time, the `stale`
+        ones of earlier times (not deleted yet) and `bytes` (keys and values of both).
+        Counted no further than `limit` entries (`capped`)."""
+        prefix = self._prefix(repo)
+        current = last_modified_at.to_bytes(8, "big")
+        found = stale = size = 0
+        capped = False
+        with self._env.begin(buffers=True) as txn:
             cursor = txn.cursor()
             if cursor.set_range(prefix):
-                for key in cursor.iternext(values=False):
-                    if not key.startswith(prefix):
+                for key, value in cursor.iternext():
+                    if bytes(key[: len(prefix)]) != prefix:
                         break
-                    found += 1
-        return found
+                    if found + stale >= limit:
+                        capped = True
+                        break
+                    if bytes(key[len(prefix) : len(prefix) + 8]) == current:
+                        found += 1
+                    else:
+                        stale += 1
+                    size += len(key) + len(value)
+        return {"entries": found, "stale": stale, "bytes": size, "capped": capped}
 
     def close(self) -> None:
         self._env.close()
@@ -235,16 +243,19 @@ class EtagStore(StampedStore):
     ) -> dict[int, str | None]:
         """What is kept of the ids (`None` for a record that is not there is kept too);
         ids that are not kept are not in the answer."""
-        keys = {i: i.to_bytes(4, "big") for i in record_ids}
-        got = self.get_bytes(repo, last_modified_at, list(keys.values()))
-        return {i: got[k].decode() or None for i, k in keys.items() if k in got}
+        keys = [record_id.to_bytes(4, "big") for record_id in record_ids]
+        kept = self.get_bytes(repo, last_modified_at, keys)
+        found: dict[int, str | None] = {}
+        for record_id, key in zip(record_ids, keys):
+            if key in kept:
+                found[record_id] = kept[key].decode() or None  # empty: not there
+        return found
 
-    def put_many(self, repo: str, last_modified_at: int, found: dict) -> None:
-        self.put_bytes(
-            repo,
-            last_modified_at,
-            {i.to_bytes(4, "big"): (v or "").encode() for i, v in found.items()},
-        )
+    def put_many(self, repo: str, last_modified_at: int, etag_records: dict) -> None:
+        entries = {}
+        for record_id, etag in etag_records.items():
+            entries[record_id.to_bytes(4, "big")] = (etag or "").encode()
+        self.put_bytes(repo, last_modified_at, entries)
 
 
 class SlugStore(StampedStore):
@@ -496,19 +507,10 @@ class DocStore(GraphStore):
             self._env = None
 
 
-def dataset_rdfxml(dataset: ox.Dataset) -> bytes:
-    return serialize_bytes(dataset, format=ox.RdfFormat.RDF_XML)
-
-
-def rdfxml(ntriples: str) -> bytes:
-    return dataset_rdfxml(
-        ox.Dataset(ox.parse(ntriples.encode(), format=ox.RdfFormat.N_TRIPLES))
-    )
+STAMPED = {"etags": EtagStore, "slugs": SlugStore, "referencing": ReferencingStore}
 
 
 class Cache:
-    KEPT = ("types",)
-
     def __init__(self, database, registry, *, db_file=None, graph_dir=None, sizes=None):
         self._database = database
         self._sizes = {**DEFAULT_CACHE_BYTES, **(sizes or {})}  # bytes, by cache
@@ -519,11 +521,7 @@ class Cache:
         self._graph_dir = graph_dir
         self._graphs: GraphStore | None = None  # opened by the first use
         self._docs: DocStore | None = None  # likewise
-        self._etags: EtagStore | None = None  # likewise
-        # the time up to which each kept thing of each repository was deleted
-        self._swept: dict[tuple[str, str], int] = {}
-        self._slugs: SlugStore | None = None  # likewise
-        self._referencing: ReferencingStore | None = None  # likewise
+        self._stamped: dict[str, StampedStore] = {}  # the ones that are open, by name
         # what follows the writes (`gracia.actions.Worker`): kept running by `check`
         self.worker = None
 
@@ -541,44 +539,22 @@ class Cache:
             )
         return self._docs
 
-    @property
-    def etag_store(self) -> EtagStore:
-        if self._etags is None:
-            self._etags = EtagStore(
-                Path(self._graph_dir) / "etags" if self._graph_dir else None,
-                self._sizes["etags"],
-            )
-        return self._etags
+    def stamped(self, name: str) -> StampedStore:
+        """The stamped cache `name` (`etags`, `slugs` or `referencing`), opened the first
+        time it is asked for (a process can open an LMDB directory once, so the stores
+        that are never asked for are not opened). What an earlier run left of the
+        repositories is old, and is deleted."""
+        if name not in self._stamped:
+            self.refresh()
+            directory = Path(self._graph_dir) / name if self._graph_dir else None
+            store = STAMPED[name](directory, self._sizes[name])
+            for repo, moment in self._written.items():
+                store.sweep(repo, self._micros(moment))
+            self._stamped[name] = store
+        return self._stamped[name]
 
     @property
-    def slug_store(self) -> SlugStore:
-        if self._slugs is None:
-            self._slugs = SlugStore(
-                Path(self._graph_dir) / "slugs" if self._graph_dir else None,
-                self._sizes["slugs"],
-            )
-        return self._slugs
-
-    @property
-    def referencing_store(self) -> ReferencingStore:
-        if self._referencing is None:
-            self._referencing = ReferencingStore(
-                Path(self._graph_dir) / "referencing" if self._graph_dir else None,
-                self._sizes["referencing"],
-            )
-        return self._referencing
-
-    def _stamp(self, name: str, store: StampedStore, repo: str) -> int:
-        """`repo_last_modified_at`, taken once for a read and the write that follows it;
-        what was kept before a write is deleted the first time it is seen."""
-        self.check()
-        stamp = self.repo_last_modified_at(repo)
-        if self._swept.get((name, repo)) != stamp:
-            store.sweep(repo, stamp)
-            self._swept[(name, repo)] = stamp
-        return stamp
-
-    def _graph_store(self) -> GraphStore | None:
+    def graph_store(self) -> GraphStore | None:
         if self._graphs is None and self._graph_dir:
             self._graphs = GraphStore(self._graph_dir, self._sizes["graphs"])
         return self._graphs
@@ -612,9 +588,14 @@ class Cache:
     def check(self) -> None:
         if self.worker is not None:
             self.worker.ensure_running()
-        self._refresh()
+        self.refresh()
 
-    def _refresh(self) -> None:
+    def refresh(self) -> None:
+        """Sees the writes: what was kept of a repository that was written is dropped,
+        and what the open stamped caches kept of it before the write is deleted. One
+        that is not open does it when it opens (`stamped`). What is left is what a
+        request that was running wrote under the old time, and goes with the next
+        write."""
         signature = self.file_signature()
         if signature is not None and signature == self._seen:
             return
@@ -623,6 +604,8 @@ class Cache:
         for repo, moment in written.items():
             if self._written.get(repo) != moment:
                 self.invalidate(repo)
+                for store in self._stamped.values():
+                    store.sweep(repo, self._micros(moment))
         self._written, self._seen = written, signature
 
     @staticmethod
@@ -638,162 +621,60 @@ class Cache:
         return self._micros(self._written.get(repo))
 
     def written(self) -> dict[str, object]:
-        self._refresh()
+        self.refresh()
         return dict(self._written)
 
     def invalidate(self, repo: str) -> None:
-        for name in self.KEPT:
-            self._shared(name).pop(repo, None)
+        """Drops what is kept in memory of a repository: its types, and the stylesheets
+        of its docs."""
+        self.registry.get("types", {}).pop(repo, None)
         if self._docs is not None:  # nothing to drop where it was never opened
             self._docs.drop(repo)
-
-    def _table(self, repo: str, name: str) -> dict:
-        return self._shared(name).setdefault(repo, {})
-
-    def _shared(self, name: str) -> dict:
-        return self.registry.setdefault(name, {})
-
-    def _kept(self, repo: str, name: str, key, load):
-        self._refresh()
-        table = self._table(repo, name)
-        if key in table:
-            return table[key]
-        value = load()
-        if value is not None:
-            table[key] = value
-        return value
-
-    def types(self, repo: str, load):
-        return self._kept(repo, "types", None, load)
-
-    def slug(
-        self, repo: str, rec_type: str, slug: str, load
-    ) -> tuple[int, bool] | None:
-        """The record id of a slug and whether the record is deleted. `load` gives them
-        (or None: that is not kept, a slug that is not there may be made next)."""
-        store = self.slug_store
-        stamp = self._stamp("slugs", store, repo)
-        if (found := store.get(repo, stamp, rec_type, slug)) is not None:
-            return found
-        found = load()
-        if found is not None:
-            store.put(repo, stamp, rec_type, slug, found)
-        return found
-
-    def referencing_records(
-        self, repo: str, load, referenced_record_id: int | None = None, **arguments
-    ) -> list[int]:
-        """The record ids of a page of the records that point at a record; `load` asks
-        the database. `arguments` are all of the filters, offset and limit too."""
-        store = self.referencing_store
-        stamp = self._stamp("referencing", store, repo)
-        key = store.hash_of(referenced=referenced_record_id, **arguments)
-        if (found := store.get_ids(repo, stamp, key)) is not None:
-            return found
-        found = load()
-        store.put_ids(repo, stamp, key, found)
-        return found
-
-    def referencing_records_total(
-        self, repo: str, load, referenced_record_id: int | None = None, **arguments
-    ) -> int:
-        """How many there are in all: the filters, not the page (offset and limit)."""
-        store = self.referencing_store
-        stamp = self._stamp("referencing", store, repo)
-        key = store.hash_of(
-            referenced=referenced_record_id, return_count_only=True, **arguments
-        )
-        if (found := store.get_total(repo, stamp, key)) is not None:
-            return found
-        found = load()
-        store.put_total(repo, stamp, key, found)
-        return found
-
-    def etags(self, repo: str, record_ids) -> dict[int, str | None]:
-        store = self.etag_store
-        stamp = self._stamp("etags", store, repo)  # this one, whatever happens next
-        ids = list(dict.fromkeys(record_ids))
-        found = store.get_many(repo, stamp, ids)
-        missing = [i for i in ids if i not in found]
-        if missing:
-            listed = ", ".join(str(int(i)) for i in missing)
-            with new_store(self._database, repo) as db:
-                rows = db.con.execute(
-                    f"SELECT record_id, etag FROM etags WHERE record_id IN ({listed})"
-                ).fetchall()
-            loaded = {r[0]: f"{r[1]:016x}" for r in rows}
-            made = {i: loaded.get(i) for i in missing}
-            store.put_many(repo, stamp, made)  # under the key it was read by
-            found.update(made)
-        return {i: found[i] for i in record_ids}
 
     @property
     def keeps_docs(self) -> bool:
         return bool(self._graph_dir)
 
-    def doc(self, repository, record_id: int, record_uri: str) -> dict | None:
-        repo = repository.__name__
-        current = self.etags(repo, [record_id])[record_id]
-        if current is None:
-            return None
-        if self.keeps_docs:
-            fingerprint = self.docs.fingerprint(
-                repository, self.docs.compiled(repository)
-            )
-            if (
-                kept := self.docs.get(repo, record_id, current, fingerprint)
-            ) is not None:
-                return json.loads(kept)
-        xml = self.graph(repo, record_id)
-        if xml is None:
-            return None
-        return self.docs.bulk_update(
-            repository,
-            {record_uri: record_id},
-            xml.decode(),
-            {record_id: current},
-        )[record_uri]
-
-    def graph(self, repo: str, record_id: int) -> bytes | None:
-        current = self.etags(repo, [record_id])[record_id]
-        if current is None:
-            return None
-        graphs = self._graph_store()
-        if graphs is not None and (kept := graphs.get(repo, record_id, current)):
-            return kept
-        with new_store(self._database, repo) as store:
-            made = store.closure_source(record_id)
-        if made is None:
-            return None
-        etag, text = made  # the etag of this text, which may be newer than `current`
-        xml = rdfxml(text)
-        if graphs is not None:
-            graphs.put(repo, record_id, etag, xml)
-        return xml
-
     def keep(self, repo: str, entries) -> None:
-        graphs = self._graph_store()
+        graphs = self.graph_store
         if graphs is None:
             raise ValueError("there is no graph cache: set gracia.cache_dir")
         graphs.put_many(
             (repo, record_id, etag, xml) for record_id, etag, xml in entries
         )
 
-    def etags_held(self, repo: str) -> int:
-        return self.etag_store.count(repo, self.repo_last_modified_at(repo))
-
-    def graph_stats(self, repo: str) -> dict | None:
-        graphs = self._graph_store()
-        if graphs is None:
-            return None
-        return {
-            **graphs.stats(),
-            "repo_entries": graphs.count(repo),
-            "directory": str(self._graph_dir),
-        }
+    def repo_stats(self, repo: str) -> dict:
+        """What each cache keeps of a repository, and the time of the repository that
+        the stamped caches are of: `{"modified_at": the time or None, "caches": [{"name",
+        "entries", "stale", "bytes", "capped"} ...]}`. The graph and doc caches have no
+        times (an entry is used when its etag is the current one: `stale` is 0), and are
+        None without a cache directory. The worker is not started by it (`check` does):
+        a page that says the worker is stopped must not start it."""
+        self.refresh()
+        stamp = self.repo_last_modified_at(repo)
+        caches = [
+            {"name": "etags", **self.stamped("etags").repo_stats(repo, stamp)},
+            {"name": "slugs", **self.stamped("slugs").repo_stats(repo, stamp)},
+            {
+                "name": "referencing",
+                **self.stamped("referencing").repo_stats(repo, stamp),
+            },
+        ]
+        graphs = self.graph_store
+        caches.append(
+            {"name": "graphs", **graphs.repo_stats(repo)}
+            if graphs
+            else {"name": "graphs"}
+        )
+        caches.append(
+            {"name": "docs", **self.docs.repo_stats(repo)}
+            if self.keeps_docs
+            else {"name": "docs"}
+        )
+        return {"modified_at": self._written.get(repo), "caches": caches}
 
     def forget(self, repo: str, record_ids) -> None:
-        graphs = self._graph_store()
+        graphs = self.graph_store
         if graphs is not None:
             graphs.delete_many(repo, record_ids)
         if self.keeps_docs:
@@ -808,7 +689,6 @@ class Cache:
         if self._graphs is not None:
             self._graphs.close()
             self._graphs = None
-        for name in ("_etags", "_slugs", "_referencing"):
-            if (opened := getattr(self, name)) is not None:
-                opened.close()
-                setattr(self, name, None)
+        for store in self._stamped.values():
+            store.close()
+        self._stamped = {}

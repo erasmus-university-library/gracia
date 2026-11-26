@@ -102,7 +102,7 @@ class LabelTest(LabelCase):
                 b"<rec:person:7> a <https://gracia.pub/ns/Record> ; "
                 b"<https://gracia.pub/ns/type> <rec:type:5> ."
             )
-            store.put(ox.Dataset(ox.parse(text, format=ox.RdfFormat.TURTLE)))
+            store.put_multi(ox.Dataset(ox.parse(text, format=ox.RdfFormat.TURTLE)))
         self.assertIn(
             "(Unnamed)", self.web.get("/test_repo/person/7/edit", headers=ADMIN).text
         )

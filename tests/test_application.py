@@ -159,7 +159,7 @@ class ApplicationTest(unittest.TestCase):
         self.app.create_repository("b")
         with self.app.new_store("a") as a, self.app.new_store("b") as b:
             b.set_type_ids([("book", 5)])  # b knows the type, and has no record of it
-            a.put(dataset("book"))
+            a.put_multi(dataset("book"))
             self.assertEqual(len(a.get(REC["book"])), 1)
             self.assertEqual(len(b.get(REC["book"])), 0)
             self.assertGreater(
@@ -170,7 +170,7 @@ class ApplicationTest(unittest.TestCase):
     def test_cursors_and_forks_use_the_repository_schema(self):
         self.app.create_repository("test_repo")
         with self.app.new_store("test_repo") as store:
-            store.put(dataset("book"))
+            store.put_multi(dataset("book"))
             self.assertEqual(
                 store.export_ntriples(self.tmp / "book.nt", [REC["book"]]), 1
             )
@@ -180,7 +180,7 @@ class ApplicationTest(unittest.TestCase):
     def test_concurrent_readers_each_get_their_own_store(self):
         self.app.create_repository("test_repo")
         with self.app.new_store("test_repo") as store:
-            store.put(dataset("book"))
+            store.put_multi(dataset("book"))
         failures, results = [], []
 
         def read():
@@ -210,7 +210,7 @@ class ConcurrentWritersTest(unittest.TestCase):
             def write(n):
                 try:
                     with app.new_store("test_repo") as store:
-                        store.put(dataset(f"book{n + 1}"))
+                        store.put_multi(dataset(f"book{n + 1}"))
                 except Exception as err:
                     errors.append(err)
 
@@ -222,7 +222,7 @@ class ConcurrentWritersTest(unittest.TestCase):
             self.assertEqual(errors, [])
             with app.new_store("test_repo") as store:
                 self.assertEqual(
-                    len(store.get([rec(f"book{n + 1}") for n in range(6)])), 6
+                    len(store.get_multi([rec(f"book{n + 1}") for n in range(6)])), 6
                 )
 
 
@@ -231,7 +231,7 @@ class ApplicationOnDiskTest(DbTestCase):
         with opened(self.db) as app:
             app.create_repository("test_repo")
             with app.new_store("test_repo") as store:
-                store.put(dataset("book"))
+                store.put_multi(dataset("book"))
         with opened(self.db) as app:
             self.assertEqual(app.list_repositories(), ["test_repo"])
             with app.new_store("test_repo") as store:
@@ -242,7 +242,7 @@ class ApplicationOnDiskTest(DbTestCase):
         with opened(path) as app:
             app.create_repository("gracia")
             with app.new_store("gracia") as store:
-                store.put(dataset("book"))
+                store.put_multi(dataset("book"))
                 self.assertEqual(len(store.get(REC["book"])), 1)
                 self.assertEqual(
                     store.export_ntriples(self.tmp / "book.nt", [REC["book"]]), 1

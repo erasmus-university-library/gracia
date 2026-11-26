@@ -63,9 +63,9 @@ class RemoteApplicationTest(DbTestCase):
     def test_put_get_replace_and_delete(self):
         self.app.create_repository("test_repo")
         with self.app.new_store("test_repo") as store:
-            store.put(dataset("book", "one"))
+            store.put_multi(dataset("book", "one"))
             self.assertEqual(len(store.get(REC["book"])), 1)
-            store.put(dataset("book", "two"))  # replaces the whole resource
+            store.put_multi(dataset("book", "two"))  # replaces the whole resource
             (quad,) = list(store.get(REC["book"]))
             self.assertEqual(quad.object.value, "two")
             store.delete([REC["book"]])
@@ -76,7 +76,7 @@ class RemoteApplicationTest(DbTestCase):
         self.app.create_repository("b")
         with self.app.new_store("a") as a, self.app.new_store("b") as b:
             b.set_type_ids([("book", 5)])  # b knows the type, and has no record of it
-            a.put(dataset("book"))
+            a.put_multi(dataset("book"))
             self.assertEqual(len(b.get(REC["book"])), 0)
 
     def test_bnodes_and_lists_survive(self):
@@ -87,14 +87,14 @@ class RemoteApplicationTest(DbTestCase):
         )
         data = ox.Dataset(ox.parse(text.encode(), format=ox.RdfFormat.TURTLE))
         with self.app.new_store("test_repo") as store:
-            store.put(data)
+            store.put_multi(data)
             back = store.get("rec:thing:9")
         self.assertEqual(len(back), len(data))
 
     def test_streamed_export_and_forks(self):
         self.app.create_repository("test_repo")
         with self.app.new_store("test_repo") as store:
-            store.put(dataset("book"))
+            store.put_multi(dataset("book"))
             self.assertEqual(
                 store.export_ntriples(self.tmp / "book.nt", [REC["book"]]), 1
             )
@@ -112,7 +112,7 @@ class RemoteApplicationTest(DbTestCase):
         def write(n):
             try:
                 with self.app.new_store("test_repo") as store:
-                    store.put(dataset(f"book{n + 1}"))
+                    store.put_multi(dataset(f"book{n + 1}"))
             except Exception as err:
                 errors.append(err)
 
@@ -123,7 +123,9 @@ class RemoteApplicationTest(DbTestCase):
             thread.join()
         self.assertEqual(errors, [])
         with self.app.new_store("test_repo") as store:
-            self.assertEqual(len(store.get([rec(f"book{n + 1}") for n in range(4)])), 4)
+            self.assertEqual(
+                len(store.get_multi([rec(f"book{n + 1}") for n in range(4)])), 4
+            )
 
     def test_minting_finding_and_logging_in_through_the_owner(self):
         import base64

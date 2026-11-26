@@ -196,7 +196,7 @@ class NeverPublicTest(PermissionsCase):
                 ox.DefaultGraph(),
             )
             data.add(public)
-            store.put(data)
+            store.put_multi(data)
         self.assertFalse(self.can("/test_repo/user/1"))
         self.assertFalse(self.can("/test_repo/user/1", "group:editor"))
 

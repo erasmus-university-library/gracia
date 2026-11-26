@@ -1,4 +1,5 @@
 import contextlib
+import json
 import os
 import random
 import re
@@ -7,7 +8,6 @@ import time
 import uuid
 from collections import Counter
 from collections.abc import Iterable
-from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
 
@@ -16,7 +16,7 @@ import pyoxigraph as ox
 
 from gracia import uri
 from gracia.database import RemoteConnection, literal
-from gracia.graph import Graph
+from gracia.graph import Graph, dataset_rdfxml
 
 _SQL = files("gracia") / "assets" / "sql"
 _IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -203,8 +203,8 @@ ETAGS_CONTAINS_UP_TO = 4
 # ones point at is the same, their etag is moved by the change of the local hashes
 # instead
 ETAGS_DELTA_ABOVE = 200
-# the order `etags` is kept in: what `Store.referrers` reads, newest created first, with
-# no ORDER BY
+# the order `etags` is kept in: what `Store.referencing_records` reads, newest created first,
+# with no ORDER BY
 ETAGS_ORDER = "ORDER BY record_type, sort_key DESC, record_id"
 PAGE_SIZE = 20  # records on a page of a listing; the last page has up to twice as many
 EMPTY_TOTALS = (
@@ -221,17 +221,6 @@ def page_window(total: int, page: int | None, size: int) -> tuple[int, int, int,
     return page, pages, offset, min(size, total - offset)
 
 
-@dataclass
-class Page:
-    items: list[tuple[str, str]]
-    page: int
-    pages: int
-    total: int
-    total_all: int
-    total_published: int
-    size: int
-
-
 class Store:
     def __init__(
         self,
@@ -242,6 +231,7 @@ class Store:
         create: bool = False,
         init: bool = True,
         close_connection: bool = False,
+        cache=None,
     ):
         # Over Quack the macros run in the owner process and cannot see a temp table of
         # ours: the
@@ -272,6 +262,8 @@ class Store:
         self._ids_ready = False
         self._type_numbers: dict[str, int] | None = None
         self._close_connection = close_connection
+        self.cache = cache  # the caches of the process (`gracia.cache.Cache`), if any
+        self.repository = None  # the repository that made the store (`get_doc`)
         self.con = connection
         try:
             # the local view of the database decides the catalog name and whether the
@@ -1121,7 +1113,11 @@ class Store:
         ).fetchone()
         return (f"{row[0]:016x}", list(row[1])) if row else None
 
-    def closure_sources(self, record_ids) -> dict[int, tuple[str, str]]:
+    def fetch_compound_graphs(self, record_ids) -> dict[int, tuple[str, str]]:
+        """The compound graph of each record that has an etag: the N-Triples of the
+        record and of every record it is made of, with the etag they are of
+        (`{record id: (etag, text)}`). What the graph cache keeps, made from the
+        database."""
         wanted = list(dict.fromkeys(int(i) for i in record_ids))
         if not wanted:
             return {}
@@ -1164,9 +1160,6 @@ class Store:
             for record_id in wanted
             if record_id in etags
         }
-
-    def closure_source(self, record_id: int) -> tuple[str, str] | None:
-        return self.closure_sources([record_id]).get(record_id)
 
     # ---- the queue of what the followers have to do (records.sql, gracia.actions)
     # ---------------
@@ -1270,69 +1263,6 @@ class Store:
         )
         return count, oldest
 
-    def referrers(
-        self,
-        target_uri: str,
-        *,
-        source_type: str | None = None,
-        page: int | None = None,
-        size: int = PAGE_SIZE,
-        published: bool = True,
-    ) -> Page:
-        target = self.record_id_of(target_uri)
-        where = (
-            [f"record_type = {literal(source_type)}"] if source_type is not None else []
-        )
-        where.append(
-            "false" if target is None else f'list_contains("references", {int(target)})'
-        )
-        condition = " AND ".join(where)
-        self.con.begin()  # the totals and the page from one state of the table
-        try:
-            # the totals are in the row of the record: no count of the listing
-            found = (
-                self.con.execute(
-                    f"SELECT en.key, en.value.total_all, en.value.total_published FROM "
-                    "(SELECT unnest(map_entries(backref_totals)) AS en FROM etags "
-                    "WHERE record_id "
-                    f"= {int(target)})"
-                ).fetchall()
-                if target is not None
-                else []
-            )
-            kept = [
-                (a, p)
-                for key, a, p in found
-                if source_type is None or key == source_type
-            ]
-            total_all, total_published = (
-                sum(a for a, _ in kept),
-                sum(p for _, p in kept),
-            )
-            total = total_published if published else total_all
-            page, pages, offset, limit = page_window(total, page, size)
-            shown = f"{condition} AND is_published" if published else condition
-            rows = (
-                self.con.execute(
-                    f"SELECT record_uri, etag FROM etags WHERE {shown} LIMIT {limit} "
-                    "OFFSET "
-                    f"{offset}"
-                ).fetchall()
-                if limit
-                else []
-            )
-        finally:
-            self.con.commit()
-        return Page(
-            [(u, f"{e:016x}") for u, e in rows],
-            page,
-            pages,
-            total,
-            total_all,
-            total_published,
-            size,
-        )
-
     @staticmethod
     def _check_referencing(
         referenced_record_id: int | None,
@@ -1393,6 +1323,7 @@ class Store:
         include_non_public: bool = False,
         include_deleted: bool = False,
         state: str | None = None,
+        ignore_cache: bool = False,
     ) -> list[int]:
         """The ids of the records that point at the record, one page of them, in the
         order of `etags` (newest created first). `record_type` is the number of a type
@@ -1405,7 +1336,10 @@ class Store:
         The page is then sorted on when the records were modified, or deleted (`etags` is
         kept by when a record was created, so the two kinds have to be merged by a sort;
         without `include_deleted` there is none). The ids of the deleted have no etag:
-        `Cache.etags` gives None for them."""
+        `etags` gives None for them.
+
+        A page is kept by the cache of the process, by its arguments, while the
+        repository is not written (`ignore_cache`: not read, not kept)."""
         self._check_referencing(
             referenced_record_id, record_type, include_deleted, state
         )
@@ -1425,7 +1359,27 @@ class Store:
                 f"SELECT record_id FROM etags WHERE {where} LIMIT {int(limit)} "
                 f"OFFSET {int(offset)}"
             )
-        return [r[0] for r in self.con.execute(sql).fetchall()]
+        kept = self.cache is not None and not ignore_cache
+        if kept:
+            self.cache.check()
+            repo_last_modified_at = self.cache.repo_last_modified_at(self.repo)
+            referencing = self.cache.stamped("referencing")
+            key = referencing.hash_of(
+                referenced=referenced_record_id,
+                record_type=record_type,
+                offset=offset,
+                limit=limit,
+                include_non_public=include_non_public,
+                include_deleted=include_deleted,
+                state=state,
+            )
+            found = referencing.get_ids(self.repo, repo_last_modified_at, key)
+            if found is not None:
+                return found
+        ids = [r[0] for r in self.con.execute(sql).fetchall()]
+        if kept:
+            referencing.put_ids(self.repo, repo_last_modified_at, key, ids)
+        return ids
 
     def count_referencing_records(
         self,
@@ -1434,8 +1388,10 @@ class Store:
         include_non_public: bool = False,
         include_deleted: bool = False,
         state: str | None = None,
+        ignore_cache: bool = False,
     ) -> int:
-        """How many records `referencing_records` has in all."""
+        """How many records `referencing_records` has in all (kept the same way, by the
+        arguments that count: every page of a listing has one total)."""
         self._check_referencing(
             referenced_record_id, record_type, include_deleted, state
         )
@@ -1443,68 +1399,28 @@ class Store:
         where = self._referencing_where(
             referenced_record_id, record_type, include_non_public, state
         )
+        kept = self.cache is not None and not ignore_cache
+        if kept:
+            self.cache.check()
+            repo_last_modified_at = self.cache.repo_last_modified_at(self.repo)
+            referencing = self.cache.stamped("referencing")
+            key = referencing.hash_of(
+                referenced=referenced_record_id,
+                record_type=record_type,
+                include_non_public=include_non_public,
+                include_deleted=include_deleted,
+                state=state,
+                return_count_only=True,
+            )
+            found = referencing.get_total(self.repo, repo_last_modified_at, key)
+            if found is not None:
+                return found
         live = f"(SELECT count(*) FROM etags WHERE {where})"
         gone = f"(SELECT count(*) FROM slugs WHERE {deleted})" if deleted else "0"
-        return fetch_one(self.con.execute(f"SELECT {live} + {gone}"))[0]
-
-    def records_page(
-        self,
-        slug: str,
-        *,
-        page: int | None = None,
-        size: int = PAGE_SIZE,
-        published: bool = True,
-    ) -> Page:
-        where = f"record_type = {literal(slug)}"
-        counts = self.con.execute(
-            "SELECT count(*), count(*) FILTER (WHERE is_published) FROM etags WHERE "
-            f"{where}"
-        ).fetchone()
-        stored = counts[0] > 0
-        if not stored:
-            where = f"rec_type = {literal(slug)}"
-            counts = self.con.execute(
-                "SELECT count(*), count(*) FILTER (WHERE is_published) FROM "
-                f"{self.records} WHERE "
-                f"{where}"
-            ).fetchone()
-        total_all, total_published = counts
-        total = total_published if published else total_all
-        page, pages, offset, limit = page_window(total, page, size)
-        shown = f"{where} AND is_published" if published else where
-        if not limit:
-            rows = []
-        elif stored:
-            rows = self.con.execute(
-                f"SELECT record_uri, etag FROM etags WHERE {shown} LIMIT {limit} "
-                f"OFFSET {offset}"
-            ).fetchall()
-        else:
-            rows = [
-                (u, 0)
-                for (u,) in self.con.execute(
-                    f"SELECT record_uri(record_id) FROM {self.records} WHERE {shown} "
-                    f"ORDER BY created_at DESC, record_id LIMIT {limit} OFFSET {offset}"
-                ).fetchall()
-            ]
-        return Page(
-            [(u, f"{e:016x}" if e else "") for u, e in rows],
-            page,
-            pages,
-            total,
-            total_all,
-            total_published,
-            size,
-        )
-
-    def labels(self, uris: list[str]) -> dict[str, tuple[str, str | None]]:
-        if not uris:
-            return {}
-        rows = self.con.execute(
-            f"SELECT record_uri(record_id), label, slug FROM {self.records} "
-            f"WHERE record_id IN {sql_ids(uris)}"
-        ).fetchall()
-        return {u: (label or "", slug) for u, label, slug in rows}
+        total = fetch_one(self.con.execute(f"SELECT {live} + {gone}"))[0]
+        if kept:
+            referencing.put_total(self.repo, repo_last_modified_at, key, total)
+        return total
 
     def resource_records(self, uris) -> dict[str, tuple[str, str, str | None]]:
         """The record of each resource uri that is the resource uri of one (a reference
@@ -1557,13 +1473,25 @@ class Store:
         return dict(rows)
 
     def slug_lookup(self, rec_type: str, slug: str) -> tuple[int, bool] | None:
-        """The id of the record that has the slug, and whether that record is gone."""
+        """The id of the record that has the slug, and whether that record is gone.
+        Kept by the cache of the process if the store has one (a slug that is not there
+        is not kept: it may be made next)."""
+        if self.cache is not None:
+            self.cache.check()
+            repo_last_modified_at = self.cache.repo_last_modified_at(self.repo)
+            slug_store = self.cache.stamped("slugs")
+            found = slug_store.get(self.repo, repo_last_modified_at, rec_type, slug)
+            if found is not None:
+                return found
         row = self.con.execute(
             "SELECT record_id(record_uri), is_deleted FROM slugs WHERE rec_type = "
             f"{literal(rec_type)} "
             f"AND slug = {literal(slug)}"
         ).fetchone()
-        return (row[0], bool(row[1])) if row else None
+        found = (row[0], bool(row[1])) if row else None
+        if found is not None and self.cache is not None:
+            slug_store.put(self.repo, repo_last_modified_at, rec_type, slug, found)
+        return found
 
     def current_slug(self, rec_uri: str) -> str | None:
         row = self.con.execute(
@@ -2234,19 +2162,149 @@ class Store:
     # ---- datasets
     # -------------------------------------------------------------------------
 
-    def get(self, uris) -> Graph:
-        values = uri_list(uris)
-        if not values:
-            return Graph()
-        rows = self.con.execute(
-            f"SELECT source FROM {self.records} WHERE record_id IN {sql_ids(values)}"
-        ).fetchall()
-        source = "\n".join(row[0] for row in rows)
-        return Graph(
-            ox.Dataset(ox.parse(source.encode("utf-8"), format=ox.RdfFormat.N_TRIPLES))
-        )
+    def etags(self, record_ids) -> dict[int, str | None]:
+        """The etag of each record (None: there is no such record), kept by the cache
+        of the process if the store has one."""
+        ids = list(dict.fromkeys(record_ids))
+        found: dict[int, str | None] = {}
+        if self.cache is not None and ids:
+            self.cache.check()
+            # taken once: what is read and what is kept after it are of this time
+            repo_last_modified_at = self.cache.repo_last_modified_at(self.repo)
+            etag_store = self.cache.stamped("etags")
+            found = etag_store.get_many(self.repo, repo_last_modified_at, ids)
+        missing = [i for i in ids if i not in found]
+        if missing:
+            listed = ", ".join(str(int(i)) for i in missing)
+            rows = self.con.execute(
+                f"SELECT record_id, etag FROM etags WHERE record_id IN ({listed})"
+            ).fetchall()
+            etag_records: dict[int, str | None] = {}
+            for record_id in missing:
+                etag_records[record_id] = None  # a record that is not there: kept too
+            for record_id, etag in rows:
+                etag_records[record_id] = f"{etag:016x}"
+            if self.cache is not None:
+                etag_store.put_many(self.repo, repo_last_modified_at, etag_records)
+            found.update(etag_records)
+        return {i: found[i] for i in record_ids}
 
-    def put(self, graph: "Graph | ox.Dataset", strict: bool = False) -> Counter:
+    def get_doc(self, record_uri: str) -> dict | None:
+        """The doc of a record (None: there is no such record), made by the stylesheets
+        of the repository and kept by the cache, by the etag of the record. Only the
+        store of a repository (`Repository.store`) has the stylesheets."""
+        if self.cache is None or self.repository is None:
+            raise ValueError("a doc is made by the store of a repository with a cache")
+        record_id = self.record_id_of(record_uri)
+        if record_id is None:
+            return None
+        etag = self.etags([record_id])[record_id]
+        if etag is None:
+            return None
+        docs = self.cache.docs
+        if docs.keeps:
+            fingerprint = docs.fingerprint(
+                self.repository, docs.compiled(self.repository)
+            )
+            kept = docs.get(self.repo, record_id, etag, fingerprint)
+            if kept is not None:
+                return json.loads(kept)
+        xml = self.get_multi([record_id], compound_records=True, format="rdfxml")
+        if not xml:
+            return None
+        return docs.bulk_update(
+            self.repository, {record_uri: record_id}, xml, {record_id: etag}
+        )[record_uri]
+
+    def get(self, uri, **kwargs):
+        return self.get_multi([uri], **kwargs)
+
+    def get_multi(
+        self,
+        records,
+        compound_records: bool = False,
+        ignore_cache: bool = False,
+        format: str | None = None,
+    ):
+        """The triples of records, by uri or by id: a `Graph` (what is not there is not
+        in it), or text in a `format` (`rdfxml`, which is flat as the cache keeps it,
+        `ntriples`, `turtle`, ...).
+
+        A compound record is the record and every record it is made of. The graph cache
+        keeps it under the etag of the record, so what the cache has is always the
+        current one. One that it lacks is read from the database, and the worker of the
+        cache is asked to make it (`Worker.rework`). `ignore_cache` reads and writes
+        neither the graph cache nor the etags of it (for tests)."""
+        ids = []
+        seen = set()
+        for record in records:
+            if isinstance(record, int):
+                record_id = record
+            else:
+                if isinstance(record, ox.NamedNode):
+                    record = record.value
+                record_id = self.record_id_of(record)
+            if record_id is not None and record_id not in seen:
+                seen.add(record_id)
+                ids.append(record_id)
+
+        graph_cache = None
+        worker = None
+        if self.cache is not None and not ignore_cache:
+            graph_cache = self.cache.graph_store
+            worker = self.cache.worker
+        ntriples_from_db: list[str] = []
+        xml_from_cache: dict[int, bytes] = {}
+        if compound_records and graph_cache is not None:
+            etags = self.etags(ids)
+            stale = []
+            for record_id in ids:
+                etag = etags[record_id]
+                if etag is None:  # there is no such record
+                    continue
+                kept = graph_cache.get(self.repo, record_id, etag)
+                if kept:
+                    xml_from_cache[record_id] = kept
+                else:
+                    stale.append(record_id)
+            for etag, text in self.fetch_compound_graphs(stale).values():
+                ntriples_from_db.append(text)
+            if stale and worker is not None:
+                # the worker makes their graphs for the cache (and their docs, and what
+                # follows), without this read waiting for it
+                worker.rework(self.repo, stale)
+        elif compound_records:
+            for etag, text in self.fetch_compound_graphs(ids).values():
+                ntriples_from_db.append(text)
+        elif ids:
+            listed = ", ".join(str(record_id) for record_id in ids)
+            rows = self.con.execute(
+                f"SELECT source FROM {self.records} WHERE record_id IN ({listed})"
+            ).fetchall()
+            for row in rows:
+                ntriples_from_db.append(row[0])
+
+        if (
+            format == "rdfxml" and len(xml_from_cache) == 1
+        ):  # a cached one passes through
+            return next(iter(xml_from_cache.values())).decode()
+        quads = list(
+            ox.parse(
+                "\n".join(ntriples_from_db).encode(), format=ox.RdfFormat.N_TRIPLES
+            )
+        )
+        for text in xml_from_cache.values():
+            quads.extend(ox.parse(text, format=ox.RdfFormat.RDF_XML))
+        dataset = ox.Dataset(quads)
+        if format is None:
+            return Graph(dataset)
+        if not len(dataset):  # none of them is there
+            return ""
+        if format == "rdfxml":
+            return dataset_rdfxml(dataset).decode()
+        return Graph(dataset).serialize(format)
+
+    def put_multi(self, graph: "Graph | ox.Dataset", strict: bool = False) -> Counter:
         dataset = graph if isinstance(graph, Graph) else Graph(graph)
         if len(dataset) == 0:
             return Counter()
@@ -2402,7 +2460,7 @@ class Store:
         return counted
 
 
-def new_store(database, repo_id: str, connection=None) -> Store:
+def new_store(database, repo_id: str, connection=None, cache=None) -> Store:
     try:
         if repo_id != DEFAULT_REPOSITORY:
             validate_repository_id(repo_id)
@@ -2411,7 +2469,11 @@ def new_store(database, repo_id: str, connection=None) -> Store:
     cursor = connection if connection is not None else database.cursor()
     try:
         return Store(
-            cursor, repo=repo_id, init=False, close_connection=connection is None
+            cursor,
+            repo=repo_id,
+            init=False,
+            close_connection=connection is None,
+            cache=cache,
         )
     except BaseException:
         if connection is None:

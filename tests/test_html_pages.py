@@ -35,7 +35,7 @@ def person(
 class PagesCase(EditCase):
     def add(self, text: str) -> None:
         with self.application.new_store("test_repo") as store:
-            store.put(
+            store.put_multi(
                 Graph(
                     ox.Dataset(
                         ox.parse((PREFIX + text).encode(), format=ox.RdfFormat.TURTLE)

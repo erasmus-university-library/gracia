@@ -62,11 +62,7 @@ def slugs_of(uris) -> set[str]:
 def index(request) -> Response:
     record, store = request.context, request.store
     record_id = store.record_id_of(record.uri)
-    cached = (
-        request.root.cache.etags(store.repo, [record_id])[record_id]
-        if record_id is not None
-        else None
-    )
+    cached = store.etags([record_id])[record_id] if record_id is not None else None
     if cached is not None:  # one row: no walk through the references
         # the version of the schema of every type: a change of one is a change of all
         # the pages (the types of the page are known when it is made)
@@ -87,7 +83,7 @@ def index(request) -> Response:
         uris = store.page_uris(record.uri)
     if slugs is None:
         slugs = slugs_of(uris)
-    found = store.get(uris)
+    found = store.get_multi(uris)
     shown = Graph(
         ox.Dataset(
             q

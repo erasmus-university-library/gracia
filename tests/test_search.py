@@ -59,7 +59,7 @@ class SearchCase(BatchCase):
         self.registry.registerHandler(on_records_changed, (RecordsChanged,))
 
     def add(self, *datasets) -> None:
-        self.store.put(ox.Dataset(q for d in datasets for q in d))
+        self.store.put_multi(ox.Dataset(q for d in datasets for q in d))
 
     def handle(self) -> int:
         return process_pending(self.app, self.registry)
@@ -92,7 +92,9 @@ class SearchCase(BatchCase):
             q
             for c in changes
             for q in ox.parse(
-                self.store.closure_source(c.record_id)[1].encode(),
+                self.store.fetch_compound_graphs([c.record_id])[c.record_id][
+                    1
+                ].encode(),
                 format=ox.RdfFormat.N_TRIPLES,
             )
         )
@@ -312,7 +314,9 @@ class HandlerTest(SearchCase):
         graphs = {
             c.record: ox.Dataset(
                 ox.parse(
-                    self.store.closure_source(c.record_id)[1].encode(),
+                    self.store.fetch_compound_graphs([c.record_id])[c.record_id][
+                        1
+                    ].encode(),
                     format=ox.RdfFormat.N_TRIPLES,
                 )
             )
@@ -351,7 +355,7 @@ class WiringTest(BatchCase):
         )
         config.make_wsgi_app()
         self.assertEqual(self.app.indexes.directory, self.tmp / "idx")
-        self.store.put(person(1, "Ada Lovelace"))
+        self.store.put_multi(person(1, "Ada Lovelace"))
         process_pending(
             self.app, config.registry
         )  # the registry of the application: it has the subscriber
@@ -374,13 +378,18 @@ class StatsRowTest(ManageCase):
             __import__("shutil").rmtree, self.application.indexes.directory, True
         )
 
+    def page(self, repo="test_repo") -> str:
+        return self.tabs(f"/{repo}/manage?tab=search")[1]
+
     def row(self, repo="test_repo") -> str:
-        _, page = self.tabs(f"/{repo}/manage?tab=stats")
-        found = must_search(r'<tr id="stats-index-records".*?</tr>', page, re.S)[0]
+        found = must_search(
+            r'<p class="mb-1" id="search-counts-records".*?</p>', self.page(repo), re.S
+        )[0]
         return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", found)).strip()
 
     def test_an_index_that_is_not_made_yet_says_so(self):
-        self.assertRegex(self.row(), r"^records not made yet 0 \d+ 0 B$")
+        self.assertRegex(self.row(), r"^0 documents of \d+ records, 0 B$")
+        self.assertIn("not made yet", self.page())
 
     def test_an_index_has_its_documents_of_the_records_there_are(self):
         registry = Registry()
@@ -390,12 +399,11 @@ class StatsRowTest(ManageCase):
         records = sum(
             self.application.new_store("test_repo").count_records_by_type().values()
         )
-        self.assertRegex(row, rf"^records ok {records} {records} \d")
+        self.assertRegex(row, rf"^{records} documents of {records} records, \d")
 
     def test_without_a_directory_it_says_there_is_no_index(self):
         self.application.indexes = None
-        _, page = self.tabs("/test_repo/manage?tab=stats")
-        self.assertIn('id="stats-search-none"', page)
+        self.assertIn('id="search-tab-none"', self.page())
 
 
 class ExtensionCase(ManageCase):
@@ -421,7 +429,7 @@ class ExtensionCase(ManageCase):
 
     def put_person(self, number: int, name: str) -> None:
         with self.application.new_store("archive") as store:
-            store.put(person(number, name))
+            store.put_multi(person(number, name))
 
 
 class SearchExtensionTest(ExtensionCase):
@@ -566,12 +574,12 @@ class SearchExtensionTest(ExtensionCase):
                 if slug != "person"
             )
 
-    def test_the_stats_say_when_search_is_turned_off_in_the_repository(self):
+    def test_the_search_tab_says_when_search_is_turned_off_in_the_repository(self):
         self.application.indexes = Indexes(self.index_dir)
         self.extension().disable()
-        _, page = self.tabs("/archive/manage?tab=stats")
+        _, page = self.tabs("/archive/manage?tab=search")
         self.assertIn("turned off in this repository", page)
-        self.assertNotIn('id="stats-index-records"', page)
+        self.assertNotIn('id="search-counts-records"', page)
 
 
 class SearchPageTest(ManageCase):
@@ -592,7 +600,7 @@ class SearchPageTest(ManageCase):
         self.addCleanup(self.config.end)
         self.application.create_repository("archive", content_types=[self.person()])
         with self.application.new_store("archive") as store:
-            store.put(
+            store.put_multi(
                 ox.Dataset(
                     q
                     for d in (
@@ -645,7 +653,7 @@ class SearchPageTest(ManageCase):
         self,
     ):
         with self.application.new_store("archive") as store:
-            store.put(person(4, "Grace Hopper", slug="grace-hopper"))
+            store.put_multi(person(4, "Grace Hopper", slug="grace-hopper"))
         process_pending(self.application, self.config.registry, "archive")
         page = self.page("hopper", ADMIN).text
         self.assertIn('href="http://localhost/archive/person/grace-hopper"', page)
@@ -892,7 +900,7 @@ class SearchTabTest(ManageCase):
         registry = Registry()
         registry.registerHandler(on_records_changed, (RecordsChanged,))
         with self.application.new_store("archive") as store:
-            store.put(person(1, "Ada Lovelace"))
+            store.put_multi(person(1, "Ada Lovelace"))
         process_pending(self.application, registry, "archive")
 
     def test_add_puts_the_field_in_the_settings_and_the_index_needs_a_rebuild(self):

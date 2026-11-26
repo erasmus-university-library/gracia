@@ -72,21 +72,15 @@ def type_page(request):
     """The records of a type, in the order of `etags`, a page of them at a time
     (`Cache.referencing_records`)."""
     context, store = request.context, request.store
-    cache, repo = request.root.cache, store.repo
     published = not request.has_permission("edit", context)
-
-    def total(include_non_public: bool) -> int:
-        return cache.referencing_records_total(
-            repo,
-            lambda: store.count_referencing_records(
-                record_type=context.number, include_non_public=include_non_public
-            ),
-            record_type=context.number,
-            include_non_public=include_non_public,
+    total_published = store.count_referencing_records(record_type=context.number)
+    total_all = (
+        total_published
+        if published
+        else store.count_referencing_records(
+            record_type=context.number, include_non_public=True
         )
-
-    total_published = total(False)
-    total_all = total_published if published else total(True)
+    )
     asked = request.params.get("page")
     try:
         page, pages, offset, limit = page_window(
@@ -97,14 +91,7 @@ def type_page(request):
     except ValueError:  # not a number, or a page that is not there
         raise HTTPNotFound from None
     ids = (
-        cache.referencing_records(
-            repo,
-            lambda: store.referencing_records(
-                record_type=context.number,
-                offset=offset,
-                limit=limit,
-                include_non_public=not published,
-            ),
+        store.referencing_records(
             record_type=context.number,
             offset=offset,
             limit=limit,
@@ -113,12 +100,14 @@ def type_page(request):
         if limit
         else []
     )
-    uris = [uri.record_uri(context.slug, i % uri.TYPE_BASE) for i in ids]
-    found = store.labels(uris)
+    # the labels are in the compound graphs of the records of the page: they are in the
+    # graph cache, made in one go for those that are not (a placeholder, the page is
+    # to be made by XSLT)
+    names = store.get_multi(ids, compound_records=True).labels()
     items = []
-    for record_uri in uris:
-        label, slug = found.get(record_uri, ("", None))
-        number = str(record_uri.rsplit(":", 1)[1])
+    for record_id in ids:
+        number = str(record_id % uri.TYPE_BASE)
+        label, slug = names.get(uri.record_uri(context.slug, int(number)), ("", None))
         items.append(
             {
                 "label": label or "(Unnamed)",

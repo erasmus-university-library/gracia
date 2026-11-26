@@ -170,7 +170,7 @@ class ClosedShapeTest(SourceCase):
                     old.graph_name,
                 )
             )
-            store.put(data)
+            store.put_multi(data)
 
     def test_a_property_of_the_record_that_the_record_shape_does_not_have_is_an_error(
         self,

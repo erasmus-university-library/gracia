@@ -80,7 +80,7 @@ class Application:
             self.database.cursor(), repo=repo_id, create=True, close_connection=True
         ) as store:
             if not existed:
-                store.put(
+                store.put_multi(
                     init.initial_dataset(
                         repo_id, store.mint_id, admin, content_types, ark
                     )
@@ -93,4 +93,4 @@ class Application:
         return not existed
 
     def new_store(self, repo_id: str) -> Store:
-        return new_store(self.database, repo_id)
+        return new_store(self.database, repo_id, cache=self.cache)

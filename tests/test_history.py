@@ -35,10 +35,10 @@ class HistoryTest(DbTestCase):
         self,
     ):
         s = self.store
-        s.put(
+        s.put_multi(
             graph('<rec:thing:1> <http://ex/p> "a" . <rec:thing:2> <http://ex/p> "b" .')
         )
-        s.put(thing(1, "changed"))  # a replace: a delete and an insert, one row
+        s.put_multi(thing(1, "changed"))  # a replace: a delete and an insert, one row
         rows = self.rows()
         self.assertEqual(
             [(t, u) for t, u, *_ in rows],
@@ -51,18 +51,18 @@ class HistoryTest(DbTestCase):
 
     def test_a_delete_is_a_transaction_and_leaves_a_tombstone(self):
         s = self.store
-        s.put(thing(1))
+        s.put_multi(thing(1))
         s.delete(["rec:thing:1"])
         self.assertEqual(self.rows()[-1], (2, "rec:thing:1", True, ""))
 
     def test_a_write_that_is_refused_leaves_no_history_and_gives_its_number_back(self):
         s = self.store
         s.set_property_roles([("thing", "unique", "http://ex/p", 0)])
-        s.put(thing(1, "same"))
+        s.put_multi(thing(1, "same"))
         with self.assertRaises(DuplicateValue):
-            s.put(thing(2, "same"))
+            s.put_multi(thing(2, "same"))
         self.assertEqual([r[1] for r in self.rows()], ["rec:thing:1"])
-        s.put(thing(2, "other"))
+        s.put_multi(thing(2, "other"))
         self.assertEqual(
             [r[:2] for r in self.rows()], [(1, "rec:thing:1"), (2, "rec:thing:2")]
         )  # no gap
@@ -71,7 +71,7 @@ class HistoryTest(DbTestCase):
         self,
     ):
         s = self.store
-        s.put(thing(1))
+        s.put_multi(thing(1))
         s.con.execute(
             "UPDATE triples SET lit = 'raw' WHERE s = 'rec:thing:1'"
         )  # a rogue edit
@@ -81,7 +81,7 @@ class HistoryTest(DbTestCase):
         self.assertEqual(s.changes_since(1), [(2, "rec:thing:1", False)])
         s.con.execute("DELETE FROM triples WHERE s = 'rec:thing:1'")
         self.assertEqual(s.changes_since(2), [(3, "rec:thing:1", True)])
-        s.put(thing(2))  # the store goes on from there
+        s.put_multi(thing(2))  # the store goes on from there
         self.assertEqual(s.last_transaction(), 4)
         self.assertEqual([r[0] for r in self.rows()], [1, 2, 3, 4])
         # a raw write that is rolled back gives its number back, like the others
@@ -92,8 +92,8 @@ class HistoryTest(DbTestCase):
 
     def test_the_changes_after_a_number_in_the_order_of_the_transactions(self):
         s = self.store
-        s.put(thing(1))
-        s.put(thing(2))
+        s.put_multi(thing(1))
+        s.put_multi(thing(2))
         s.delete(["rec:thing:1"])
         self.assertEqual(
             s.changes_since(1), [(2, "rec:thing:2", False), (3, "rec:thing:1", True)]
@@ -103,7 +103,7 @@ class HistoryTest(DbTestCase):
 
     def test_a_rewrite_is_a_transaction_only_when_it_changes_something(self):
         s = self.store
-        s.put(thing(1))
+        s.put_multi(thing(1))
         s.configure(
             lambda: [
                 fake_type(
@@ -123,14 +123,14 @@ class HistoryTest(DbTestCase):
         self,
     ):
         s = self.store
-        s.put(thing(100))
+        s.put_multi(thing(100))
         errors = []
 
         def write(n):
             try:
                 with s.fork() as mine:
                     for k in range(5):
-                        mine.put(thing(n * 10 + k + 1, str(k)))
+                        mine.put_multi(thing(n * 10 + k + 1, str(k)))
             except Exception as err:
                 errors.append(err)
 

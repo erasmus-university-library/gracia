@@ -33,7 +33,7 @@ class RecordsTest(DbTestCase):
                 ("user", "unique", G + "userid", 0),
             ]
         )
-        self.store.put(graph(PERSON))
+        self.store.put_multi(graph(PERSON))
 
     def row(self, uri: str) -> dict:
         con = self.store.con
@@ -45,7 +45,7 @@ class RecordsTest(DbTestCase):
 
     def test_a_subject_that_is_not_a_record_is_refused(self):
         with self.assertRaises(ValueError):
-            self.store.put(graph('<http://example.org/x> <http://ex/p> "x" .'))
+            self.store.put_multi(graph('<http://example.org/x> <http://ex/p> "x" .'))
         count = fetch_one(self.store.con.execute("SELECT count(*) FROM records"))[0]
         self.assertEqual(count, 2)
 
@@ -95,7 +95,7 @@ class RecordsTest(DbTestCase):
 
     def test_a_changed_record_is_rewritten_whole(self):
         before = self.row("rec:person:1")
-        self.store.put(graph('<rec:person:1> <http://ex/p> "changed"@nl .'))
+        self.store.put_multi(graph('<rec:person:1> <http://ex/p> "changed"@nl .'))
         after = self.row("rec:person:1")
         self.assertEqual(
             after["source"], '<rec:person:1> <http://ex/p> "changed"@nl .\n'
@@ -117,7 +117,7 @@ class RecordsTest(DbTestCase):
             "ORDER BY txn_id DESC"
         ).fetchone()
         self.assertEqual(last, (True, ""))
-        self.store.put(
+        self.store.put_multi(
             graph('<rec:person:2> <http://ex/p> "back"@en .')
         )  # and comes back
         self.assertEqual(self.row("rec:person:2")["text"], None)
@@ -154,7 +154,7 @@ class RecordsTest(DbTestCase):
         self.assertEqual(
             s.records_with("references", "ark:/1/2"), []
         )  # its own resource uri is not a reference
-        s.put(
+        s.put_multi(
             graph(
                 f'<rec:person:2> <{G}identifier> "ID-1" ; <{G}resource> [ '
                 "<http://ex/link> "
@@ -164,7 +164,7 @@ class RecordsTest(DbTestCase):
         self.assertEqual(
             s.records_with("identifiers", "ID-1"), ["rec:person:1", "rec:person:2"]
         )
-        s.put(
+        s.put_multi(
             graph('<rec:person:1> <http://ex/p> "changed"@nl .')
         )  # replaced: old values gone
         self.assertEqual(s.records_with("identifiers", "ID-1"), ["rec:person:2"])
@@ -195,7 +195,7 @@ class RecordsTest(DbTestCase):
         self.assertEqual(
             self.store.records_with("identifiers", "ID-1"), ["rec:person:1"]
         )
-        self.store.put(graph(f'<rec:person:3> <{G}identifier> "ID-3" .'))
+        self.store.put_multi(graph(f'<rec:person:3> <{G}identifier> "ID-3" .'))
         self.assertEqual(
             self.store.records_with("identifiers", "ID-3"), ["rec:person:3"]
         )
@@ -204,7 +204,7 @@ class RecordsTest(DbTestCase):
         text = "".join(
             f'<rec:big:{i}> <http://ex/p> "value {i}" .\n' for i in range(1, 5001)
         )
-        self.store.put(graph(text))
+        self.store.put_multi(graph(text))
         directory = self.tmp / "chunks"
         count, files = self.store.export_chunks(directory, "big", chunk_bytes=20_000)
         self.assertEqual(count, 5000)
@@ -256,11 +256,11 @@ class RecordsTest(DbTestCase):
 
     def test_a_unique_value_can_only_be_used_by_one_record(self):
         s = self.store
-        s.put(self.user(1, "ada"))
-        s.put(self.user(1, "ada"))  # saving the same record again is not a clash
-        s.put(self.user(2, "bob"))
+        s.put_multi(self.user(1, "ada"))
+        s.put_multi(self.user(1, "ada"))  # saving the same record again is not a clash
+        s.put_multi(self.user(2, "bob"))
         with self.assertRaises(DuplicateValue) as caught:
-            s.put(self.user(3, "ada"))
+            s.put_multi(self.user(3, "ada"))
         self.assertEqual(
             (
                 caught.exception.value,
@@ -278,14 +278,14 @@ class RecordsTest(DbTestCase):
         self.assertEqual(
             self.row("rec:user:3"), {}
         )  # nothing of it is stored, the record row too
-        s.put(self.user(2, "carol"))  # a changed value frees the old one
-        s.put(self.user(3, "bob"))
+        s.put_multi(self.user(2, "carol"))  # a changed value frees the old one
+        s.put_multi(self.user(3, "bob"))
         s.delete(["rec:user:1"])  # and so does a delete
-        s.put(self.user(4, "ada"))
+        s.put_multi(self.user(4, "ada"))
 
     def test_two_records_with_the_same_unique_value_in_one_save_are_refused(self):
         with self.assertRaises(DuplicateValue):
-            self.store.put(
+            self.store.put_multi(
                 graph(
                     f'<rec:user:5> <{G}resource> [ <{G}userid> "zed" ] . '
                     f'<rec:user:6> <{G}resource> [ <{G}userid> "zed" ] .'
@@ -301,11 +301,13 @@ class RecordsTest(DbTestCase):
         )
 
     def test_the_same_value_may_be_used_by_records_of_different_types(self):
-        self.store.put(self.user(1, "ada"))
-        self.store.put(graph(f'<rec:person:7> <{G}resource> [ <{G}userid> "ada" ] .'))
+        self.store.put_multi(self.user(1, "ada"))
+        self.store.put_multi(
+            graph(f'<rec:person:7> <{G}resource> [ <{G}userid> "ada" ] .')
+        )
 
     def test_marking_a_property_unique_where_there_are_duplicates_changes_nothing(self):
-        self.store.put(
+        self.store.put_multi(
             graph(
                 f'<rec:person:7> <{G}label> "same" . <rec:person:8> <{G}label> "same" .'
             )
@@ -327,7 +329,7 @@ class RecordsTest(DbTestCase):
             "FROM @FLAT@ WHERE p = 'http://ex/name' AND starts_with(s, 'rec:thing:')"
         ).split(";")
         s = self.store
-        s.put(
+        s.put_multi(
             graph(
                 "".join(
                     f'<rec:thing:{n}> <http://ex/name> "name {n}" .\n'
@@ -375,19 +377,19 @@ class RecordsTest(DbTestCase):
         )
         self.assertEqual(s.last_id("gizmo"), 900)
         self.assertEqual(s.mint_id("gizmo"), 901)
-        s.put(graph('<rec:gizmo:950> <http://ex/p> "y" .'))
+        s.put_multi(graph('<rec:gizmo:950> <http://ex/p> "y" .'))
         s.delete(["rec:gizmo:950"])  # a deleted record keeps its number: the row stays
         self.assertEqual(s.mint_id("gizmo"), 951)
         self.assertEqual(s.mint_id("other"), 1)  # each type for itself
 
     def test_the_records_of_a_type_and_their_count_leave_out_the_deleted(self):
         s = self.store
-        s.put(
+        s.put_multi(
             graph(
                 '<rec:thing:2> <http://ex/p> "b" . <rec:thing:10> <http://ex/p> "c" .'
             )
         )
-        s.put(graph('<rec:thing:3> <http://ex/p> "d" .'))
+        s.put_multi(graph('<rec:thing:3> <http://ex/p> "d" .'))
         s.delete(["rec:thing:3"])
         self.assertEqual(
             s.records_of_type("thing"), ["rec:thing:2", "rec:thing:10"]
@@ -400,7 +402,7 @@ class RecordsTest(DbTestCase):
         self,
     ):
         s = self.store
-        s.put(graph('<rec:gizmo:7> <http://ex/p> "a" .'))
+        s.put_multi(graph('<rec:gizmo:7> <http://ex/p> "a" .'))
         self.assertEqual(s.numbering("gizmo")["next"], 8)
         with self.assertRaises(ValueError) as caught:
             s.reserve_ids("gizmo", 6)  # a record has 7
@@ -421,7 +423,7 @@ class RecordsTest(DbTestCase):
         self.assertEqual(s.mint_id("gizmo"), 1002)
         with self.assertRaises(ValueError):
             s.reserve_ids("gizmo", 1001)  # 1002 was given out: that number is in use
-        s.put(
+        s.put_multi(
             graph('<rec:gizmo:5000> <http://ex/p> "imported" .')
         )  # a record may bring a number
         self.assertEqual(s.mint_id("gizmo"), 5001)
@@ -468,7 +470,7 @@ class EncodeNtriplesUriTest(DbTestCase):
     def test_the_source_and_the_history_hold_the_same_text(self):
         s = open_store(self.db)
         self.addCleanup(s.close)
-        s.put(graph("<rec:person:1> <http://ex/p> <http://ex/a%20b?x=1&y=2> ."))
+        s.put_multi(graph("<rec:person:1> <http://ex/p> <http://ex/a%20b?x=1&y=2> ."))
         (source,) = fetch_one(s.con.execute("SELECT source FROM records"))
         (hist,) = fetch_one(s.con.execute("SELECT source FROM history"))
         self.assertEqual(source, hist)

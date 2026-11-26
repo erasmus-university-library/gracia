@@ -127,6 +127,22 @@ def search_page(request):
 
 @view_config(
     context=Repository,
+    name="debug",
+    request_method="GET",
+    permission="manage",
+    renderer="gracia:assets/xslt/debug.xslt",
+)
+def debug(request):
+    """A view made by a stylesheet (`views/xslt.py`), to try them: it is given the
+    RDF/XML of the record of the repository."""
+    rdfxml = request.store.get_multi(
+        [request.context.uri], compound_records=True, format="rdfxml"
+    )
+    return {"rdfxml": rdfxml, "csrf": True, "heading": "Debug"}
+
+
+@view_config(
+    context=Repository,
     name="api",
     renderer="json",
     request_method="GET",

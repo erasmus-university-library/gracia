@@ -2,7 +2,7 @@ import threading
 import time
 
 import pyoxigraph as ox
-from harness import open_application, open_store
+from harness import etag_of, graph_of, open_application, open_store
 from pyramid.registry import Registry
 from test_etags import TYPES, EtagCase, record
 
@@ -284,8 +284,8 @@ class BatchCase(QueueCase):
 
     def kept(self, rec_uri: str):
         record_id = self.store.record_id_of(rec_uri)
-        etag = self.app.cache.etags("main", [record_id])[record_id]
-        return self.app.cache._graph_store().get("main", record_id, etag)  # ty: ignore[missing-union-attribute]
+        etag = etag_of(self.app, "main", record_id)
+        return self.app.cache.graph_store.get("main", record_id, etag)  # ty: ignore[missing-union-attribute]
 
 
 class BatchTest(BatchCase):
@@ -312,6 +312,28 @@ class BatchTest(BatchCase):
         self.assertEqual(subjects(event.graphs["rec:org:1"]), {"rec:org:1"})
         self.assertEqual(self.store.pending_actions(), (0, None))
 
+    def test_records_the_cache_lacked_are_made_when_the_worker_is_asked_to_make_them(
+        self,
+    ):
+        self.put(record("rec:org:1"), record("rec:work:1", refs=["rec:org:1"]))
+        worker = Worker(self.app, self.registry)  # not running: the test turns it
+        worker.stop()
+        self.app.cache.worker = worker
+        work = self.store.record_id_of("rec:work:1")
+        graph_of(self.app, "main", work)  # the cache lacks it: the worker is asked
+        self.assertIsNone(self.kept("rec:work:1"))  # and the read kept nothing
+        self.assertEqual(self.events, [])
+        self.assertTrue(worker.turn())
+        self.assertIsNotNone(self.kept("rec:work:1"))  # the same as the queue makes
+        (event,) = self.events
+        self.assertEqual(
+            [(c.record, c.action) for c in event.changes], [("rec:work:1", "update")]
+        )
+        self.assertEqual(self.store.pending_actions()[0], 2)  # the queue is not touched
+        worker.rework("main", [work, 999])  # one that is not there is left out
+        worker.turn()
+        self.assertEqual(len(self.events), 2)
+
     def test_the_graph_cache_is_made_by_the_batch_and_the_graph_of_a_gone_record_forgotten(  # noqa: E501
         self,
     ):
@@ -320,7 +342,7 @@ class BatchTest(BatchCase):
         first = self.kept("rec:work:1")
         self.assertIsNotNone(first)
         self.assertEqual(
-            self.app.cache.graph("main", self.store.record_id_of("rec:work:1")),
+            graph_of(self.app, "main", self.store.record_id_of("rec:work:1")).encode(),
             first,
         )  # a hit
         self.put(
@@ -334,11 +356,11 @@ class BatchTest(BatchCase):
         self.drain()
         self.assertEqual([c.action for c in self.events[-1].changes], ["delete"])
         self.assertIsNone(
-            self.app.cache._graph_store().get("main", record_id, "0" * 16)  # ty: ignore[missing-union-attribute]
+            self.app.cache.graph_store.get("main", record_id, "0" * 16)  # ty: ignore[missing-union-attribute]
         )
-        with self.app.cache._graph_store()._env.begin() as txn:  # ty: ignore[missing-union-attribute]
+        with self.app.cache.graph_store._env.begin() as txn:  # ty: ignore[missing-union-attribute]
             self.assertIsNone(
-                txn.get(self.app.cache._graph_store()._key("main", record_id))  # ty: ignore[missing-union-attribute]
+                txn.get(self.app.cache.graph_store._key("main", record_id))  # ty: ignore[missing-union-attribute]
             )
 
     def test_a_record_that_is_gone_when_the_batch_gets_to_it_is_a_delete(self):
@@ -435,7 +457,7 @@ class ManualTest(BatchCase):
         other = open_store(self.db, repo="other", create=True)
         self.addCleanup(other.close)
         other.set_type_ids(TYPES)
-        other.put(record("rec:org:1", res="ark:/1/other/1"))
+        other.put_multi(record("rec:org:1", res="ark:/1/other/1"))
         self.put(record("rec:org:1"))
         self.assertEqual(process_pending(self.app, self.registry, "main"), 1)
         self.assertEqual(
@@ -639,7 +661,7 @@ class LineTest(BatchCase):
 
     def fill(self, n: int = 3) -> None:
         self.put(*[record(f"rec:work:{k}") for k in range(1, n + 1)])
-        self.other.put(
+        self.other.put_multi(
             self.graph_of(
                 [
                     record(f"rec:work:{k}", res=f"ark:/1/other/{k}")
@@ -685,7 +707,9 @@ class LineTest(BatchCase):
         self.assertEqual(list(worker._line), [])
         worker._notice()  # the rows the worker took off are not a write: nothing joins
         self.assertEqual(list(worker._line), [])
-        self.other.put(self.graph_of([record("rec:work:9", res="ark:/1/other/9")]))
+        self.other.put_multi(
+            self.graph_of([record("rec:work:9", res="ark:/1/other/9")])
+        )
         worker._notice()
         self.assertEqual(list(worker._line), ["other"])  # only the one that was written
         self.assertTrue(worker.turn())

@@ -120,7 +120,9 @@ class ModifiedAtIsNeverGivenTest(TimesCase):
             "test_repo"
         ]  # its store is the configured one: the hooks of the predicates run
         self.addCleanup(node.close)
-        node.store.put(ox.Dataset(ox.parse(text.encode(), format=ox.RdfFormat.TURTLE)))
+        node.store.put_multi(
+            ox.Dataset(ox.parse(text.encode(), format=ox.RdfFormat.TURTLE))
+        )
 
     def modified(self, number: int = 7):
         return self.row(f"rec:person:{number}")["modified_at"]

@@ -32,7 +32,7 @@ class RepositoriesLastModifiedTest(DbTestCase):
         self.assertEqual(self.rows(), {})
 
     def test_a_write_upserts_one_row_with_the_time_of_the_record(self):
-        self.store.put(thing(1))
+        self.store.put_multi(thing(1))
         first = self.rows()
         self.assertEqual(list(first), ["main"])
         modified = fetch_one(
@@ -40,7 +40,7 @@ class RepositoriesLastModifiedTest(DbTestCase):
         )[0]
         self.assertEqual(first["main"], modified)
         time.sleep(0.01)
-        self.store.put(thing(1, "changed"))
+        self.store.put_multi(thing(1, "changed"))
         second = self.rows()
         self.assertEqual(list(second), ["main"])
         self.assertGreater(second["main"], first["main"])
@@ -48,13 +48,13 @@ class RepositoriesLastModifiedTest(DbTestCase):
     def test_each_repository_has_its_own_row(self):
         other = open_store(self.db, repo="other", create=True)
         self.addCleanup(other.close)
-        self.store.put(thing(1))
-        other.put(thing(1))
+        self.store.put_multi(thing(1))
+        other.put_multi(thing(1))
         self.assertEqual(sorted(self.rows()), ["main", "other"])
 
     def test_a_rolled_back_write_does_not_change_the_row(self):
         s = self.store
-        s.put(thing(9))  # the type is known now
+        s.put_multi(thing(9))  # the type is known now
         before = self.rows()
         s.con.begin()
         s.con.execute(
@@ -70,8 +70,8 @@ class RepositoriesLastModifiedTest(DbTestCase):
         b = open_store(self.db, repo="b", create=True)
         self.addCleanup(a.close)
         self.addCleanup(b.close)
-        a.put(thing(9))  # the type is known in a
-        b.put(thing(9))
+        a.put_multi(thing(9))  # the type is known in a
+        b.put_multi(thing(9))
         before = self.rows()
         a.con.begin()
         a.con.execute(
@@ -82,7 +82,7 @@ class RepositoriesLastModifiedTest(DbTestCase):
 
         def write_b():
             try:
-                b.put(thing(1))
+                b.put_multi(thing(1))
             except Exception as err:
                 errors.append(err)
             done.set()
@@ -108,7 +108,7 @@ class RepositoriesLastModifiedTest(DbTestCase):
         def write(s):
             try:
                 for i in range(1, 6):
-                    s.put(thing(i, str(i)))
+                    s.put_multi(thing(i, str(i)))
             except Exception as err:
                 errors.append(err)
 

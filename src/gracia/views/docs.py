@@ -9,13 +9,7 @@ from gracia.resources import Record
 
 @view_config(context=Record, name="doc", permission="manage", request_method="GET")
 def doc_json(request):
-    record = request.context
-    record_id = request.store.record_id_of(record.uri)
-    doc = (
-        request.root.cache.doc(record.repository, record_id, record.uri)
-        if record_id is not None
-        else None
-    )
+    doc = request.store.get_doc(request.context.uri)
     if doc is None:
         raise HTTPNotFound("this record has no doc yet (it has no etag)")
     return Response(

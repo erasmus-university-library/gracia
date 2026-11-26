@@ -2,15 +2,19 @@ import contextlib
 import faulthandler
 import hashlib
 import queue
+import re
 import sys
 import tempfile
 import threading
+import time
 import xml.etree.ElementTree as ET
 from collections.abc import Callable, Iterable
 from concurrent.futures import Future
+from dataclasses import dataclass, field
 from functools import wraps
 from importlib.resources import files
 from pathlib import Path
+from urllib.parse import urlsplit
 from xml.sax.saxutils import quoteattr
 
 from saxonche import PySaxonApiError, PySaxonProcessor
@@ -44,6 +48,23 @@ def arm_crash_report() -> None:
 
 class XsltError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class Response:
+    """What a stylesheet made, as the response of a view: the name of the element it
+    made (`response`, or another, or none), the header elements in it (name, text), its
+    body (None: it has none) and whether there are elements in the body."""
+
+    root: str
+    headers: list[tuple[str, str]] = field(default_factory=list)
+    body: str | None = None
+    body_has_markup: bool = False
+
+
+class Xml(str):
+    """XML text that is given to a stylesheet as a parameter that is a document (for
+    `xsl:param as="document-node()"`), and not as a string."""
 
 
 def _guarded(function):
@@ -90,6 +111,37 @@ def _text(stylesheet: str | Path) -> str:
     if not Path(text).exists() and text in bundled_names():
         return bundled_text(text)
     return Path(text).read_text(encoding="utf-8")
+
+
+# the functions of XPath that read a file (or a page) by an address
+LOADING_FUNCTIONS = re.compile(
+    r"\b(doc|document|unparsed-text|unparsed-text-lines|json-doc|collection)\s*\("
+)
+
+
+def imported_files(path: str | Path) -> list[Path]:
+    """A stylesheet and the files it imports and includes, by the hrefs that are
+    relative paths (those of `type:` and of the web are not files here), each as the
+    file that has the href says: the files a stylesheet is made of. Saxon does not say
+    what it loads, so this is read from the stylesheets. A file that is not there or
+    not XML is in the list: compiling says what is wrong with it."""
+    found: list[Path] = []
+    pending = [Path(path).resolve()]
+    while pending:
+        current = pending.pop(0)
+        if current in found:
+            continue
+        found.append(current)
+        try:
+            root = ET.parse(current).getroot()
+        except (OSError, ET.ParseError):
+            continue
+        for tag in ("import", "include"):
+            for element in root.iter(f"{{{XSL}}}{tag}"):
+                href = element.get("href") or ""
+                if href and not urlsplit(href).scheme:
+                    pending.append((current.parent / href).resolve())
+    return found
 
 
 def type_references(text: str) -> list[str]:
@@ -198,9 +250,11 @@ class Compiled:
         self._owner = owner()
         self._executable = None
         self._processor = None
-        self._owner.call(self._build, text, entries)
+        # a file is compiled as a file, so that what it imports is found beside it;
+        # text (the stylesheets that are made of data) has no address to import from
+        self._owner.call(self._build, stylesheet, entries)
 
-    def _build(self, text: str, entries: dict[str, Path]) -> None:
+    def _build(self, stylesheet: str | Path, entries: dict[str, Path]) -> None:
         self.threads.add(threading.get_ident())
         self._processor = PySaxonProcessor(license=False)
         arm_crash_report()
@@ -211,7 +265,7 @@ class Compiled:
                     catalog.write_text(_catalog(entries), encoding="utf-8")
                     self._processor.set_catalog_files([str(catalog)])
                 self._executable = _compile(
-                    self._processor.new_xslt30_processor(), text
+                    self._processor.new_xslt30_processor(), stylesheet
                 )
         except PySaxonApiError as err:
             self._close()
@@ -221,22 +275,105 @@ class Compiled:
             raise
 
     @_guarded
-    def transform(self, xml_text: str, params: dict[str, str] | None = None) -> str:
-        return self._owner.call(self._transform, xml_text, params)
+    def transform(
+        self,
+        xml_text: str,
+        params: dict[str, str | int | float | bool] | None = None,
+        messages: list[str] | None = None,
+        timings: dict[str, float] | None = None,
+    ) -> str:
+        """The stylesheet run over the XML text. A parameter is a string, an integer, a
+        float (an xs:double), a boolean or `Xml` (a document): what `xsl:param` gets,
+        and `as=` can say. The `xsl:message` output of the run is added to `messages`,
+        if there is a list (it is not kept, nor written anywhere, otherwise). `timings`
+        gets the seconds it took to parse the XML (`parse`) and to run (`transform`)."""
+        return self._owner.call(self._run, xml_text, params, messages, timings)
 
-    def _transform(self, xml_text: str, params: dict[str, str] | None) -> str:
+    @_guarded
+    def transform_response(
+        self,
+        xml_text: str,
+        params: dict[str, str | int | float | bool] | None = None,
+        messages: list[str] | None = None,
+        timings: dict[str, float] | None = None,
+    ) -> "Response":
+        """What the stylesheet makes, read as the response of a view: the text it makes,
+        read with the standard parser. (The nodes of the document of Saxon, read with
+        `transform_to_value`, crashed the process now and then when the tests ran in
+        parallel, with no report, and a forced garbage collection did not help.)"""
+        return self._owner.call(
+            self._transform_response, xml_text, params, messages, timings
+        )
+
+    def _transform_response(self, xml_text, params, messages, timings) -> "Response":
+        text = self._run(xml_text, params, messages, timings)
+        try:
+            root = ET.fromstring(text)
+        except ET.ParseError:
+            return Response("")
+        if root.tag != "response":
+            return Response(root.tag)
+        headers = []
+        body = None
+        has_markup = False
+        for part in root:
+            if part.tag == "headers":
+                for header in part:
+                    headers.append((header.tag, (header.text or "").strip()))
+            elif part.tag == "body":
+                body = part.text or ""
+                has_markup = len(part) > 0
+        return Response("response", headers, body, has_markup)
+
+    def _run(
+        self,
+        xml_text: str,
+        params: dict[str, str | int | float | bool] | None,
+        messages: list[str] | None,
+        timings: dict[str, float] | None,
+    ) -> str:
+        """The run, on the thread of Saxon: the text it makes."""
         self.threads.add(threading.get_ident())
-        if self._executable is None:
+        processor = self._processor
+        if self._executable is None or processor is None:
             raise XsltError("the stylesheet was closed")
         # the executable keeps them: a run must not see the last one's
         self._executable.clear_parameters()
         for name, value in (params or {}).items():
-            self._executable.set_parameter(
-                name,
-                self._processor.make_string_value(value),  # ty: ignore[missing-union-attribute]
-            )
-        node = self._processor.parse_xml(xml_text=xml_text)  # ty: ignore[missing-union-attribute]
-        result = self._executable.transform_to_string(xdm_node=node)
+            if isinstance(value, Xml):  # before str: it is one
+                xdm_value = processor.parse_xml(xml_text=str(value))
+            elif isinstance(value, bool):  # before int: a bool is an int
+                xdm_value = processor.make_boolean_value(value)
+            elif isinstance(value, int):
+                xdm_value = processor.make_integer_value(value)
+            elif isinstance(value, float):
+                xdm_value = processor.make_double_value(value)
+            elif isinstance(value, str):
+                xdm_value = processor.make_string_value(value)
+            else:
+                raise XsltError(
+                    f"the parameter {name} is a {type(value).__name__}: "
+                    "a string, a number or a boolean is expected"
+                )
+            self._executable.set_parameter(name, xdm_value)
+        started = time.perf_counter()
+        node = processor.parse_xml(xml_text=xml_text)
+        parsed = time.perf_counter()
+        if messages is not None:
+            self._executable.set_save_xsl_message(True)
+        try:
+            result = self._executable.transform_to_string(xdm_node=node)
+        finally:
+            if timings is not None:
+                timings["parse"] = parsed - started
+                timings["transform"] = time.perf_counter() - parsed
+            if messages is not None:  # also what was said before it failed
+                saved = self._executable.get_xsl_messages()
+                if saved is not None:
+                    for item in saved:
+                        messages.append(item.string_value)
+                self._executable.clear_xsl_messages()
+                self._executable.set_save_xsl_message(False)
         if result is None:
             raise XsltError(f"transformation failed: {self._executable.error_message}")
         return result

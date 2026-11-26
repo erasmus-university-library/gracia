@@ -61,7 +61,9 @@ class TypeImportsCase(WebCase):
             f" gracia:types ( {listing} ) ] .\n" + records
         )
         with self.application.new_store(repo) as store:
-            store.put(ox.Dataset(ox.parse(text.encode(), format=ox.RdfFormat.TURTLE)))
+            store.put_multi(
+                ox.Dataset(ox.parse(text.encode(), format=ox.RdfFormat.TURTLE))
+            )
 
     def repository(self, repo="test_repo"):
         node = self.application[repo]
@@ -161,7 +163,7 @@ class ImportTest(TypeImportsCase):
             data = store.get("rec:type:10")
             for quad in [q for q in data if q.predicate.value.endswith("/assets")]:
                 data.discard(quad)
-            store.put(data)
+            store.put_multi(data)
         with self.assertRaises(xslt.XsltError):
             self.run_work()
 
@@ -189,7 +191,7 @@ class OverrideImportTest(TypeImportsCase):
                         quad.graph_name,
                     )
                 )
-            store.put(data)
+            store.put_multi(data)
         replacement = self.root / "replacement"
         replacement.mkdir()
         (replacement / "view.xsl").write_text(

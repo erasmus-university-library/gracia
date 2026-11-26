@@ -56,7 +56,6 @@ from pathlib import Path  # noqa: E402
 
 from gracia import uri as _uri  # noqa: E402
 from gracia.application import Application  # noqa: E402
-from gracia.cache import Cache  # noqa: E402
 from gracia.database import Database  # noqa: E402
 from gracia.main import init, shutdown  # noqa: E402
 
@@ -108,7 +107,7 @@ def _clonable(application) -> bool:
 
 @contextlib.contextmanager
 def _built_on(template: Path, registry):
-    names = ("database", "cache", "indexes", "application", *Cache.KEPT)
+    names = ("database", "cache", "indexes", "application", "types")
     saved = {name: registry[name] for name in names if name in registry}
     built = init(registry, template)
     try:

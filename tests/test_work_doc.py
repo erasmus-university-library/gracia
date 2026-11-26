@@ -152,16 +152,12 @@ class WorkDocCase(ConfiguredCase):
         text = (PREFIXES + "".join(turtle)).encode()
         data = ox.Dataset(ox.parse(text, format=ox.RdfFormat.TURTLE))
         with self.application.new_store("lib") as store:
-            store.put(data)
+            store.put_multi(data)
 
     def doc(self, number: int) -> dict:
         repository = self.application["lib"]
         self.addCleanup(repository.close)
-        uri = f"rec:work:{number}"
-        with self.application.new_store("lib") as store:
-            rid = store.record_id_of(uri)
-        assert rid is not None
-        found = self.application.cache.doc(repository, rid, uri)
+        found = repository.store.get_doc(f"rec:work:{number}")
         assert found is not None
         return found
 

@@ -198,7 +198,7 @@ def add_content_type(store, repo_id: str, content_type: ContentType) -> str | No
         classes
     )  # the list has the classes: the resource uris of the types
     records = [by_class[c] for c in classes if c in by_class]
-    existing = store.get(records) if records else Graph()
+    existing = store.get_multi(records)
     for record in records:
         found = existing.value(_N(record), _N(uri.RESOURCE))
         slug = existing.value(found, _N(uri.SLUG)) if found is not None else None
@@ -228,7 +228,7 @@ def add_content_type(store, repo_id: str, content_type: ContentType) -> str | No
         ("@prefix gracia: <https://gracia.pub/ns/> .\n" + type_record).encode(),
         format=ox.RdfFormat.TURTLE,
     )
-    store.put(
+    store.put_multi(
         Graph(
             ox.Dataset(
                 [

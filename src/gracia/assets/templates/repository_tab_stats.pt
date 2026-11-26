@@ -1,40 +1,13 @@
-<!-- The Stats tab of the manage page of a repository: four fieldsets, the types (what there is), the
-     caches (what is kept), the search indexes (what can be found) and the pending actions (what waits for the worker that follows the writes).
-     A button of the last two starts the job that does the work (the panel of the Jobs tab, which is on
-     the page, follows it). The numbers are those of the moment the page was made. -->
+<!-- The Stats tab of the manage page of a repository: two fieldsets, the caches (what is kept for this repository)
+     and the pending actions (what waits for the worker that follows the writes). The types have their own tab
+     and the search indexes theirs. A button of each starts the job that does the work (the panel of the Jobs
+     tab, which is on the page, follows it). The numbers are those of the moment the page was made. -->
 <div>
   <div class="d-flex justify-content-between align-items-center mb-2">
     <span class="text-muted small">The numbers are those of the moment this page was made.</span>
     <a href="${refresh_url}" class="btn btn-outline-secondary btn-sm" id="stats-refresh">Refresh</a>
   </div>
   <div class="alert alert-danger d-none" id="stats-jobs-problem" role="alert"></div>
-
-  <fieldset class="mb-4" id="stats-types">
-    <legend class="h5">Types</legend>
-    <table class="table table-sm align-middle">
-      <thead>
-        <tr><th>Type</th><th class="text-end">Records</th><th class="text-end">Published</th>
-            <th class="text-end">Size</th><th class="text-end">Average</th><th>Last modified</th></tr>
-      </thead>
-      <tbody>
-        <tr tal:repeat="t types" id="stats-type-${t['slug']}">
-          <td>${t['name']} <code class="ms-1">${t['slug']}</code>
-              <span class="badge text-bg-secondary ms-1" tal:condition="t['system']">system</span></td>
-          <td class="text-end">${'{:,}'.format(t['records'])}</td>
-          <td class="text-end">${'{:,}'.format(t['published'])}</td>
-          <td class="text-end">${t['size']}</td>
-          <td class="text-end">${t['average']}</td>
-          <td>${t['modified']}</td>
-        </tr>
-      </tbody>
-      <tfoot>
-        <tr class="fw-semibold" id="stats-types-total">
-          <td>All</td><td class="text-end">${'{:,}'.format(totals['records'])}</td><td></td>
-          <td class="text-end">${totals['size']}</td><td></td><td>${totals['modified']}</td>
-        </tr>
-      </tfoot>
-    </table>
-  </fieldset>
 
   <fieldset class="mb-4" id="stats-cache">
     <legend class="h5">Cache</legend>
@@ -47,56 +20,35 @@
       <dd class="col-sm-8">${cache['pages_size']}
         <span class="text-muted">(a record in many pages counts in each)</span></dd>
       <dt class="col-sm-4">Latest change of a page</dt><dd class="col-sm-8">${cache['modified']}</dd>
-      <dt class="col-sm-4">Etags in memory</dt>
-      <dd class="col-sm-8" id="stats-etags-held">${'{:,}'.format(cache['etags_held'])}
-        <span class="text-muted">(of this process; filled as pages are asked for)</span></dd>
-      <tal:graphs condition="cache['graphs']">
-        <dt class="col-sm-4">Graphs kept</dt>
-        <dd class="col-sm-8" id="stats-graphs">${cache['graphs']['repo_entries']}
-          <span class="text-muted">in this repository, ${cache['graphs']['entries']} in all</span></dd>
-        <dt class="col-sm-4">Space of the graphs</dt>
-        <dd class="col-sm-8">${cache['graphs']['bytes']} used, ${cache['graphs']['file']} on disk, at
-          most ${cache['graphs']['limit']}
-          <span class="text-muted">(<code>${cache['graphs']['directory']}</code>)</span></dd>
-      </tal:graphs>
-      <tal:nographs condition="not cache['graphs']">
-        <dt class="col-sm-4">Graphs kept</dt>
-        <dd class="col-sm-8 text-muted" id="stats-graphs">No graph cache: set <code>gracia.cache_dir</code>.</dd>
-      </tal:nographs>
+      <dt class="col-sm-4">Repository last written</dt>
+      <dd class="col-sm-8" id="stats-written">${cache['written']}
+        <span class="text-muted" tal:condition="cache['age']">(${cache['age']} ago: what the caches
+          below keep is of this time; after a write it is dropped and made again as it is asked for)</span></dd>
     </dl>
+    <table class="table table-sm align-middle mb-3" id="stats-kept">
+      <caption class="small text-muted caption-top">Kept for this repository</caption>
+      <thead>
+        <tr><th>Cache</th><th class="text-end">Entries</th><th class="text-end">Old</th>
+            <th class="text-end">Size</th></tr>
+      </thead>
+      <tbody>
+        <tr tal:repeat="row cache['kept']" id="stats-kept-${row['name']}">
+          <td><code>${row['name']}</code></td>
+          <tal:kept condition="row['kept']">
+            <td class="text-end">${row['entries']}</td>
+            <td class="text-end">${row['stale']}</td>
+            <td class="text-end">${row['bytes']}</td>
+          </tal:kept>
+          <td colspan="3" class="text-muted" tal:condition="not row['kept']">
+            no cache: set <code>gracia.cache_dir</code></td>
+        </tr>
+      </tbody>
+    </table>
     <form id="stats-job-update_cache" tal:condition="'update_cache' in buttons" class="mb-0">
       <button type="button" class="btn btn-outline-primary btn-sm" data-start-fields=""
               data-start-job="${buttons['update_cache']['url']}"
               data-start-error="#stats-jobs-problem">${buttons['update_cache']['title']}</button>
       <span class="small text-muted ms-2">makes the graph of every record again</span>
-    </form>
-  </fieldset>
-
-  <fieldset class="mb-4" id="stats-search">
-    <legend class="h5">Search</legend>
-    <p class="text-muted mb-0" tal:condition="not search" id="stats-search-none">
-      ${search_note}</p>
-    <table class="table table-sm align-middle mb-0" tal:condition="search">
-      <thead>
-        <tr><th>Index</th><th>State</th><th class="text-end">Documents</th><th class="text-end">Records</th>
-            <th class="text-end">Size</th></tr>
-      </thead>
-      <tbody>
-        <tr tal:repeat="index search" id="stats-index-${index['name']}" data-state="${index['state']}">
-          <td><code>${index['name']}</code></td>
-          <td><span class="badge ${'text-bg-success' if index['state'] == 'ok' else 'text-bg-warning'}">${
-              {'ok': 'ok', 'stale': 'needs a rebuild', 'missing': 'not made yet'}[index['state']]}</span></td>
-          <td class="text-end">${index['documents']}</td>
-          <td class="text-end">${index['of']}</td>
-          <td class="text-end">${index['size']}</td>
-        </tr>
-      </tbody>
-    </table>
-    <form id="stats-job-rebuild_search" tal:condition="search and 'rebuild_search' in buttons" class="mt-2 mb-0">
-      <button type="button" class="btn btn-outline-primary btn-sm" data-start-fields=""
-              data-start-job="${buttons['rebuild_search']['url']}"
-              data-start-error="#stats-jobs-problem">${buttons['rebuild_search']['title']}</button>
-      <span class="small text-muted ms-2">makes the indexes again, next to the ones that answer</span>
     </form>
   </fieldset>
 
@@ -128,6 +80,6 @@
   <!-- the dialog that follows a job started from this tab (no table: the Jobs tab has that) -->
   <div tal:condition="can_list" id="stats-job-dialog"
        tal:define="panel_list_url string:${list_url}; panel_watch string:; panel_compact string:true;
-                   panel_filter string:job=update_cache,rebuild_search,process_actions"
+                   panel_filter string:job=update_cache,process_actions"
        metal:use-macro="panel.macros['panel']"></div>
 </div>
