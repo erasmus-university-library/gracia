@@ -284,7 +284,7 @@ class BatchCase(QueueCase):
 
     def kept(self, rec_uri: str):
         record_id = self.store.record_id_of(rec_uri)
-        etag = self.app.cache.etags("main", [record_id])[record_id][0]  # ty: ignore[not-subscriptable]
+        etag = self.app.cache.etags("main", [record_id])[record_id]
         return self.app.cache._graph_store().get("main", record_id, etag)  # ty: ignore[missing-union-attribute]
 
 

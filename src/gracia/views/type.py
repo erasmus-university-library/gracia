@@ -5,6 +5,7 @@ from pyramid.view import view_config
 
 from gracia import forms, hints, uri
 from gracia.resources import Record, RecordDeleted, Type
+from gracia.store import PAGE_SIZE, page_window
 from gracia.views import render
 from gracia.views.index import index
 
@@ -68,20 +69,54 @@ def page_links(request, context, page: int, pages: int) -> list[dict]:
 
 
 def type_page(request):
+    """The records of a type, in the order of `etags`, a page of them at a time
+    (`Cache.referencing_records`)."""
     context, store = request.context, request.store
+    cache, repo = request.root.cache, store.repo
     published = not request.has_permission("edit", context)
+
+    def total(include_non_public: bool) -> int:
+        return cache.referencing_records_total(
+            repo,
+            lambda: store.count_referencing_records(
+                record_type=context.number, include_non_public=include_non_public
+            ),
+            record_type=context.number,
+            include_non_public=include_non_public,
+        )
+
+    total_published = total(False)
+    total_all = total_published if published else total(True)
     asked = request.params.get("page")
     try:
-        page = store.records_page(
-            context.slug,
-            page=int(asked) if asked is not None else None,
-            published=published,
+        page, pages, offset, limit = page_window(
+            total_published if published else total_all,
+            int(asked) if asked is not None else None,
+            PAGE_SIZE,
         )
     except ValueError:  # not a number, or a page that is not there
         raise HTTPNotFound from None
-    found = store.labels([u for u, _ in page.items])
+    ids = (
+        cache.referencing_records(
+            repo,
+            lambda: store.referencing_records(
+                record_type=context.number,
+                offset=offset,
+                limit=limit,
+                include_non_public=not published,
+            ),
+            record_type=context.number,
+            offset=offset,
+            limit=limit,
+            include_non_public=not published,
+        )
+        if limit
+        else []
+    )
+    uris = [uri.record_uri(context.slug, i % uri.TYPE_BASE) for i in ids]
+    found = store.labels(uris)
     items = []
-    for record_uri, _etag in page.items:
+    for record_uri in uris:
         label, slug = found.get(record_uri, ("", None))
         number = str(record_uri.rsplit(":", 1)[1])
         items.append(
@@ -92,20 +127,20 @@ def type_page(request):
             }
         )
     if published:
-        noun = "record" if page.total_published == 1 else "records"
-        summary = f"{page.total_published} {noun}"
+        noun = "record" if total_published == 1 else "records"
+        summary = f"{total_published} {noun}"
     else:
-        unpublished = page.total_all - page.total_published
-        summary = f"{page.total_published} published, {unpublished} not published"
+        unpublished = total_all - total_published
+        summary = f"{total_published} published, {unpublished} not published"
     return render(
         request,
         "gracia:assets/templates/type_index.pt",
         heading=context.name,
         summary=summary,
         items=items,
-        page=page.page,
-        pages=page.pages,
-        nav=page_links(request, context, page.page, page.pages),
+        page=page,
+        pages=pages,
+        nav=page_links(request, context, page, pages),
         add_url=request.resource_url(context, "add")
         if request.has_permission("add", context)
         else None,

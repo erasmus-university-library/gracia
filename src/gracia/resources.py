@@ -569,7 +569,7 @@ class Type(Node):
                 raise KeyError(key)
             if found[1]:
                 raise RecordDeleted(key)
-            number = found[0].rsplit(":", 1)[1]
+            number = str(found[0] % uri.TYPE_BASE)
         else:
             raise KeyError(key)
         record = self._record(number)
@@ -581,7 +581,7 @@ class Type(Node):
             raise KeyError(key)
         return record
 
-    def _slug(self, key: str) -> tuple[str, bool] | None:
+    def _slug(self, key: str) -> tuple[int, bool] | None:
         return self.application.cache.slug(
             self.repository.__name__,
             self.slug,

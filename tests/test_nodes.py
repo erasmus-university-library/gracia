@@ -80,40 +80,6 @@ class RepositoryOfNodeTest(EditCase):
         self.assertIs(self.repo["person"], self.repo.types["person"])
         self.assertIs(self.repo.types["person"].repository, self.repo)
 
-    def test_what_is_kept_is_in_the_registry_of_the_application(self):
-        registry = self.application.registry
-        self.application.cache.slug(
-            "test_repo", "person", "ada", lambda: ("rec:person:1", False)
-        )
-        self.assertEqual(
-            registry["slugs"]["test_repo"], {("person", "ada"): ("rec:person:1", False)}
-        )
-        self.application.cache.invalidate("test_repo")
-        self.assertNotIn("test_repo", registry["slugs"])
-
-    def test_a_slug_is_kept_until_the_repository_is_written_and_none_is_not_kept(self):
-        cache = self.application.cache
-        calls = []
-
-        def load():
-            calls.append(1)
-            return ("rec:person:1", False)
-
-        self.assertEqual(
-            cache.slug("test_repo", "person", "ada", load)[0], "rec:person:1"
-        )
-        cache.slug("test_repo", "person", "ada", load)
-        self.assertEqual(len(calls), 1)
-        self.application.cache.invalidate(
-            "test_repo"
-        )  # what a change of the types does
-        cache.slug("test_repo", "person", "ada", load)
-        self.assertEqual(len(calls), 2)
-        nothing = []
-        for _ in range(2):
-            cache.slug("test_repo", "person", "no", lambda: nothing.append(1))
-        self.assertEqual(len(nothing), 2)
-
     def test_it_is_found_once(self):
         record = self.repo["person"]["1"]
         self.assertIs(record.repository, record.repository)

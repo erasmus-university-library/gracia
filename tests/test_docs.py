@@ -267,9 +267,9 @@ class DocCacheTest(DocsCase):
         store = self.cache.docs
         rid, etag = (
             self.rid("rec:person:1"),
-            self.cache.etags("test_repo", [self.rid("rec:person:1")])[  # ty: ignore[not-subscriptable]
+            self.cache.etags("test_repo", [self.rid("rec:person:1")])[
                 self.rid("rec:person:1")
-            ][0],
+            ],
         )
         fingerprint = self.compiled().fingerprint
         self.assertIsNotNone(store.get("test_repo", rid, etag, fingerprint))
@@ -293,7 +293,7 @@ class DocCacheTest(DocsCase):
         self.doc("rec:thing:1")
         rid = self.rid("rec:thing:1")
         self.cache.forget("test_repo", [rid])
-        etag = self.cache.etags("test_repo", [rid])[rid][0]  # ty: ignore[not-subscriptable]
+        etag = self.cache.etags("test_repo", [rid])[rid]
         self.assertIsNone(
             self.cache.docs.get("test_repo", rid, etag, self.compiled().fingerprint)
         )
@@ -326,7 +326,7 @@ class WorkerTest(DocsCase):
         self.assertEqual(docs_["rec:thing:1"]["type"], "thing")
         self.assertTrue(all("error" not in d for d in docs_.values()))
         rid = self.rid("rec:person:1")
-        etag = self.cache.etags("test_repo", [rid])[rid][0]  # ty: ignore[not-subscriptable]
+        etag = self.cache.etags("test_repo", [rid])[rid]
         kept = self.cache.docs.get("test_repo", rid, etag, self.compiled().fingerprint)
         self.assertEqual(json.loads(kept), docs_["rec:person:1"])  # ty: ignore[invalid-argument-type]
 

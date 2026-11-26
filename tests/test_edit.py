@@ -121,7 +121,7 @@ class EditCase(WebCase):
 
     def number_of(self, slug: str, res_type: str = "person") -> str:
         with self.application.new_store("test_repo") as store:
-            return store.slug_lookup(res_type, slug)[0].rsplit(":", 1)[1]  # ty: ignore[not-subscriptable]
+            return str(store.slug_lookup(res_type, slug)[0] % 10_000_000)  # ty: ignore[not-subscriptable]
 
     def values(self, uri):
         with self.application.new_store("test_repo") as store:

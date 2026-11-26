@@ -48,7 +48,7 @@ class GraphJobsCase(JobsCase):
 
     def kept(self, rec_uri: str) -> bytes | None:
         record_id = self.store.record_id_of(rec_uri)
-        etag = self.application.cache.etags("test_repo", [record_id])[record_id][0]  # ty: ignore[invalid-argument-type, not-subscriptable]
+        etag = self.application.cache.etags("test_repo", [record_id])[record_id]
         return self.application.cache._graph_store().get("test_repo", record_id, etag)  # ty: ignore[invalid-argument-type, missing-union-attribute]
 
 
@@ -65,7 +65,7 @@ class ExportGraphsTest(GraphJobsCase):
             record_id = self.store.record_id_of(item["id"])
             self.assertEqual(
                 item["etag"],
-                self.application.cache.etags("test_repo", [record_id])[record_id][0],  # ty: ignore[invalid-argument-type, not-subscriptable]
+                self.application.cache.etags("test_repo", [record_id])[record_id],
             )
             quads = list(
                 ox.parse(item["source"].encode(), format=ox.RdfFormat.N_TRIPLES)
@@ -173,7 +173,7 @@ class ExportQueueTest(GraphJobsCase):
             (waiting, waiting, self.store.last_transaction()),
         )
         record_id = self.store.record_id_of("rec:person:14")
-        etag = self.application.cache.etags("test_repo", [record_id])[record_id][0]  # ty: ignore[invalid-argument-type, not-subscriptable]
+        etag = self.application.cache.etags("test_repo", [record_id])[record_id]
         self.assertEqual(
             (items["rec:person:14"]["etag"], items["rec:person:14"]["action"]),
             (etag, "insert"),

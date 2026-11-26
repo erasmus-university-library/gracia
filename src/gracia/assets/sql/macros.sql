@@ -250,6 +250,7 @@ CREATE OR REPLACE MACRO record_rows(tbl, subs) AS TABLE
                max(lit) FILTER (WHERE len(loc) = 0 AND p = 'https://gracia.pub/ns/modified_at') AS modified,
                bool_or(lower(lit) IN ('true', '1')) FILTER (
                    WHERE len(loc) = 0 AND p = 'https://gracia.pub/ns/is_published') AS published,
+               max(lit) FILTER (WHERE len(loc) = 0 AND p = 'https://gracia.pub/ns/state') AS state,
                -- what the resource points at (its content, below `gracia:resource`): the rest of the record is the
                -- software's, a resource points at the resource uris of other records, never at records
                list_sort(list(DISTINCT o) FILTER (
@@ -303,7 +304,8 @@ CREATE OR REPLACE MACRO record_rows(tbl, subs) AS TABLE
            coalesce(parts.refs, []) AS "references",
            texts.text,
            coalesce(sources.source, '') AS source,
-           strlen(coalesce(sources.source, ''))::INTEGER AS bytes
+           strlen(coalesce(sources.source, ''))::INTEGER AS bytes,
+           parts.state
     FROM rec
     JOIN parts ON parts.s = rec.s
     LEFT JOIN ids ON ids.s = rec.s

@@ -67,10 +67,11 @@ def index(request) -> Response:
         if record_id is not None
         else None
     )
-    stored = (cached[0], list(cached[1])) if cached else None
-    if stored is not None:  # one row: no walk through the references
-        etag = page_etag(stored[0], shape_versions(record, stored[1]))
-        slugs, uris = stored[1], None
+    if cached is not None:  # one row: no walk through the references
+        # the version of the schema of every type: a change of one is a change of all
+        # the pages (the types of the page are known when it is made)
+        etag = page_etag(cached, shape_versions(record, record.repository.types.keys()))
+        slugs, uris = None, None
     else:
         versions = store.dependencies(record.uri, MAX_DEPTH)
         slugs, uris = slugs_of(versions), sorted(versions)
@@ -82,7 +83,11 @@ def index(request) -> Response:
     )
     if etag in request.if_none_match:
         raise HTTPNotModified(headers={"ETag": response.headers["ETag"]})
-    found = store.get(uris if uris is not None else store.page_uris(record.uri))
+    if uris is None:
+        uris = store.page_uris(record.uri)
+    if slugs is None:
+        slugs = slugs_of(uris)
+    found = store.get(uris)
     shown = Graph(
         ox.Dataset(
             q

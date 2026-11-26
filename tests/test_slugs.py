@@ -33,7 +33,8 @@ class SlugSqlTest(unittest.TestCase):
     def taken(self, *slugs: tuple[str, str]) -> None:
         for slug, record in slugs:
             self.con.execute(
-                "INSERT INTO slugs VALUES ('person', ?, ?, false)", [slug, record]
+                "INSERT INTO slugs (rec_type, slug, record_uri, is_deleted) VALUES ('person', ?, ?, false)",
+                [slug, record],
             )
 
     def slugged(
@@ -132,7 +133,7 @@ class SlugSqlTest(unittest.TestCase):
 
     def test_the_slug_of_a_deleted_record_is_taken_too(self):
         self.con.execute(
-            "INSERT INTO slugs VALUES ('person', 'john-doe', 'rec:person:9', true)"
+            "INSERT INTO slugs (rec_type, slug, record_uri, is_deleted) VALUES ('person', 'john-doe', 'rec:person:9', true)"
         )
         self.assertEqual(
             self.slugged({"rec:person:1": ("John Doe", None)}),
@@ -235,7 +236,7 @@ class SlugCase(WebCase):
         if name.isdigit():
             return int(name)
         with self.application.new_store("test_repo") as store:
-            return int(store.slug_lookup("person", name)[0].rsplit(":", 1)[1])  # ty: ignore[not-subscriptable]
+            return store.slug_lookup("person", name)[0] % 10_000_000  # ty: ignore[not-subscriptable]
 
     def slugs(self, record_uri: str):
         with self.application.new_store("test_repo") as store:

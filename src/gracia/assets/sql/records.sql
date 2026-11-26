@@ -22,6 +22,8 @@
 --   text        : the literals of the properties with the role DescriptionRole, joined by newlines
 --   source      : the rows of the record as N-Triples (blank nodes are `b<record id>_<n>`)
 --   bytes       : the size of `source` in bytes: what a batch of work is measured in (`etags.closure_bytes`)
+--   state       : gracia:state, a word (NULL when the record has none). The last column (the
+--                 order of the columns is the order of `record_rows`)
 -- The triggers are made by the store (`Store._record_triggers`). Statement-level triggers only (DuckDB has no row-level update triggers), and MERGE INTO is
 -- refused on a table that has triggers: loads and deletes are DELETE and INSERT.
 CREATE TABLE IF NOT EXISTS @RECORDS@ (
@@ -37,7 +39,8 @@ CREATE TABLE IF NOT EXISTS @RECORDS@ (
     "references" VARCHAR[] NOT NULL,
     text        VARCHAR,
     source      VARCHAR NOT NULL,
-    bytes       INTEGER NOT NULL
+    bytes       INTEGER NOT NULL,
+    state       VARCHAR
 );
 
 
@@ -99,10 +102,14 @@ CREATE TABLE IF NOT EXISTS actions_queue (
 -- (`rec_type`); the record that has it is `record_uri`, and `is_deleted` says that record is gone. A
 -- record that is deleted also gets its number as a slug (`23`, flagged deleted), so that the address
 -- of a number that was used can be told from one that never was. Nothing is ever removed.
+-- `modified_at` is when the row was made or last flagged (UTC, the time of the transaction): of the
+-- number slug of a deleted record it is when the record was deleted, which is what a listing of
+-- the deleted records of a type sorts on (`Store.referencing_records`).
 CREATE TABLE IF NOT EXISTS slugs (
     rec_type   VARCHAR NOT NULL,
     slug       VARCHAR NOT NULL,
     record_uri VARCHAR NOT NULL,
     is_deleted BOOLEAN NOT NULL DEFAULT false,
+    modified_at TIMESTAMP NOT NULL DEFAULT (now() AT TIME ZONE 'UTC'),
     PRIMARY KEY (rec_type, slug)
 );

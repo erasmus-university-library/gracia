@@ -73,6 +73,7 @@ MODIFIED_AT = (
     G_NS.modified_at
 )  # record -> when it was last changed (xsd:dateTime, UTC; made, not edited)
 IS_PUBLISHED = G_NS.is_published  # record -> whether it is published (xsd:boolean)
+STATE = G_NS.state  # record -> its state, a word (draft, ...); none: no state
 TIMEZONE = (
     G_NS.timezone
 )  # repository -> the name of its time zone (Europe/Amsterdam); none: UTC

@@ -35,6 +35,8 @@
 --                      the resource uri of a record
 --   deep_references  : the ids of every record reached by following those, the record itself left out
 --   deep_types       : the slugs of the types of the record and of those records
+--   state            : gracia:state of the record (`records.state`), NULL when it has none. The last column, like
+--                      in `records`
 --   backref_totals   : how many records point at this one, directly, by the type of the record that
 --                      does: {type slug: {total_all, total_published}}. It is read with the row
 --                      (one lookup gives the etag and the number of pages of its listings) and kept
@@ -60,7 +62,8 @@ CREATE TABLE IF NOT EXISTS etags (
     deep_types       VARCHAR[] NOT NULL,
     backref_totals   MAP(VARCHAR, STRUCT(total_all BIGINT, total_published BIGINT)) NOT NULL,
     bytes            INTEGER NOT NULL,
-    closure_bytes    BIGINT NOT NULL
+    closure_bytes    BIGINT NOT NULL,
+    state            VARCHAR
 );
 -- The table is kept in the order a listing reads it, newest created first (`record_type`, `sort_key`
 -- DESC, `record_id`): every write sorts it again before it commits (`Store._sort_etags`), so that
@@ -84,7 +87,7 @@ CREATE TABLE IF NOT EXISTS etags_new (
     "references" INTEGER[] NOT NULL,
     deep_references INTEGER[] NOT NULL, deep_types VARCHAR[] NOT NULL,
     backref_totals MAP(VARCHAR, STRUCT(total_all BIGINT, total_published BIGINT)) NOT NULL,
-    bytes INTEGER NOT NULL, closure_bytes BIGINT NOT NULL
+    bytes INTEGER NOT NULL, closure_bytes BIGINT NOT NULL, state VARCHAR
 );
 -- for a record that a write touched (a seed): what its local hash was and is, what that changes
 -- (`delta`) and whether what it points at changed (`struct`: also a record that is new or gone); then,

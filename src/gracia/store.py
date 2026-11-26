@@ -427,20 +427,22 @@ class Store:
             # flagged and its number as a slug of its own, so that its address is told
             # from one
             # that was never used
-            "INSERT INTO slugs SELECT DISTINCT regexp_extract(t.s, "
+            "INSERT INTO slugs (rec_type, slug, record_uri, is_deleted) SELECT DISTINCT regexp_extract(t.s, "
             "'^rec:([a-z][a-z0-9-]*):', 1), "
             "t.lit, t.s, false FROM {table} t "
             "WHERE t.s IN ({subs}) AND len(t.loc) = 0 AND t.p = {slug_uri} AND t.lit "
             "IS NOT NULL "
             "AND NOT EXISTS (SELECT 1 FROM slugs g WHERE g.record_uri = t.s AND g.slug "
             "= t.lit)",
-            "UPDATE slugs SET is_deleted = false WHERE is_deleted "
+            "UPDATE slugs SET is_deleted = false, modified_at = now() AT TIME ZONE 'UTC' "
+            "WHERE is_deleted "
             f"AND record_uri IN (SELECT record_uri(record_id) FROM {{rec}} WHERE "
             "record_id IN "
             f"({changed}))",
-            "UPDATE slugs SET is_deleted = true WHERE NOT is_deleted AND record_uri IN "
+            "UPDATE slugs SET is_deleted = true, modified_at = now() AT TIME ZONE 'UTC' "
+            "WHERE NOT is_deleted AND record_uri IN "
             "{gone}",
-            "INSERT INTO slugs SELECT regexp_extract(s, '^rec:([a-z][a-z0-9-]*):', 1), "
+            "INSERT INTO slugs (rec_type, slug, record_uri, is_deleted) SELECT regexp_extract(s, '^rec:([a-z][a-z0-9-]*):', 1), "
             "regexp_extract(s, ':([0-9]+)$', 1), s, true FROM {gone} g(s) "
             "WHERE NOT EXISTS (SELECT 1 FROM slugs k WHERE k.record_uri = g.s "
             "AND k.slug = regexp_extract(g.s, ':([0-9]+)$', 1))",
@@ -1069,7 +1071,7 @@ class Store:
                   is_published, etag, local_hash,
                        modified_at, last_modified_at, "references", deep_references,
                          deep_types, backref_totals,
-                       bytes, closure_bytes, old_etag) AS (
+                       bytes, closure_bytes, state, old_etag) AS (
                 SELECT c.root, record_uri(c.root), r0.rec_type, r0.res_uri,
                        epoch_us(r0.created_at), r0.is_published,
                        bit_xor(hash(r.record_id, r.modified_at)),
@@ -1082,7 +1084,7 @@ class Store:
                          c.root), []::INTEGER[]),
                        list(DISTINCT r.rec_type ORDER BY r.rec_type),
                        coalesce(any_value(e0.backref_totals), {EMPTY_TOTALS}),
-                       r0.bytes, sum(r.bytes),
+                       r0.bytes, sum(r.bytes), r0.state,
                        any_value(e0.etag) AS old_etag
                 FROM clo c
                 JOIN {self.records} r ON r.record_id = c.dep
@@ -1090,7 +1092,7 @@ class Store:
                 LEFT JOIN etags_refs f0 ON f0.record_id = c.root
                 LEFT JOIN etags e0 ON e0.record_id = c.root
                 GROUP BY c.root, r0.rec_type, r0.res_uri, r0.created_at, r0.modified_at,
-                  r0.is_published, r0.bytes)
+                  r0.is_published, r0.bytes, r0.state)
                 SELECT * EXCLUDE (old_etag) REPLACE (
                     CASE WHEN old_etag IS NOT NULL AND old_etag <> etag
                          THEN greatest(last_modified_at, now() AT TIME ZONE 'UTC')
@@ -1331,6 +1333,120 @@ class Store:
             size,
         )
 
+    @staticmethod
+    def _check_referencing(
+        referenced_record_id: int | None,
+        record_type: int,
+        include_deleted: bool,
+        state: str | None,
+    ) -> None:
+        if referenced_record_id is None and not record_type:
+            raise ValueError("give a referenced_record_id, a record_type, or both")
+        if include_deleted:
+            # the deleted records are those of a type (`slugs`): whatever points at a
+            # record is not known of a record that is gone, and it has no state
+            if referenced_record_id is not None:
+                raise ValueError(
+                    "include_deleted lists the records of a type: give a record_type "
+                    "and no referenced_record_id"
+                )
+            if state is not None:
+                raise ValueError("include_deleted cannot be used with a state")
+
+    @staticmethod
+    def _referencing_where(
+        referenced_record_id: int | None,
+        record_type: int,
+        include_non_public: bool,
+        state: str | None,
+    ) -> str:
+        where = []
+        if referenced_record_id is not None:
+            where.append(f'list_contains("references", {int(referenced_record_id)})')
+        if record_type and referenced_record_id is None:
+            # the records of a type: `etags` is kept by its type, no references are read
+            where.append(f"record_type = type_slug({int(record_type)})")
+        elif record_type:  # the ids of a type are the numbers from type * 10^7 up
+            low = int(record_type) * uri.TYPE_BASE
+            where.append(f"record_id >= {low} AND record_id < {low + uri.TYPE_BASE}")
+        if not include_non_public:
+            where.append("is_published")
+        if state is not None:
+            where.append(f"state = {literal(state)}")
+        return " AND ".join(where)
+
+    @staticmethod
+    def _deleted_where(number: int) -> str:
+        """The deleted records of a type, from `slugs`: one row of each, its number as a
+        slug flagged deleted (`modified_at` is when it was deleted)."""
+        return (
+            f"rec_type = type_slug({int(number)}) AND is_deleted AND slug = "
+            "regexp_extract(record_uri, ':([0-9]+)$', 1)"
+        )
+
+    def referencing_records(
+        self,
+        referenced_record_id: int | None = None,
+        record_type: int = 0,
+        offset: int = 0,
+        limit: int = PAGE_SIZE,
+        include_non_public: bool = False,
+        include_deleted: bool = False,
+        state: str | None = None,
+    ) -> list[int]:
+        """The ids of the records that point at the record, one page of them, in the
+        order of `etags` (newest created first). `record_type` is the number of a type
+        (0: all of them). Give the record that is pointed at, the type, or both; the
+        type alone is the records of that type.
+
+        `include_deleted` (OAI-PMH) adds the records of the type that were deleted, so
+        only a `record_type` can be given with it, and no `referenced_record_id` or
+        `state` (`ValueError`): a record that is gone has no references and no state.
+        The page is then sorted on when the records were modified, or deleted (`etags` is
+        kept by when a record was created, so the two kinds have to be merged by a sort;
+        without `include_deleted` there is none). The ids of the deleted have no etag:
+        `Cache.etags` gives None for them."""
+        self._check_referencing(
+            referenced_record_id, record_type, include_deleted, state
+        )
+        deleted = self._deleted_where(record_type) if include_deleted else None
+        where = self._referencing_where(
+            referenced_record_id, record_type, include_non_public, state
+        )
+        if deleted is not None:
+            sql = (
+                f"SELECT record_id FROM (SELECT record_id, modified_at FROM etags WHERE "
+                f"{where} UNION ALL SELECT record_id(record_uri), modified_at FROM "
+                f"slugs WHERE {deleted}) ORDER BY modified_at DESC, record_id "
+                f"LIMIT {int(limit)} OFFSET {int(offset)}"
+            )
+        else:
+            sql = (
+                f"SELECT record_id FROM etags WHERE {where} LIMIT {int(limit)} "
+                f"OFFSET {int(offset)}"
+            )
+        return [r[0] for r in self.con.execute(sql).fetchall()]
+
+    def count_referencing_records(
+        self,
+        referenced_record_id: int | None = None,
+        record_type: int = 0,
+        include_non_public: bool = False,
+        include_deleted: bool = False,
+        state: str | None = None,
+    ) -> int:
+        """How many records `referencing_records` has in all."""
+        self._check_referencing(
+            referenced_record_id, record_type, include_deleted, state
+        )
+        deleted = self._deleted_where(record_type) if include_deleted else None
+        where = self._referencing_where(
+            referenced_record_id, record_type, include_non_public, state
+        )
+        live = f"(SELECT count(*) FROM etags WHERE {where})"
+        gone = f"(SELECT count(*) FROM slugs WHERE {deleted})" if deleted else "0"
+        return fetch_one(self.con.execute(f"SELECT {live} + {gone}"))[0]
+
     def records_page(
         self,
         slug: str,
@@ -1440,9 +1556,10 @@ class Store:
         ).fetchall()
         return dict(rows)
 
-    def slug_lookup(self, rec_type: str, slug: str) -> tuple[str, bool] | None:
+    def slug_lookup(self, rec_type: str, slug: str) -> tuple[int, bool] | None:
+        """The id of the record that has the slug, and whether that record is gone."""
         row = self.con.execute(
-            "SELECT record_uri, is_deleted FROM slugs WHERE rec_type = "
+            "SELECT record_id(record_uri), is_deleted FROM slugs WHERE rec_type = "
             f"{literal(rec_type)} "
             f"AND slug = {literal(slug)}"
         ).fetchone()

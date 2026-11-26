@@ -1,4 +1,5 @@
 import configparser
+import re
 import stat
 from pathlib import Path
 
@@ -37,6 +38,34 @@ def read(path: str | Path | None) -> dict[str, str]:
     ):
         settings["gracia.db"] = str(path.parent / settings["gracia.db"])
     return settings
+
+
+CACHE_SIZES = ("graphs", "docs", "etags", "slugs", "referencing")
+_UNITS = {"": 1, "k": 1024, "m": 1024**2, "g": 1024**3, "t": 1024**4}
+
+
+def parse_size(text: str) -> int:
+    """`256M`, `1G`, `512MB`, `65536`: bytes (the units are powers of 1024)."""
+    found = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*([kmgt]?)b?\s*", text.lower())
+    if not found:
+        raise ValueError(f"invalid size {text!r}: expected a number and K, M, G or T")
+    size = int(float(found[1]) * _UNITS[found[2]])
+    if size <= 0:
+        raise ValueError(f"invalid size {text!r}: it has to be more than nothing")
+    return size
+
+
+def cache_sizes(settings: dict) -> dict[str, int]:
+    """The sizes the config sets (`gracia.cache.<name>_size`); the rest is the default."""
+    sizes = {}
+    for name in CACHE_SIZES:
+        key = f"gracia.cache.{name}_size"
+        if settings.get(key):
+            try:
+                sizes[name] = parse_size(settings[key])
+            except ValueError as err:
+                raise ValueError(f"{key}: {err}") from None
+    return sizes
 
 
 def is_remote(target: str | Path) -> bool:

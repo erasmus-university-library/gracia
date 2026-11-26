@@ -34,11 +34,14 @@ def init(
     quack: str | None = None,
     token: str | None = None,
     cache_dir: str | Path | None = None,
+    cache_sizes: dict[str, int] | None = None,
 ) -> Application:
     database = Database(db_file, quack=quack, token=token)
     watched = db_file if db_file not in (None, ":memory:") else None
     registry["database"] = database
-    registry["cache"] = Cache(database, registry, db_file=watched, graph_dir=cache_dir)
+    registry["cache"] = Cache(
+        database, registry, db_file=watched, graph_dir=cache_dir, sizes=cache_sizes
+    )
     registry["indexes"] = None
     application = Application(None, registry)
     registry["application"] = application
@@ -47,6 +50,7 @@ def init(
 
 def init_from_settings(registry, settings: dict, target: str) -> Application:
     cache_dir = settings.get("gracia.cache_dir") or None
+    sizes = gracia_config.cache_sizes(settings)
     if gracia_config.is_remote(target):
         return init(
             registry,
@@ -54,8 +58,9 @@ def init_from_settings(registry, settings: dict, target: str) -> Application:
             quack=target,
             token=gracia_config.read_token(settings),
             cache_dir=cache_dir,
+            cache_sizes=sizes,
         )
-    return init(registry, target, cache_dir=cache_dir)
+    return init(registry, target, cache_dir=cache_dir, cache_sizes=sizes)
 
 
 def shutdown(registry) -> None:

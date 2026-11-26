@@ -803,16 +803,16 @@ class RewriteExportTest(JobsCase):
     ):
         with self.application.new_store("test_repo") as store:
             store.con.execute(
-                "INSERT INTO slugs VALUES ('person', 'old-name', 'rec:person:1', false)"
+                "INSERT INTO slugs (rec_type, slug, record_uri, is_deleted) VALUES ('person', 'old-name', 'rec:person:1', false)"
             )
             store.con.execute(
-                "INSERT INTO slugs VALUES ('person', 'gone', 'rec:person:99', true)"
+                "INSERT INTO slugs (rec_type, slug, record_uri, is_deleted) VALUES ('person', 'gone', 'rec:person:99', true)"
             )
             store.con.execute(
-                "INSERT INTO slugs VALUES ('person', '99', 'rec:person:99', true)"
+                "INSERT INTO slugs (rec_type, slug, record_uri, is_deleted) VALUES ('person', '99', 'rec:person:99', true)"
             )
             store.con.execute(
-                "INSERT INTO slugs VALUES ('book', 'other-type', 'rec:book:1', false)"
+                "INSERT INTO slugs (rec_type, slug, record_uri, is_deleted) VALUES ('book', 'other-type', 'rec:book:1', false)"
             )
             before = fetch_one(store.con.execute("SELECT count(*) FROM slugs"))[0]
             current = store.current_slug("rec:person:1")
