@@ -8,6 +8,10 @@ from gracia import forms, uri
 from gracia.graph import Graph
 from gracia.store import literal
 
+IRI_TEXT = "^" + forms.IRI_TEXT.removesuffix("\\Z") + "$"  # as SQL has it
+HEADER_STRIP = " \t\n,;:"  # (template.js does the same)
+
+
 # A property shape with `gracia:propertyTemplate ("{} {}" schema:givenName
 # schema:familyName)` says that the property is made of the others: the text, with each
 # {} replaced by the value of the next property of the list, and trimmed. [ ... ] is
@@ -17,8 +21,6 @@ from gracia.store import literal
 # what it had) when every {} outside the brackets has a value (not empty); otherwise it
 # is left alone.
 
-IRI_TEXT = "^" + forms.IRI_TEXT.removesuffix("\\Z") + "$"  # as SQL has it
-HEADER_STRIP = " \t\n,;:"  # (template.js does the same)
 Piece = tuple  # ("text", str) | ("source", index) | ("optional", (Piece, ...))
 
 

@@ -48,7 +48,9 @@ class WorkViewTest(WorkViewCase):
             metadata,
             r'<a href="http://localhost/lib/organization/1">Delft University</a>',
         )
-        self.assertRegex(metadata, r"<dt[^>]*>Pages</dt>\s*<dd[^>]*>\s*<div>666\u2013731")
+        self.assertRegex(
+            metadata, r"<dt[^>]*>Pages</dt>\s*<dd[^>]*>\s*<div>666\u2013731"
+        )
         self.assertNotIn('id="files"', page)
 
         page = self.get("/lib/work/6")

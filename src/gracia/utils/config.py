@@ -6,6 +6,9 @@ from pathlib import Path
 
 SECTION = "app:main"
 DEFAULT_DB = "gracia.db"
+CACHE_SIZES = ("graphs", "docs", "etags", "slugs", "referencing")
+_UNITS = {"": 1, "k": 1024, "m": 1024**2, "g": 1024**3, "t": 1024**4}
+DEFAULT_FILE = "config.ini"
 
 
 def read(path: str | Path | None) -> dict[str, str]:
@@ -39,10 +42,6 @@ def read(path: str | Path | None) -> dict[str, str]:
     ):
         settings["gracia.db"] = str(path.parent / settings["gracia.db"])
     return settings
-
-
-CACHE_SIZES = ("graphs", "docs", "etags", "slugs", "referencing")
-_UNITS = {"": 1, "k": 1024, "m": 1024**2, "g": 1024**3, "t": 1024**4}
 
 
 def parse_size(text: str) -> int:
@@ -112,9 +111,6 @@ def read_token(settings: dict[str, str]) -> str:
             f"no such token file: {path} (it is created by `gracia serve-db`)"
         )
     return read_secret(path)
-
-
-DEFAULT_FILE = "config.ini"
 
 
 def config_file(flag=None, environ=None, cwd=None) -> Path | None:

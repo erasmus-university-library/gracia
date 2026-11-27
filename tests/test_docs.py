@@ -39,8 +39,6 @@ USER = (
     "<rec:user:7> a g:Record ; g:resource_uri <ark:/1/user/7> ;"
     ' g:resource [ g:userid "ed" ; g:credentials "SECRETHASH" ; g:name "Ed" ] .\n'
 )
-
-
 HTML = {"Accept": "text/html"}  # without it a page of a type may answer with its RDF
 
 

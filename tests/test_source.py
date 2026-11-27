@@ -9,6 +9,15 @@ from test_edit import EditCase
 from gracia.graph import Graph
 
 FOAF = "http://xmlns.com/foaf/0.1/"
+CLOSED = """@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+<urn:test:Closed> a sh:NodeShape ; sh:targetClass foaf:Person ;
+  sh:closed true ; sh:ignoredProperties ( rdf:type ) ;
+  sh:property [ sh:path foaf:name ; sh:datatype xsd:string ; sh:minCount 1 ;
+                sh:maxCount 1 ] ,
+  [ sh:path foaf:knows ; sh:nodeKind sh:IRI ] ."""
 
 
 class SourceCase(EditCase):
@@ -142,17 +151,6 @@ class FormatTest(SourceCase):
         self.assertEqual(shown.status_int, 200)
         self.assertIn("This is not valid turtle", shown.text)
         self.assertIn("this is not turtle {", self.text(shown))
-
-
-CLOSED = """@prefix sh: <http://www.w3.org/ns/shacl#> .
-@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
-@prefix foaf: <http://xmlns.com/foaf/0.1/> .
-@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
-<urn:test:Closed> a sh:NodeShape ; sh:targetClass foaf:Person ;
-  sh:closed true ; sh:ignoredProperties ( rdf:type ) ;
-  sh:property [ sh:path foaf:name ; sh:datatype xsd:string ; sh:minCount 1 ;
-                sh:maxCount 1 ] ,
-  [ sh:path foaf:knows ; sh:nodeKind sh:IRI ] ."""
 
 
 class ClosedShapeTest(SourceCase):

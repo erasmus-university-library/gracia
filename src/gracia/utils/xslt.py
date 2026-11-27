@@ -24,13 +24,16 @@ NESTED = "rdfxml-to-nested.xsl"
 XSL = "http://www.w3.org/1999/XSL/Transform"
 # xsl:import href="type:person/view.xsl": a file of a type of the repository
 TYPE_SCHEME = "type:"
-
 # export format -> stylesheets run over the nested RDF/XML (none: the nested RDF/XML
 # itself)
 FORMATS: dict[str, list[str]] = {
     "rdfxml-collection": [],
     "html-table": ["rdfxml-to-html.xsl"],
 }
+# the functions of XPath that read a file (or a page) by an address
+LOADING_FUNCTIONS = re.compile(
+    r"\b(doc|document|unparsed-text|unparsed-text-lines|json-doc|collection)\s*\("
+)
 
 
 _armed = False
@@ -136,12 +139,6 @@ def _text(stylesheet: str | Path) -> str:
     if not Path(text).exists() and text in bundled_names():
         return bundled_text(text)
     return Path(text).read_text(encoding="utf-8")
-
-
-# the functions of XPath that read a file (or a page) by an address
-LOADING_FUNCTIONS = re.compile(
-    r"\b(doc|document|unparsed-text|unparsed-text-lines|json-doc|collection)\s*\("
-)
 
 
 def imported_files(path: str | Path) -> list[Path]:

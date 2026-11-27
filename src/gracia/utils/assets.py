@@ -14,11 +14,8 @@ from pyramid.threadlocal import manager
 from gracia import uri
 from gracia.graph import Graph
 
-log = logging.getLogger(__name__)
-
 SH_NODE_SHAPE = "http://www.w3.org/ns/shacl#NodeShape"
 SH_TARGET_CLASS = "http://www.w3.org/ns/shacl#targetClass"
-
 # The files of a type, by name (a directory is never listed: listing an overridden
 # directory shows
 # only the files of the override): its stylesheet, and the schema its data names
@@ -51,8 +48,13 @@ MEDIA_TYPES = {
     ".js": "text/javascript",
     ".json": "application/json",
 }
-
 _SHAPES: dict[tuple[str, int, str], tuple[Graph, ox.NamedNode | ox.BlankNode]] = {}
+# an rdf list of [ sh:class <c> ] for each of the classes, added to the data
+_RDF = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+_INFO: dict[tuple[str, int, int], tuple[str, str]] = {}
+
+
+log = logging.getLogger(__name__)
 
 
 def join(prefix: str, name: str) -> str:
@@ -137,10 +139,6 @@ def _record_shapes() -> tuple[ox.Quad, ...]:
         importlib.resources.files("gracia") / "assets" / "model" / "record.shacl.ttl"
     ).read_bytes()
     return tuple(ox.parse(text, format=ox.RdfFormat.TURTLE))
-
-
-# an rdf list of [ sh:class <c> ] for each of the classes, added to the data
-_RDF = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
 
 
 def _class_alternatives(data: Graph, sh, classes: list[str]) -> ox.BlankNode:
@@ -229,9 +227,6 @@ class Info:
     media_type: str
     size: int
     checksum: str  # md5:<hex>: a version for caches, not a signature
-
-
-_INFO: dict[tuple[str, int, int], tuple[str, str]] = {}
 
 
 def _checksum(path: Path) -> str:

@@ -9,6 +9,9 @@ import duckdb
 
 from gracia.utils import config
 
+LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1"})
+DEFAULT_PORT = 9494
+
 
 def literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
@@ -148,9 +151,6 @@ class Database:
 # master key,
 # kept in an owner-only file (0600), created on first start; only loopback addresses are
 # served.
-
-LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1"})
-DEFAULT_PORT = 9494
 
 
 def owner_file(db: str | Path) -> Path:

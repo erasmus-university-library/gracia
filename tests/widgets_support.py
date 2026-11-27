@@ -14,7 +14,6 @@ POSTING = {**ADMIN, "Origin": "http://localhost:80"}
 EX = "http://example.org/"
 XSD = "http://www.w3.org/2001/XMLSchema#"
 RDF = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
-
 GADGET = shape_type(
     """
 ex:GadgetShape a sh:NodeShape ; sh:targetClass ex:Gadget ;
@@ -80,7 +79,6 @@ ex:MarkShape a sh:NodeShape ; sh:class ex:Mark ; sh:name "Mark" ;
     slug="gadget",
     class_uri=EX + "Gadget",
 )
-
 ROSTER = shape_type(
     """
 ex:RosterShape a sh:NodeShape ; sh:targetClass ex:Roster ;
@@ -110,7 +108,6 @@ ex:PersonUriListShape a sh:NodeShape ;
     slug="roster",
     class_uri=EX + "Roster",
 )
-
 ORG = shape_type(
     """
 ex:Org rdfs:label "Organization" .
@@ -126,7 +123,6 @@ ex:OrgShape a sh:NodeShape ; sh:targetClass ex:Org , ex:University ;
     slug="org",
     class_uri=EX + "Org",
 )
-
 PEOPLE = [f"ark:/99999/ir/person/{n}" for n in range(1, 5)]
 FOAF_PERSON_CLASS = FOAF_PERSON.class_uri
 

@@ -12,13 +12,41 @@ from gracia.uri import SH_NS
 from gracia.utils import xslt
 
 _RDF = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+VIOLATION = "Violation"
+JSON_TRIPLES = "json-triples"
+XSD_STRING = "http://www.w3.org/2001/XMLSchema#string"
+RDF_LANGSTRING = "http://www.w3.org/1999/02/22-rdf-syntax-ns#langString"
+# file extension -> format name (json-triples is gracia's own JSON, read by DuckDB
+# itself)
+INPUT_BY_EXTENSION = {
+    ".ttl": "turtle",
+    ".turtle": "turtle",
+    ".nt": "ntriples",
+    ".nq": "nquads",
+    ".trig": "trig",
+    ".rdf": "rdfxml",
+    ".xml": "rdfxml",
+    ".n3": "n3",
+    ".jsonld": "jsonld",
+    ".json": JSON_TRIPLES,
+}
+_FORMATS = {
+    "turtle": ox.RdfFormat.TURTLE,
+    "trig": ox.RdfFormat.TRIG,
+    "ntriples": ox.RdfFormat.N_TRIPLES,
+    "nquads": ox.RdfFormat.N_QUADS,
+    "rdfxml": ox.RdfFormat.RDF_XML,
+    "n3": ox.RdfFormat.N3,
+    "jsonld": ox.RdfFormat.JSON_LD,
+}
+OUTPUT_FORMATS = (*_FORMATS, JSON_TRIPLES)
+_TURTLE_PREFIX = re.compile(r"^@prefix ([^\s:]*): <[^>]*> \.\n", re.M)
+_LEFT_OUT = re.compile(r'"""(?:.|\n)*?"""|"(?:[^"\\\n]|\\.)*"|<[^<>\s]*>|#[^\n]*')
+_XMLNS = re.compile(r'\s+xmlns:([\w.-]+)="[^"]*"')
 
 
 class ParseError(ValueError):
     pass
-
-
-VIOLATION = "Violation"
 
 
 @dataclass(frozen=True)
@@ -57,38 +85,7 @@ class ValidationError(ValueError):
         )
 
 
-JSON_TRIPLES = "json-triples"
-
-XSD_STRING = "http://www.w3.org/2001/XMLSchema#string"
-RDF_LANGSTRING = "http://www.w3.org/1999/02/22-rdf-syntax-ns#langString"
-
 Row = tuple[str, str, str, str, str, str | None, str | None]
-
-# file extension -> format name (json-triples is gracia's own JSON, read by DuckDB
-# itself)
-INPUT_BY_EXTENSION = {
-    ".ttl": "turtle",
-    ".turtle": "turtle",
-    ".nt": "ntriples",
-    ".nq": "nquads",
-    ".trig": "trig",
-    ".rdf": "rdfxml",
-    ".xml": "rdfxml",
-    ".n3": "n3",
-    ".jsonld": "jsonld",
-    ".json": JSON_TRIPLES,
-}
-
-_FORMATS = {
-    "turtle": ox.RdfFormat.TURTLE,
-    "trig": ox.RdfFormat.TRIG,
-    "ntriples": ox.RdfFormat.N_TRIPLES,
-    "nquads": ox.RdfFormat.N_QUADS,
-    "rdfxml": ox.RdfFormat.RDF_XML,
-    "n3": ox.RdfFormat.N3,
-    "jsonld": ox.RdfFormat.JSON_LD,
-}
-OUTPUT_FORMATS = (*_FORMATS, JSON_TRIPLES)
 
 
 class RdfError(RuntimeError):
@@ -562,11 +559,6 @@ def _order(quad: ox.Quad) -> tuple:
         predicate,
         value,
     )
-
-
-_TURTLE_PREFIX = re.compile(r"^@prefix ([^\s:]*): <[^>]*> \.\n", re.M)
-_LEFT_OUT = re.compile(r'"""(?:.|\n)*?"""|"(?:[^"\\\n]|\\.)*"|<[^<>\s]*>|#[^\n]*')
-_XMLNS = re.compile(r'\s+xmlns:([\w.-]+)="[^"]*"')
 
 
 def _only_used_turtle_prefixes(text: str) -> str:

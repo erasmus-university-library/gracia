@@ -42,6 +42,14 @@ PEOPLE_ROLES = {
     "Expert",
     "Editor",
 }
+PREFIXES = """
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix schema: <https://schema.org/> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix dash: <http://datashapes.org/dash#> .
+@prefix ex: <http://example.org/shapes#> .
+@prefix role: <http://example.org/vocab/role/> .
+"""
 
 
 class ContributorCase(ReferenceCase):
@@ -293,16 +301,6 @@ class OnlyForTest(ContributorCase):
                 )
                 problems = " ".join(map(str, work.validate()))
                 self.assertIn("are only for a thesis", problems)
-
-
-PREFIXES = """
-@prefix sh: <http://www.w3.org/ns/shacl#> .
-@prefix schema: <https://schema.org/> .
-@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
-@prefix dash: <http://datashapes.org/dash#> .
-@prefix ex: <http://example.org/shapes#> .
-@prefix role: <http://example.org/vocab/role/> .
-"""
 
 
 class ShapeSaysTest(unittest.TestCase):

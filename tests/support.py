@@ -6,15 +6,14 @@ from pathlib import Path
 
 from gracia.graph import Graph, streaming_parse, streaming_serialize
 
+RDF = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+
 
 def must_search(pattern: str, text: str, flags: int = 0) -> re.Match:
     found = re.search(pattern, text, flags)
     if found is None:
         raise AssertionError(f"{pattern!r} not found in: {text[:300]!r}")
     return found
-
-
-RDF = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
 
 
 # triple = (s_type, s, p, o_type, o, lang, datatype)

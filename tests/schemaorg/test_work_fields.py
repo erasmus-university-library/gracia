@@ -18,6 +18,12 @@ from gracia.graph import Graph
 SCHEMA = "https://schema.org/"
 EX = "http://example.org/shapes#"
 GROUP_BOX = r'(?s)<div class="mb-3 field-group"[^>]*>(.*?)<!-- /field-group -->'
+PREFIXES = """
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix schema: <https://schema.org/> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix ex: <http://example.org/shapes#> .
+"""
 
 
 class GroupRunsTest(ListCase):
@@ -282,14 +288,6 @@ class InSupportOfTest(ListCase):
         problems = " ".join(map(str, work.validate()))
         self.assertIn("In support of is only for a thesis.", problems)
         self.assertIn("are only for a thesis", problems)
-
-
-PREFIXES = """
-@prefix sh: <http://www.w3.org/ns/shacl#> .
-@prefix schema: <https://schema.org/> .
-@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
-@prefix ex: <http://example.org/shapes#> .
-"""
 
 
 class FieldRuleTest(unittest.TestCase):

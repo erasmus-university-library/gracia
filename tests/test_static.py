@@ -19,9 +19,11 @@ from gracia import static
 # request
 _EXT = tempfile.TemporaryDirectory()
 EXT = Path(_EXT.name)
+EXT_LIBRARY = Library("gracia-test-ext", str(EXT))
+
+
 (EXT / "widget.js").write_text("window.widget = 1;")
 (EXT / "secret.txt").write_text("not a resource")
-EXT_LIBRARY = Library("gracia-test-ext", str(EXT))
 Resource(EXT_LIBRARY, "widget.js")
 fanstatic.get_library_registry().add(EXT_LIBRARY)
 

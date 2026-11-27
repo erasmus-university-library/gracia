@@ -11,7 +11,6 @@ from gracia import cli
 from gracia.graph import streaming_parse
 from gracia.store import Store
 
-DATA = Path(__file__).resolve().parent.parent / "data"
 # the subjects of the test data: only records (rec:<type>:<n>) are stored as records
 REC = {
     "alice": "rec:person:1",
@@ -30,6 +29,9 @@ REC = {
     "new1": "rec:new:1",
     "new2": "rec:new:2",
 }
+
+
+DATA = Path(__file__).resolve().parent.parent / "data"
 
 
 def rec(name: str) -> str:

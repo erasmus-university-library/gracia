@@ -6,7 +6,7 @@ import pyoxigraph as ox
 from pyramid.threadlocal import get_current_request
 from zope.interface import implementer
 
-from gracia import init, uri
+from gracia import uri
 from gracia.forms import Form, none_to_nulls, nulls_to_none, to_json
 from gracia.interfaces import IExtension, IRepository
 
@@ -21,6 +21,32 @@ class ExtensionError(ValueError):
 
 # ---- what the repository resource says
 # --------------------------------------------------------
+
+
+def _turtle_text(text: str) -> str:
+    escaped = text.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+    return f'"{escaped}"'
+
+
+def extension_turtle(
+    subject: str, name: str, settings: dict | None = None, enabled: bool | None = None
+) -> str:
+
+    lines = [f"gracia:extension_name {_turtle_text(name)}"]
+    if enabled is not None:
+        flag = "true" if enabled else "false"
+        lines.append(f'gracia:extension_is_enabled "{flag}"^^xsd:boolean')
+    if settings is not None:
+        lines.append(
+            "gracia:extension_settings "
+            f"{_turtle_text(json.dumps(settings, ensure_ascii=False))}"
+            f"^^<{uri.RDF_JSON}>"
+        )
+    return (
+        "@prefix gracia: <https://gracia.pub/ns/> .\n"
+        "@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n"
+        f"{subject} gracia:extension [ " + " ; ".join(lines) + " ] .\n"
+    )
 
 
 def _states(repository) -> dict[str, tuple[bool | None, dict]]:
@@ -57,7 +83,7 @@ def _write(repository, name: str, enabled: bool | None, settings: dict) -> None:
             )
     placeholder = ox.NamedNode("urn:gracia:content")
     parsed = ox.parse(
-        init.extension_turtle(
+        extension_turtle(
             f"<{placeholder.value}>", name, settings or None, enabled
         ).encode(),
         format=ox.RdfFormat.TURTLE,

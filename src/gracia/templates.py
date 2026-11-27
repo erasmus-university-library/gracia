@@ -82,7 +82,6 @@ from gracia.utils import assets, xslt
 # the permissions of the context that the request document says the user has: the
 # stylesheet cannot ask Python (SaxonC-HE does not call extension functions in Python)
 PERMISSIONS = ("view", "edit", "add", "manage")
-
 # the headers that a stylesheet may set in its response (a stylesheet that is made of
 # data is not trusted); the status is the view's
 ALLOWED_HEADERS = (
@@ -94,20 +93,16 @@ ALLOWED_HEADERS = (
     "vary",
     "link",
 )
-
 # the keys and the functions to jump between the resources of the RDF/XML: before the
 # layout and the page, whatever they are
 HELPERS = assets.resolve("gracia:assets/xslt/skin/rdf.xslt")
-
 DEFAULT_LAYOUT = "gracia:assets/xslt/skin/layout.xslt"
-
 FLASH_LEVELS = (
     "success",
     "info",
     "warning",
     "danger",
 )  # the queues of a flash message: Bootstrap's alert colours
-
 # what a view can give besides the values of its page, and what the document has of it
 DOCUMENT_ITEMS = (
     "rdfxml",
@@ -119,10 +114,18 @@ DOCUMENT_ITEMS = (
     "properties",
     "data",
 )
-
 # the stylesheets that were compiled, by file, with the time the file had: compiling
 # takes a while, running does not
 _STYLESHEETS: dict[str, tuple[int, xslt.Compiled]] = {}
+DEBUG_HELP = """Debug switches of this page, for who manages it (?debug=...):
+
+  ?debug=input       the document the stylesheet is given (application/xml)
+  ?debug=xslt        the stylesheet, not the files it imports (also ?debug=stylesheet)
+  ?debug=output      what the stylesheet makes, the <response> (application/xml)
+  ?debug=<anything>  this page: it runs the stylesheet and says how long each step took,
+                     what it said, what was logged, which files it is made of, and the
+                     error, in which step
+"""
 
 
 class _Records(logging.Handler):
@@ -134,17 +137,6 @@ class _Records(logging.Handler):
 
     def emit(self, record):
         self.lines.append(f"{record.levelname} {record.name}: {record.getMessage()}")
-
-
-DEBUG_HELP = """Debug switches of this page, for who manages it (?debug=...):
-
-  ?debug=input       the document the stylesheet is given (application/xml)
-  ?debug=xslt        the stylesheet, not the files it imports (also ?debug=stylesheet)
-  ?debug=output      what the stylesheet makes, the <response> (application/xml)
-  ?debug=<anything>  this page: it runs the stylesheet and says how long each step took,
-                     what it said, what was logged, which files it is made of, and the
-                     error, in which step
-"""
 
 
 class XsltRenderer:

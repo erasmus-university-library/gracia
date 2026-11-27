@@ -27,6 +27,19 @@ OTHER = [
 ADD, ADD_URL = "/test_repo/gadget/add", "/test_repo/gadget/sequence"
 EDIT = "/test_repo/gadget/1/edit"
 EDIT_URL = "http://localhost/test_repo/gadget/a-gadget/sequence"  # its slug
+SHAPES = """
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix ex: <http://example.org/> .
+ex:Thing a sh:NodeShape ; sh:targetClass ex:Thing ;
+  sh:property [ sh:path ex:one ; sh:node ex:Part ; sh:minCount 1 ; sh:maxCount 1 ] ;
+  sh:property [ sh:path ex:any ; sh:node ex:Part ] ;
+  sh:property [ sh:path ex:upto2 ; sh:node ex:Part ; sh:maxCount 2 ] ;
+  sh:property [ sh:path ex:one_to_3 ; sh:node ex:Part ;
+                sh:minCount 1 ; sh:maxCount 3 ] .
+ex:Part a sh:NodeShape ; sh:class ex:PartClass ;
+  sh:property [ sh:path ex:label ; sh:maxCount 1 ; sh:datatype xsd:string ] .
+"""
 
 
 class NestedFormTest(FormCase):
@@ -225,21 +238,6 @@ class NestedFormTest(FormCase):
         asked = [("sequence", "resource/place"), ("action", "add")]
         anonymous = self.web.post(ADD_URL, params=asked, expect_errors=True)
         self.assertIn(anonymous.status_int, (401, 403))
-
-
-SHAPES = """
-@prefix sh: <http://www.w3.org/ns/shacl#> .
-@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
-@prefix ex: <http://example.org/> .
-ex:Thing a sh:NodeShape ; sh:targetClass ex:Thing ;
-  sh:property [ sh:path ex:one ; sh:node ex:Part ; sh:minCount 1 ; sh:maxCount 1 ] ;
-  sh:property [ sh:path ex:any ; sh:node ex:Part ] ;
-  sh:property [ sh:path ex:upto2 ; sh:node ex:Part ; sh:maxCount 2 ] ;
-  sh:property [ sh:path ex:one_to_3 ; sh:node ex:Part ;
-                sh:minCount 1 ; sh:maxCount 3 ] .
-ex:Part a sh:NodeShape ; sh:class ex:PartClass ;
-  sh:property [ sh:path ex:label ; sh:maxCount 1 ; sh:datatype xsd:string ] .
-"""
 
 
 class CardinalityTest(FormCase):

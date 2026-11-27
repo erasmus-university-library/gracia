@@ -20,10 +20,15 @@ from citeproc import (
 )
 from citeproc.source.json import CiteProcJSON
 
-log = logging.getLogger("gracia.citations")
-
 DEFAULT_STYLE = "apa"
 STYLE_DIR = "csl"
+# the number a numeric style puts before an entry: `[1]`, `(1)`, `1.`; one record's
+# citation has no place in a list, so it has no number
+_NUMBER = re.compile(r"^(?:\[\d+\]|\(\d+\)|\d+\.)\s*")
+
+
+log = logging.getLogger("gracia.citations")
+
 _lock = threading.Lock()  # a style keeps state while it renders
 
 
@@ -38,11 +43,6 @@ def _style(name: str) -> CitationStylesStyle:
     path = resources.files("gracia") / "assets" / STYLE_DIR / f"{name}.csl"
     with resources.as_file(path) as real:
         return CitationStylesStyle(str(real), validate=False)
-
-
-# the number a numeric style puts before an entry: `[1]`, `(1)`, `1.`; one record's
-# citation has no place in a list, so it has no number
-_NUMBER = re.compile(r"^(?:\[\d+\]|\(\d+\)|\d+\.)\s*")
 
 
 @functools.lru_cache(maxsize=32)

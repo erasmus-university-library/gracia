@@ -49,6 +49,7 @@ REPOSITORY = """
         gracia:class foaf:Person ; gracia:assets "@ASSETS@" ; gracia:schemaTemplate
           "person-unittest-01.ttl" ] .
 """
+STOP = None  # a test may put the StopFlag of the running job here
 
 
 def person(
@@ -60,9 +61,6 @@ def person(
     props += [f'foaf:mbox "{mail}"'] if mail else []
     body = " ; ".join(["a foaf:Person", *props])
     return f"<rec:person:{number}> a gracia:Record ; gracia:resource [ {body} ] ."
-
-
-STOP = None  # a test may put the StopFlag of the running job here
 
 
 class Echo(Source):

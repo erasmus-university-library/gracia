@@ -11,7 +11,6 @@ from gracia.graph import ValidationError
 
 EX = "http://example.org/"
 PERSON = EX + "PersonShape"
-
 SHAPES = """@prefix sh: <http://www.w3.org/ns/shacl#> .
 @prefix ex: <http://example.org/> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .

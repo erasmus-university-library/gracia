@@ -21,6 +21,7 @@ POLL = 1.0  # seconds between looks, when nothing wakes the worker
 MAX_PAUSE = 60  # seconds: the longest the worker waits after a failure
 KINDS = ("insert", "update", "delete", "ref_update")
 
+
 log = logging.getLogger("gracia.change_events")
 
 

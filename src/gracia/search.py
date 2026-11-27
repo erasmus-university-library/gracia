@@ -12,8 +12,6 @@ import tantivy
 
 from gracia.graph import serialize_bytes
 
-log = logging.getLogger("gracia.search")
-
 FIELD_TYPES = ("integer", "text", "date", "boolean", "json")
 HEAP = 50_000_000  # bytes a writer may use for a batch
 LOOKUP_CAP = 1000  # the most records a lookup of references takes of what it finds
@@ -26,6 +24,14 @@ SEARCHED = (
 )  # what a query is looked for in, best first
 # the end of the directory an index is made in, with the token of the job
 BUILDING = ".building-"
+# what the index and the search page cannot do without: a record is deleted by its id,
+# and a hit is
+# a record
+# of a type that is or is not published
+REQUIRED_FIELDS = ("record_id", "record", "type", "published")
+
+
+log = logging.getLogger("gracia.search")
 
 
 @dataclass(frozen=True)
@@ -111,12 +117,6 @@ RECORDS = IndexDefinition(
         Field("modified", "date", fast=True),
     ),
 )
-
-# what the index and the search page cannot do without: a record is deleted by its id,
-# and a hit is
-# a record
-# of a type that is or is not published
-REQUIRED_FIELDS = ("record_id", "record", "type", "published")
 
 
 def definitions_for(repository) -> list[IndexDefinition]:

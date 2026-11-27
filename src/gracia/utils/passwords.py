@@ -5,6 +5,7 @@ import os
 
 N, R, P = 2**14, 8, 1
 MINIMUM_LENGTH = 8
+_DUMMY = None
 
 
 def _scrypt(password: str, salt: bytes, n: int, r: int, p: int) -> bytes:
@@ -31,9 +32,6 @@ def verify_password(password: str, stored: str) -> bool:
     except ValueError:
         return False
     return hmac.compare_digest(actual, expected)
-
-
-_DUMMY = None
 
 
 def verify_nothing(password: str) -> bool:

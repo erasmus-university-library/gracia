@@ -17,6 +17,23 @@ from gracia.change_events import RecordsChanged, process_pending
 from gracia.main import make_config
 from gracia.search import Indexes, on_records_changed
 
+AUTHOR = "https://schema.org/author"
+UNIVERSITY = "https://schema.org/CollegeOrUniversity"
+ADA, DELFT = "ark:/99999/ir/person/1", "ark:/99999/ir/organization/1"
+ADMIN = {"X-User": "admin"}
+POSTING = {**ADMIN, "Origin": "http://localhost:80"}
+PEOPLE = [f"ark:/99999/ir/person/{n}" for n in range(1, 5)]
+ADD = "/work_repo/work/add"
+EDIT = "/work_repo/work/{}/edit"
+WORK = "/refs/work/add"
+PREFIXES = """
+@prefix g: <https://gracia.pub/ns/> . @prefix schema: <https://schema.org/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+"""
+ROLE = "<http://example.org/vocab/role/%s>"
+NUMBERS = (1, 2, 3, 4, 5)
+HTML = {"Accept": "text/html"}
+
 
 def ark(kind: str, number: int) -> str:
     return f"<ark:/99999/ir/{kind}/{number}>"
@@ -68,19 +85,6 @@ def series(number: int, kind: str, name: str, issn: str) -> str:
     )
 
 
-AUTHOR = "https://schema.org/author"
-UNIVERSITY = "https://schema.org/CollegeOrUniversity"
-ADA, DELFT = "ark:/99999/ir/person/1", "ark:/99999/ir/organization/1"
-ADMIN = {"X-User": "admin"}
-POSTING = {**ADMIN, "Origin": "http://localhost:80"}
-PEOPLE = [f"ark:/99999/ir/person/{n}" for n in range(1, 5)]
-ADD = "/work_repo/work/add"
-EDIT = "/work_repo/work/{}/edit"
-WORK = "/refs/work/add"
-PREFIXES = """
-@prefix g: <https://gracia.pub/ns/> . @prefix schema: <https://schema.org/> .
-@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
-"""
 BASE = "".join(
     (
         person(1, "Ada Lovelace", "Ada", "Lovelace"),
@@ -113,7 +117,6 @@ ARTICLE = work(
     + identifier("DOI", "10.1000/xyz123", "https://doi.org/10.1000/xyz123"),
 )
 BARE = work(5, "Dataset", "Measurements")
-ROLE = "<http://example.org/vocab/role/%s>"
 THESIS = work(
     2,
     "Thesis",
@@ -141,7 +144,6 @@ NEWS = work(
     "Engines Run Late",
     f'schema:isPartOf {ark("series", 3)} ; schema:datePublished "2021-01-02"^^xsd:date',
 )
-NUMBERS = (1, 2, 3, 4, 5)
 
 
 class DatesCase(WebCase):
@@ -317,9 +319,6 @@ class WorkDocCase(ConfiguredCase):
         blob = self.doc(number)["csl"]
         assert isinstance(blob, str)  # a string: the search index gets one term
         return json.loads(blob)
-
-
-HTML = {"Accept": "text/html"}
 
 
 FILE = (

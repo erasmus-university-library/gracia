@@ -24,7 +24,7 @@ from pyramid.threadlocal import get_current_request
 from pyramid.view import view_config
 from zope.interface import implementer
 
-from gracia import forms, init, interfaces, predicates, search, static, uri
+from gracia import forms, interfaces, predicates, search, static, uri
 from gracia.api import document as api_document
 from gracia.extensions import ExtensionError, settings_form
 from gracia.forms import Form, edit_address, fragment
@@ -46,11 +46,8 @@ from gracia.types.type import (
 from gracia.utils import assets, dates, passwords, pretty_age, pretty_size, pretty_when
 from gracia.utils.validate import validate_userid
 
-log = logging.getLogger(__name__)
-
 _N = ox.NamedNode
 _RDF = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
-
 # what `gracia repo set` sets: the timezone and the locale of dates
 REPOSITORY_SETTINGS = {
     "timezone": uri.TIMEZONE,
@@ -59,7 +56,6 @@ REPOSITORY_SETTINGS = {
     "type_template": uri.TYPE_TEMPLATE,
     "record_template": uri.RECORD_TEMPLATE,
 }
-
 # the stylesheets of the pages, when the repository has none of its own: the setting
 # that
 # can name another, and the one that comes with gracia (`templates.py`)
@@ -74,6 +70,10 @@ SKIN_SPECS = {  # the stylesheet of gracia for each of them: the template of a v
     "record": "gracia:assets/xslt/view/record-minimal-01.xslt",
 }
 SKIN_KINDS = {spec: kind for kind, spec in SKIN_SPECS.items()}
+SHOWN = 10  # what a typeahead shows
+
+
+log = logging.getLogger(__name__)
 
 
 @implementer(IRepository)
@@ -280,7 +280,7 @@ class Repository:
                 ox.Quad(node, first, _N(item), graph),
                 ox.Quad(node, rest, following, graph),
             ]
-        type_record = init.type_turtle(record, content_type)
+        type_record = content_type.turtle(record)
         parsed = ox.parse(
             ("@prefix gracia: <https://gracia.pub/ns/> .\n" + type_record).encode(),
             format=ox.RdfFormat.TURTLE,
@@ -475,9 +475,6 @@ def api_defaults_to_json(event) -> None:
         and request.headers.get("Accept", "*/*").strip() == "*/*"
     ):
         request.accept = "application/json"
-
-
-SHOWN = 10  # what a typeahead shows
 
 
 class RepositoryView:

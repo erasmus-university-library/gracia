@@ -9,6 +9,7 @@ from gracia.utils import assets
 
 FOAF = "http://xmlns.com/foaf/0.1/"
 SHAPES = f"{FIXTURES}/foaf/shacl/"  # the foaf profiles are fixtures of the tests
+GOOD = {"name": "Ada Lovelace", "givenName": "Ada", "familyName": "Lovelace"}
 
 
 def person(**props) -> ox.Dataset:
@@ -30,9 +31,6 @@ def person(**props) -> ox.Dataset:
 def conforms(profile: str, **props) -> bool:
     path = assets.resolve(f"{SHAPES}person-{profile}-01.ttl")
     return validate(person(**props), path).conforms
-
-
-GOOD = {"name": "Ada Lovelace", "givenName": "Ada", "familyName": "Lovelace"}
 
 
 class ProfilesTest(unittest.TestCase):

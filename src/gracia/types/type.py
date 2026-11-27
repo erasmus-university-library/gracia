@@ -43,7 +43,6 @@ from zope.interface import implementer
 
 from gracia import (
     forms,
-    init,
     predicates,
     shacl,
     static,
@@ -58,27 +57,8 @@ from gracia.store import PAGE_SIZE, DuplicateValue, page_window
 from gracia.templates import XsltRenderer
 from gracia.utils import assets, dates, etags, pretty_modified
 
-log = logging.getLogger(__name__)
-
-
-class RecordDeleted(LookupError):
-    pass
-
-
-class RecordMoved(LookupError):
-    """A record was asked for by an address that is not its own now (its number, when it
-    has a slug; a slug it had before): it is at `record.__name__` below its type."""
-
-    def __init__(self, key: str, record: Record):
-        super().__init__(key)
-        self.key, self.record = key, record
-
-
 _N = ox.NamedNode
 _NUMBER = re.compile(r"^[1-9][0-9]{0,17}$")
-
-if TYPE_CHECKING:
-    from gracia.types.repository import Repository
 HIDDEN = frozenset({uri.CREDENTIALS})  # never shown, whoever asks and whatever it says
 RECORD_TEMPLATE = "gracia:assets/xslt/view/record-minimal-01.xslt"
 MANAGE_TEMPLATE = "gracia:assets/xslt/skin/manage.xslt"
@@ -101,11 +81,42 @@ EDITORS = {
     "rdfxml": "xml",
     "jsonld": "json",
 }  # editor.js
-
-
 # where the files of the types that come with gracia are (`shacl/`, `xslt/doc/`,
 # `xslt/view/`); a package of another place says where its own are
 BUNDLED_ASSETS = "gracia:assets/"
+
+
+log = logging.getLogger(__name__)
+
+
+class RecordDeleted(LookupError):
+    pass
+
+
+class RecordMoved(LookupError):
+    """A record was asked for by an address that is not its own now (its number, when it
+    has a slug; a slug it had before): it is at `record.__name__` below its type."""
+
+    def __init__(self, key: str, record: Record):
+        super().__init__(key)
+        self.key, self.record = key, record
+
+
+if TYPE_CHECKING:
+    from gracia.types.repository import Repository
+
+
+# the names and the slugs of the types a repository cannot work without (`system=True`)
+SYSTEM_TYPE_NAMES = frozenset(
+    {"Repository", "repository", "Type", "type", "User", "user", "UserGroup", "group"}
+)
+# what a type record may have in its fields (the Turtle is made of them)
+TYPE_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9]{0,62}$")
+SCHEMA_FILE = re.compile(r"^[a-z][a-z0-9]*-[a-z][a-z0-9_]*-[0-9]{2,}\.ttl$")
+DOC_FILE = re.compile(r"^[a-z][a-z0-9]*-[a-z][a-z0-9_]*-[0-9]{2,}\.xsl$")
+VIEW_FILE = re.compile(r"^[a-z][a-z0-9]*-[a-z][a-z0-9_]*-[0-9]{2,}\.xslt$")
+ASSETS_SPEC = re.compile(r"^[A-Za-z0-9_.:/-]+/?$")
+CLASS_URI = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:[^\s<>\"{}|\\^`]+$")
 
 
 @dataclass(frozen=True)
@@ -121,6 +132,38 @@ class ContentType:
     view: str | None = None  # the file in xslt/view/ that makes their pages
     assets: str = BUNDLED_ASSETS  # the asset spec of the directory with those
     system: bool = False  # a type a repository cannot work without
+
+    def turtle(self, record: str, resource_uri: str = "") -> str:
+        """The Turtle of the type record `record` (what a repository stores of the
+        type), when every field is right: a ValueError says which is not, and nothing
+        that goes into the Turtle can break it."""
+        for label, text, pattern in (
+            ("name", self.name, TYPE_NAME),
+            ("slug", self.slug, uri.SLUG_PATTERN),
+            ("class", self.class_uri, CLASS_URI),
+            ("schema", self.schema, SCHEMA_FILE),
+            ("assets", self.assets, ASSETS_SPEC),
+            ("doc template", self.doc or "none-none-01.xsl", DOC_FILE),
+            ("view", self.view or "none-none-01.xslt", VIEW_FILE),
+        ):
+            if not isinstance(text, str) or not pattern.match(text):
+                raise ValueError(f"invalid {label} for a type: {text!r}")
+        if self.slug in uri.RESERVED_SLUGS:
+            raise ValueError(f"the slug {self.slug!r} is a view, not a type")
+        text = (
+            f"\n<{record}> a gracia:Record ;\n"
+            f"    gracia:resource_uri <{resource_uri or self.class_uri}> ;\n"
+            f'    gracia:label "{self.name}" ;\n'
+            f'    gracia:resource [ a gracia:Type ; gracia:name "{self.name}" ;\n'
+            f'        gracia:slug "{self.slug}" ; gracia:class <{self.class_uri}> ;\n'
+            f'        gracia:assets "{self.assets}" ; gracia:schemaTemplate '
+            f'"{self.schema}"'
+        )
+        if self.doc:
+            text += f' ; gracia:docTemplate "{self.doc}"'
+        if self.view:
+            text += f' ; gracia:viewTemplate "{self.view}"'
+        return text + " ] .\n"
 
 
 @implementer(IType)
@@ -1848,13 +1891,11 @@ class TypeRecordView(RecordView):
 def check_declaration(cls: type[Record], declared: ContentType) -> None:
     """A ValueError that says what is wrong with what a class declares of its type."""
     where = cls.__module__
-    taken = set()
-    for name, slug, _class_uri in init.TYPES_AT_START:
-        taken.add(name)
-        taken.add(slug)
-    if not declared.system and (declared.name in taken or declared.slug in taken):
+    if not declared.system and (
+        declared.name in SYSTEM_TYPE_NAMES or declared.slug in SYSTEM_TYPE_NAMES
+    ):
         raise ValueError(f"{where}: {declared.name}/{declared.slug} is a system type")
-    init.type_turtle("rec:type:1", declared)  # checks every field
+    declared.turtle("rec:type:1")  # checks every field
     try:
         assets.resolve(
             assets.schema_spec(declared.assets, declared.schema, declared.slug)

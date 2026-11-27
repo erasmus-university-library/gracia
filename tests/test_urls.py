@@ -12,7 +12,6 @@ URL_ATTRIBUTES = re.compile(
 )
 ABSOLUTE = re.compile(r"^(https?://|#|mailto:|$)")
 ADMIN = {"X-User": "admin", "Accept": "text/html"}
-
 PAGES = (
     "/test_repo/api",
     "/test_repo/manage",

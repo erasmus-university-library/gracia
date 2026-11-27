@@ -24,8 +24,6 @@ LAYOUT = f"""<xsl:stylesheet version="3.0" {XSL}>
 PAGE = f"""<xsl:stylesheet version="3.0" {XSL}>
   <xsl:template match="/request" mode="title">MY PAGE</xsl:template>
 </xsl:stylesheet>"""
-
-
 # the helpers of rdf.xslt over the RDF/XML of two records, one that knows the other
 GRAPH = """@prefix gracia: <https://gracia.pub/ns/> . @prefix foaf: <http://xmlns.com/foaf/0.1/> .
 <rec:person:2> a gracia:Record ; gracia:label "Bob" ; gracia:slug "bob" ;
@@ -52,8 +50,6 @@ HELPERS_TEST = f"""<xsl:stylesheet version="3.0" {XSL} xmlns:f="https://gracia.p
         string(empty(f:objects($resource, '{FOAF}none')))), '|')"/>
   </xsl:template>
 </xsl:stylesheet>"""
-
-
 # the elements of HTML5 that have no end tag
 VOID = {
     "area",

@@ -8,7 +8,6 @@ from gracia import search
 from gracia.extensions import Extension, ExtensionError
 
 TOKENIZERS = ("default", "raw", "en_stem", "whitespace")
-
 # what the repository ships with: the definitions as settings (JSON-able), the default
 # of the form
 DEFAULT_INDEXES = [

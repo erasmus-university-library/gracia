@@ -11,25 +11,17 @@ from conftest import prepared
 from support import must_search
 from test_web import WebCase
 
-from gracia import init, uri
+from gracia import uri
 from gracia import uri as gracia_uri
 from gracia.interfaces import IRecordType
 from gracia.main import make_config
+from gracia.presets.minimal import MinimalPreset
 from gracia.types.type import Record
 from gracia.types.user import UserRecord
 
 ADMIN = ("admin", "correct horse")
 EDITOR = ("ed", "editor password")
 FOAF = "http://xmlns.com/foaf/0.1/"
-
-
-def basic(user: str, password: str) -> dict:
-    return {
-        "Authorization": "Basic "
-        + base64.b64encode(f"{user}:{password}".encode()).decode()
-    }
-
-
 # a type that is not a system type: people, with a name and a mail address
 PEOPLE = """
 @prefix gracia: <https://gracia.pub/ns/> .
@@ -49,8 +41,6 @@ PEOPLE = """
     gracia:resource [ a foaf:Person ; foaf:name "Ada" ; foaf:knows
       <ark:/99999/ir/person/2> ] .
 """
-
-
 PERSON_PREFIXES = """
 @prefix sh: <http://www.w3.org/ns/shacl#> .
 @prefix dash: <http://datashapes.org/dash#> .
@@ -72,8 +62,6 @@ PERSON_SCHEMAS = {
         dash:propertyRole dash:LabelRole ;
         sh:datatype xsd:string ; sh:minCount 1 ; sh:maxCount 1 ] .""",
 }
-
-
 # The schema files of the person type, in a directory that is made once in a process and
 # written
 # clean at the
@@ -85,6 +73,15 @@ PERSON_SCHEMAS = {
 # processes, and the
 # tests of one run one after the other.
 _PERSON_FILES = Path(tempfile.mkdtemp(prefix="gracia_test_person_"))
+
+
+def basic(user: str, password: str) -> dict:
+    return {
+        "Authorization": "Basic "
+        + base64.b64encode(f"{user}:{password}".encode()).decode()
+    }
+
+
 atexit.register(shutil.rmtree, _PERSON_FILES, ignore_errors=True)
 
 
@@ -113,7 +110,7 @@ class EditCase(WebCase):
                 ox.Dataset(ox.parse(people.encode(), format=ox.RdfFormat.TURTLE))
             )
             store.put_multi(
-                init.user_dataset(
+                MinimalPreset.user_dataset(
                     "rec:user:2", EDITOR[0], EDITOR[1], ["ark:/99999/ir/group/2"]
                 )
             )

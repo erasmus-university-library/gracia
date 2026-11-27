@@ -14,13 +14,27 @@ import lmdb
 from gracia.uri import XSL_NS
 from gracia.utils import assets, xslt
 
-log = logging.getLogger(__name__)
-
 GRAPH_CACHE_BYTES = (
     2 * 1024**3
 )  # the most LMDB maps; the file only grows as far as it is filled
-
 STATS_LIMIT = 100_000  # entries counted for the stats of a repository, no more
+# The most each LMDB file can hold (`gracia.cache.<name>_size` in the config); a file
+# only grows as far as it is filled, and a cache that is full is emptied and starts
+# again.
+# An etag takes about 100 bytes, a slug about 80
+ETAG_CACHE_BYTES = 256 * 1024**2
+SLUG_CACHE_BYTES = 64 * 1024**2
+REFERENCING_CACHE_BYTES = 512 * 1024**2
+DEFAULT_CACHE_BYTES = {
+    "graphs": GRAPH_CACHE_BYTES,
+    "docs": GRAPH_CACHE_BYTES,
+    "etags": ETAG_CACHE_BYTES,
+    "slugs": SLUG_CACHE_BYTES,
+    "referencing": REFERENCING_CACHE_BYTES,
+}
+
+
+log = logging.getLogger(__name__)
 
 
 class GraphStore:
@@ -85,22 +99,6 @@ class GraphStore:
 
     def close(self) -> None:
         self._env.close()
-
-
-# The most each LMDB file can hold (`gracia.cache.<name>_size` in the config); a file
-# only grows as far as it is filled, and a cache that is full is emptied and starts
-# again.
-# An etag takes about 100 bytes, a slug about 80
-ETAG_CACHE_BYTES = 256 * 1024**2
-SLUG_CACHE_BYTES = 64 * 1024**2
-REFERENCING_CACHE_BYTES = 512 * 1024**2
-DEFAULT_CACHE_BYTES = {
-    "graphs": GRAPH_CACHE_BYTES,
-    "docs": GRAPH_CACHE_BYTES,
-    "etags": ETAG_CACHE_BYTES,
-    "slugs": SLUG_CACHE_BYTES,
-    "referencing": REFERENCING_CACHE_BYTES,
-}
 
 
 def delete_range_batched(

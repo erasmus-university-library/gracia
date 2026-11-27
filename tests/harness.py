@@ -22,6 +22,20 @@ from gracia.types.series import SeriesRecord
 from gracia.types.type import ContentType
 from gracia.types.work import WorkRecord
 
+SHAPE_PREFIXES = """
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix dash: <http://datashapes.org/dash#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix gracia: <https://gracia.pub/ns/> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix ex: <http://example.org/> .
+"""
+_SHAPE_DIRS = Path(tempfile.mkdtemp(prefix="gracia_test_shapes_"))
+_SHAPE_TYPES: dict[tuple, ContentType] = {}
+
+
 __all__ = [
     "FOAF_PERSON",
     "ConfiguredCase",
@@ -61,19 +75,7 @@ FOAF_PERSON = ContentType(
 )  # the person of the foaf profiles: the tests of the forms and the hooks use it
 
 
-SHAPE_PREFIXES = """
-@prefix sh: <http://www.w3.org/ns/shacl#> .
-@prefix dash: <http://datashapes.org/dash#> .
-@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
-@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
-@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
-@prefix gracia: <https://gracia.pub/ns/> .
-@prefix foaf: <http://xmlns.com/foaf/0.1/> .
-@prefix ex: <http://example.org/> .
-"""
-_SHAPE_DIRS = Path(tempfile.mkdtemp(prefix="gracia_test_shapes_"))
 atexit.register(shutil.rmtree, _SHAPE_DIRS, ignore_errors=True)
-_SHAPE_TYPES: dict[tuple, ContentType] = {}
 
 
 def shape_type(

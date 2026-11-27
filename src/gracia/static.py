@@ -11,6 +11,7 @@ from gracia.utils import assets
 
 SIGNATURE = "_static"  # the first path segment of every URL here: never a repository id
 
+
 library = Library("gracia", "assets/static")
 bootstrap_css = Resource(library, "css/bootstrap.min.css")
 gracia_css = Resource(library, "css/gracia.css", depends=[bootstrap_css])

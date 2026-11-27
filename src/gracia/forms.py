@@ -20,6 +20,53 @@ from gracia.graph import Graph
 from gracia.uri import G_NS, PROPERTY_TEMPLATE, SH_NS, parse_record_uri
 from gracia.utils import assets, dates
 
+GENERIC_ICON = "link-45deg"  # of a reference to a record, when it is not said what of
+# the languages that the menu of a LanguageWidget lists, by their codes
+LANGUAGES = [
+    ("en", "English"),
+    ("nl", "Dutch"),
+    ("fr", "French"),
+    ("de", "German"),
+    ("es", "Spanish"),
+    ("it", "Italian"),
+    ("pt", "Portuguese"),
+    ("ru", "Russian"),
+    ("zh", "Chinese"),
+    ("ja", "Japanese"),
+    ("ar", "Arabic"),
+]
+DASH_ICON_ROLE = ox.NamedNode("http://datashapes.org/dash#IconRole")
+PROPERTY_ROLE = ox.NamedNode("http://datashapes.org/dash#propertyRole")
+SH_OR, SH_PROPERTY, SH_PATH = (SH_NS["or"], SH_NS.property, SH_NS.path)
+SH_HAS_VALUE = SH_NS.hasValue
+RDF_NS = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+RDFS_LABEL = "http://www.w3.org/2000/01/rdf-schema#label"
+RDF_TYPE = RDF_NS + "type"
+IRI_TEXT = r"[A-Za-z][A-Za-z0-9+.-]*:[^\s<>\"{}|\\^`]+\Z"  # what can be an IRI here
+LANG_STRING = ox.NamedNode(RDF_NS + "langString")
+DASH = "http://datashapes.org/dash#"
+DASH_TEXT_AREA = ox.NamedNode(DASH + "TextAreaEditor")  # a text area of four lines
+DASH_URI = ox.NamedNode(
+    DASH + "URIEditor"
+)  # an IRI, as text (no widget of its own yet)
+LIST_EDITOR = ox.NamedNode(
+    G_NS.URIListEditor
+)  # an rdf:list of IRIs, in the order the form puts them in
+LANGUAGE_EDITOR = ox.NamedNode(
+    G_NS.LanguageEditor
+)  # a language code, with a menu of languages
+LANGUAGE_CODE = re.compile(r"[A-Za-z]{1,8}(-[A-Za-z0-9]{1,8})*\Z")
+# what a shape says of its properties (dash): the role a property has in a page of a
+# record (`property_roles`) and the class it is the unique value for
+ROLE_NAMES = {
+    DASH + "LabelRole": "label",
+    DASH + "KeyInfoRole": "key_info",
+    DASH + "DescriptionRole": "description",
+}
+UNIQUE_VALUE_FOR_CLASS = DASH + "uniqueValueForClass"
+_TEMPLATES: dict[str, PageTemplateFile] = {}
+
+
 TEMPLATES = Path(__file__).parent / "assets" / "templates" / "deform"
 # Deform's own templates, with ours in front (so far the form with tabs; more are
 # expected: Deform
@@ -266,9 +313,6 @@ class LanguageCodeWidget(deform.widget.TextInputWidget):
         )
 
 
-GENERIC_ICON = "link-45deg"  # of a reference to a record, when it is not said what of
-
-
 # The records of the resources a form refers to, by their uris (what the form needs of
 # them: the label to show, and the address to edit them at): asked of the store in
 # one go for what the form has (`prefetch`: they are all in the repository already), and
@@ -503,22 +547,6 @@ def localize_dates(node: colander.SchemaNode, repository) -> None:
             widget.repository = repository
 
 
-# the languages that the menu of a LanguageWidget lists, by their codes
-LANGUAGES = [
-    ("en", "English"),
-    ("nl", "Dutch"),
-    ("fr", "French"),
-    ("de", "German"),
-    ("es", "Spanish"),
-    ("it", "Italian"),
-    ("pt", "Portuguese"),
-    ("ru", "Russian"),
-    ("zh", "Chinese"),
-    ("ja", "Japanese"),
-    ("ar", "Arabic"),
-]
-
-
 # a text input (or area) with the language of the text as an addon: a short input for
 # the code and a caret that opens a menu of common languages (language.js puts the one
 # chosen in the input); its node is a mapping of `value` and `lang`
@@ -726,10 +754,6 @@ def nested_class(shapes: Graph, shape) -> str | None:
     return None
 
 
-DASH_ICON_ROLE = ox.NamedNode("http://datashapes.org/dash#IconRole")
-PROPERTY_ROLE = ox.NamedNode("http://datashapes.org/dash#propertyRole")
-
-
 # the name of a Bootstrap icon (without "bi-") that a shape has with the icon role (its
 # sh:defaultValue); a property shape with none has the one of the node it points at
 def icon(shapes: Graph, *candidates) -> str | None:
@@ -746,15 +770,6 @@ def nested_shape(shapes: Graph, prop):
         return None
     shapes = _objects(shapes, prop, "node")
     return shapes[0] if shapes else None
-
-
-SH_OR, SH_PROPERTY, SH_PATH = (SH_NS["or"], SH_NS.property, SH_NS.path)
-SH_HAS_VALUE = SH_NS.hasValue
-RDF_NS = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
-RDFS_LABEL = "http://www.w3.org/2000/01/rdf-schema#label"
-RDF_TYPE = RDF_NS + "type"
-IRI_TEXT = r"[A-Za-z][A-Za-z0-9+.-]*:[^\s<>\"{}|\\^`]+\Z"  # what can be an IRI here
-LANG_STRING = ox.NamedNode(RDF_NS + "langString")
 
 
 def _list_items(shapes: Graph, head) -> list:
@@ -795,22 +810,6 @@ def date_kinds(shapes: Graph, prop) -> tuple[str, ...]:
     if found and all(d in dates.KINDS for d in found):
         return tuple(d for d in dates.KINDS if d in found)
     return ()
-
-
-DASH = "http://datashapes.org/dash#"
-DASH_TEXT_AREA = ox.NamedNode(DASH + "TextAreaEditor")  # a text area of four lines
-DASH_URI = ox.NamedNode(
-    DASH + "URIEditor"
-)  # an IRI, as text (no widget of its own yet)
-
-
-LIST_EDITOR = ox.NamedNode(
-    G_NS.URIListEditor
-)  # an rdf:list of IRIs, in the order the form puts them in
-LANGUAGE_EDITOR = ox.NamedNode(
-    G_NS.LanguageEditor
-)  # a language code, with a menu of languages
-LANGUAGE_CODE = re.compile(r"[A-Za-z]{1,8}(-[A-Za-z0-9]{1,8})*\Z")
 
 
 def has_editor(shapes: Graph, prop, editor) -> bool:
@@ -1469,16 +1468,6 @@ def edit_address(request, repository, record: str, slug: str | None) -> str:
     )
 
 
-# what a shape says of its properties (dash): the role a property has in a page of a
-# record (`property_roles`) and the class it is the unique value for
-ROLE_NAMES = {
-    DASH + "LabelRole": "label",
-    DASH + "KeyInfoRole": "key_info",
-    DASH + "DescriptionRole": "description",
-}
-UNIQUE_VALUE_FOR_CLASS = DASH + "uniqueValueForClass"
-
-
 def property_paths(shapes: Graph, shape, above: tuple = ()) -> set[str]:
     found: set[str] = set()
     for path, prop in properties(shapes, shape):
@@ -1525,9 +1514,6 @@ def property_roles(
 
     walk(shape, ())
     return found
-
-
-_TEMPLATES: dict[str, PageTemplateFile] = {}
 
 
 def template(spec: str) -> PageTemplateFile:

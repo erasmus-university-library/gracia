@@ -18,6 +18,7 @@ from gracia.jobs.db import NOW, JobsDb
 
 ECHO = echo()
 
+
 TESTS = str(Path(__file__).resolve().parent)
 
 

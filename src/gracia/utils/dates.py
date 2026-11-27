@@ -15,7 +15,6 @@ XSD_DATE = uri.XSD_NS.date
 XSD_YEAR_MONTH = uri.XSD_NS.gYearMonth
 XSD_YEAR = uri.XSD_NS.gYear
 KINDS = (XSD_DATE, XSD_YEAR_MONTH, XSD_YEAR)  # the datatypes the date widget handles
-
 # locale -> (order of day, month and year, separator); "" is ISO 8601
 FORMATS: dict[str, tuple[str, str]] = {
     "": ("ymd", "-"),
@@ -45,9 +44,11 @@ NAMES = {
     "ja-JP": "Japanese",
     "zh-CN": "Chinese",
 }
-
 ISO = re.compile(r"^(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?$")
 PARTS = re.compile(r"[-/.\s]+")
+# the first day of the week of the locale (0: Sunday, 1: Monday); ISO weeks begin on a
+# Monday
+FIRST_DAY = {"en-US": 0, "pt-BR": 0, "ja-JP": 0, "zh-CN": 0}
 
 
 def _format(locale: str) -> tuple[str, str]:
@@ -58,11 +59,6 @@ def _join(locale: str, year: str, month: str | None, day: str | None) -> str:
     order, sep = _format(locale)
     given = {"y": year, "m": month, "d": day}
     return sep.join(v for k in order if (v := given[k]) is not None)
-
-
-# the first day of the week of the locale (0: Sunday, 1: Monday); ISO weeks begin on a
-# Monday
-FIRST_DAY = {"en-US": 0, "pt-BR": 0, "ja-JP": 0, "zh-CN": 0}
 
 
 def first_day(locale: str) -> int:

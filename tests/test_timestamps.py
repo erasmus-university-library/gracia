@@ -10,14 +10,13 @@ from test_web import HeaderPolicy, WebCase
 from gracia import uri
 from gracia.main import make_config
 
-
-def naive_utc(text: str) -> datetime:
-    return datetime.fromisoformat(text.replace("Z", "+00:00")).replace(tzinfo=None)
-
-
 ADMIN = {"X-User": "admin"}
 POSTING = {**ADMIN, "Origin": "http://localhost:80"}
 XSD = "http://www.w3.org/2001/XMLSchema#"
+
+
+def naive_utc(text: str) -> datetime:
+    return datetime.fromisoformat(text.replace("Z", "+00:00")).replace(tzinfo=None)
 
 
 class TimesCase(WebCase):

@@ -19,27 +19,6 @@ from gracia.utils import assets, xslt
 RDF = "{http://www.w3.org/1999/02/22-rdf-syntax-ns#}RDF"
 RDFXML = '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"/>'
 XSL = 'xmlns:xsl="http://www.w3.org/1999/XSL/Transform"'
-
-
-def response_of(select: str, headers: str = "") -> str:
-    """A stylesheet whose response has the value of an XPath for its body."""
-    return f"""<xsl:stylesheet version="3.0" {XSL}>
-  <xsl:output method="xml"/>
-  <xsl:template match="/request">
-    <response>
-      <headers>{headers}</headers>
-      <body><xsl:value-of select="{select}"/></body>
-    </response>
-  </xsl:template>
-</xsl:stylesheet>"""
-
-
-# says what the view gave its page
-STYLESHEET = response_of("'Hi ' || string-join(view/param/(@name || '=' || .), ',')")
-# says what is in the body and what the listing used
-DATA = response_of(
-    "string-join((name(body/*), records/@page, records/record/@uri), ' ')"
-)
 COMMON = f"""<xsl:stylesheet version="3.0" {XSL}>
   <xsl:template name="who">common</xsl:template>
 </xsl:stylesheet>"""
@@ -92,6 +71,27 @@ TYPED = f"""<xsl:stylesheet version="3.0" {XSL} xmlns:xs="http://www.w3.org/2001
     <xsl:value-of select="$greeting, $count + 1, $ratio * 2, $flag, $request/request/@method"/>
   </xsl:template>
 </xsl:stylesheet>"""
+
+
+def response_of(select: str, headers: str = "") -> str:
+    """A stylesheet whose response has the value of an XPath for its body."""
+    return f"""<xsl:stylesheet version="3.0" {XSL}>
+  <xsl:output method="xml"/>
+  <xsl:template match="/request">
+    <response>
+      <headers>{headers}</headers>
+      <body><xsl:value-of select="{select}"/></body>
+    </response>
+  </xsl:template>
+</xsl:stylesheet>"""
+
+
+# says what the view gave its page
+STYLESHEET = response_of("'Hi ' || string-join(view/param/(@name || '=' || .), ',')")
+# says what is in the body and what the listing used
+DATA = response_of(
+    "string-join((name(body/*), records/@page, records/record/@uri), ' ')"
+)
 
 
 def found(element, path: str):

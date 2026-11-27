@@ -15,7 +15,7 @@ from harness import declared, opened
 from pyramid.exceptions import ConfigurationConflictError
 from test_web import WebCase
 
-from gracia import cli, init, interfaces, scan, uri
+from gracia import cli, interfaces, scan, uri
 from gracia.interfaces import IRecordType
 from gracia.main import make_config
 from gracia.types import type as type_module
@@ -162,7 +162,7 @@ class DeclarationTest(WebCase):
         ):
             broken = dataclasses.replace(found, **{attribute: value})
             with self.assertRaises(ValueError):
-                init.type_turtle("rec:type:9", broken)
+                broken.turtle("rec:type:9")
 
     def test_a_class_that_only_inherits_its_declaration_is_another_class_of_the_type(
         self,
@@ -324,7 +324,7 @@ class RepositoryTest(WebCase):
         )
 
     def test_a_content_type_that_is_wrong_is_refused_before_anything_is_made(self):
-        broken = SimpleNamespace(**{**self.widget.__dict__, "slug": "Bad Slug"})
+        broken = dataclasses.replace(self.widget, slug="Bad Slug")
         with self.assertRaises(ValueError):
             self.application.create_repository("test_repo", content_types=[broken])
         self.assertEqual(self.application.list_repositories(), [])

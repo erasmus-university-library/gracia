@@ -123,7 +123,8 @@ def repository_uri() -> str:
 # the numbers of the types a repository starts with: the numbers of their type records,
 # which are
 # made
-# in this order (`init.TYPES_AT_START`). The database knows them from the start
+# in this order (`presets/minimal.py`, `SYSTEM_TYPES`). The database knows them from
+# the start
 # (`record_id`); the
 # types that are added later get the next numbers, and a type never has another number
 BASE_TYPE_NUMBERS = {"repository": 1, "type": 2, "user": 3, "group": 4}

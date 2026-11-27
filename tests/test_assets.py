@@ -15,7 +15,8 @@ from pyramid.config import Configurator
 from pyramid.threadlocal import manager
 from test_web import WebCase
 
-from gracia import cli, init, uri
+from gracia import cli, uri
+from gracia.types import type as type_module
 from gracia.utils import assets
 
 SHAPE = """
@@ -104,7 +105,10 @@ class ShapeLoadingTest(unittest.TestCase):
         ):
             self.assertIsNotNone(
                 assets.shape(
-                    init.TYPE_ASSETS, f"{slug}-minimal-01.ttl", class_uri, slug
+                    type_module.BUNDLED_ASSETS,
+                    f"{slug}-minimal-01.ttl",
+                    class_uri,
+                    slug,
                 ),
                 slug,
             )

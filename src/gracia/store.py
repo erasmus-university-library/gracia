@@ -21,20 +21,15 @@ from gracia.graph import Graph, dataset_rdfxml
 _SQL = files("gracia") / "assets" / "sql"
 _IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 BATCH = 50_000
-
 # a load that loses a race with another writer is repeated this many times before it
 # gives up
 LOAD_ATTEMPTS = 20
-
 TYPE_SLUG = re.compile(r"^[a-z][a-z0-9-]{0,62}$")
-
 _STAGING_COLUMNS = (
     "s VARCHAR, s_type VARCHAR, p VARCHAR, o VARCHAR, o_type VARCHAR, "
     "o_lang VARCHAR, o_dt VARCHAR"
 )
 _ROW_COLUMNS = "s, s_type, p, o, o_type, o_lang, o_dt"
-
-
 # the transition tables of the triggers that keep `records` (and its two list tables) up
 # to date,
 # and the subjects of the records that changed
@@ -47,9 +42,55 @@ _RECORD_EVENTS = {
     "delete": ("OLD TABLE AS changed", "SELECT s FROM changed"),
 }
 _RECORD_STEPS = 23  # triggers per event, they fire in the order of their names
-
-
 _TYPE_NUMBER = re.compile(r"\(n_ = (\d+)\)\) THEN \('((?:[^']|'')*)'\)")
+DEFAULT_REPOSITORY = (
+    "main"  # DuckDB's own default schema: the repository the commands use by default
+)
+REPOSITORY_ID = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
+# ids that would clash with DuckDB's own schemas or with the first path segments of the
+# web app
+RESERVED_REPOSITORY_IDS = frozenset(
+    {
+        "information_schema",
+        "pg_catalog",
+        "temp",
+        "system",
+        "docs",
+        "redoc",
+        "openapi",
+        "api",
+        "static",
+        "health",
+        "repositories",
+    }
+)
+# DuckDB words the unique key of `unique_values` in two ways: as the insert of a row
+# finds the
+# other, and as a bulk insert finds two of its own rows alike
+_DUPLICATE = re.compile(
+    r'Duplicate key "rec_type: (.*?), p: (.*?), value: (.*)" violates unique'
+    r'|duplicate key "([a-z][a-z0-9-]*), ([^,]+), (.*)"'
+)
+# up to this many touched records the records made of them are found by one
+# `list_contains` per
+# touched record on each row (measured: 2 ms each at 100,000 records, where
+# `list_has_any` takes
+# 30 ms whatever the list), beyond it by unnesting the arrays and joining (a constant 7
+# ms)
+ETAGS_CONTAINS_UP_TO = 4
+# more records made of the changed ones than this: they are not walked again when what
+# the changed
+# ones point at is the same, their etag is moved by the change of the local hashes
+# instead
+ETAGS_DELTA_ABOVE = 200
+# the order `etags` is kept in: what `Store.referencing_records` reads, newest created
+# first,
+# with no ORDER BY
+ETAGS_ORDER = "ORDER BY record_type, sort_key DESC, record_id"
+PAGE_SIZE = 20  # records on a page of a listing; the last page has up to twice as many
+EMPTY_TOTALS = (
+    "CAST(MAP {} AS MAP(VARCHAR, STRUCT(total_all BIGINT, total_published BIGINT)))"
+)
 
 
 def _type_macros(types: dict[str, int], replace: bool) -> str:
@@ -116,29 +157,6 @@ def _uris_arg(uris) -> str:
     return "NULL" if values is None else sql_list(values)
 
 
-DEFAULT_REPOSITORY = (
-    "main"  # DuckDB's own default schema: the repository the commands use by default
-)
-REPOSITORY_ID = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
-# ids that would clash with DuckDB's own schemas or with the first path segments of the
-# web app
-RESERVED_REPOSITORY_IDS = frozenset(
-    {
-        "information_schema",
-        "pg_catalog",
-        "temp",
-        "system",
-        "docs",
-        "redoc",
-        "openapi",
-        "api",
-        "static",
-        "health",
-        "repositories",
-    }
-)
-
-
 class DuplicateValue(ValueError):
     def __init__(self, rec_type: str, predicate: str, value: str, holder: str | None):
         self.rec_type, self.predicate, self.value, self.holder = (
@@ -150,15 +168,6 @@ class DuplicateValue(ValueError):
         name = predicate.rsplit("#", 1)[-1].rsplit("/", 1)[-1]
         by = f" (by {holder})" if holder else ""
         super().__init__(f"The {name} {value!r} is taken{by}")
-
-
-# DuckDB words the unique key of `unique_values` in two ways: as the insert of a row
-# finds the
-# other, and as a bulk insert finds two of its own rows alike
-_DUPLICATE = re.compile(
-    r'Duplicate key "rec_type: (.*?), p: (.*?), value: (.*)" violates unique'
-    r'|duplicate key "([a-z][a-z0-9-]*), ([^,]+), (.*)"'
-)
 
 
 class NoSuchRepository(ValueError):
@@ -189,28 +198,6 @@ def _repository_exists(con, catalog: str, repo: str) -> bool:
             [catalog, repo],
         ).fetchone()[0]
     )
-
-
-# up to this many touched records the records made of them are found by one
-# `list_contains` per
-# touched record on each row (measured: 2 ms each at 100,000 records, where
-# `list_has_any` takes
-# 30 ms whatever the list), beyond it by unnesting the arrays and joining (a constant 7
-# ms)
-ETAGS_CONTAINS_UP_TO = 4
-# more records made of the changed ones than this: they are not walked again when what
-# the changed
-# ones point at is the same, their etag is moved by the change of the local hashes
-# instead
-ETAGS_DELTA_ABOVE = 200
-# the order `etags` is kept in: what `Store.referencing_records` reads, newest created
-# first,
-# with no ORDER BY
-ETAGS_ORDER = "ORDER BY record_type, sort_key DESC, record_id"
-PAGE_SIZE = 20  # records on a page of a listing; the last page has up to twice as many
-EMPTY_TOTALS = (
-    "CAST(MAP {} AS MAP(VARCHAR, STRUCT(total_all BIGINT, total_published BIGINT)))"
-)
 
 
 def page_window(total: int, page: int | None, size: int) -> tuple[int, int, int, int]:

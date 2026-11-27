@@ -9,8 +9,6 @@ pass what it does not check.
 import json
 from pathlib import Path
 
-DATA = Path(__file__).parent.parent / "data" / "csl-data.json"
-SCHEMA = json.loads(DATA.read_text())
 CHECKED = {
     "$ref",
     "type",
@@ -44,6 +42,10 @@ TYPES = {
     "boolean": lambda v: isinstance(v, bool),
     "null": lambda v: v is None,
 }
+
+
+DATA = Path(__file__).parent.parent / "data" / "csl-data.json"
+SCHEMA = json.loads(DATA.read_text())
 
 
 def _resolve(ref: str) -> dict:

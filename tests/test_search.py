@@ -25,6 +25,17 @@ from gracia.search import (
 )
 
 XSD = "http://www.w3.org/2001/XMLSchema#"
+OFFERED = [{**f.as_dict(), "types": ["person", "work"]} for f in RECORDS.fields] + [
+    {
+        "name": "given_name",
+        "type": "text",
+        "stored": True,
+        "indexed": True,
+        "fast": False,
+        "tokenizer": "default",
+        "types": ["person"],
+    }
+]
 
 
 def person(
@@ -722,19 +733,6 @@ class SearchPageTest(ManageCase):
         self.application["archive"].extension("search").enable()
         self.application.indexes = Indexes(self.index_dir + "/elsewhere")
         self.assertIn("not there yet", self.page("ada").text)
-
-
-OFFERED = [{**f.as_dict(), "types": ["person", "work"]} for f in RECORDS.fields] + [
-    {
-        "name": "given_name",
-        "type": "text",
-        "stored": True,
-        "indexed": True,
-        "fast": False,
-        "tokenizer": "default",
-        "types": ["person"],
-    }
-]
 
 
 class CompareTest(SearchCase):

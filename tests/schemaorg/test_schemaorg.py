@@ -17,6 +17,26 @@ SCHEMAORG = {
     "series": "https://schema.org/CreativeWorkSeries",
     "work": "https://schema.org/CreativeWork",
 }
+PARENTS = """
+<rec:organization:1> a gracia:Record ; gracia:resource_uri <ark:/99999/ir/organization/1> ;
+  gracia:resource [ a schema:Organization ; schema:name "University" ] .
+<rec:organization:2> a gracia:Record ; gracia:resource_uri <ark:/99999/ir/organization/2> ;
+  gracia:resource [ a schema:Organization ; schema:name "Library" ;
+    schema:parentOrganization <ark:/99999/ir/organization/1> ] .
+<rec:organization:3> a gracia:Record ; gracia:resource_uri <ark:/99999/ir/organization/3> ;
+  gracia:resource [ a schema:Organization ; schema:name "Archive" ;
+    schema:parentOrganization [ a schema:Organization ; schema:name "Library" ;
+      schema:parentOrganization [ a schema:Organization ; schema:name "University" ] ] ] .
+<rec:organization:4> a gracia:Record ; gracia:resource_uri <ark:/99999/ir/organization/4> ;
+  gracia:resource [ a schema:Organization ; schema:name "Nameless parent" ;
+    schema:parentOrganization [ a schema:Organization ] ] .
+<rec:collection:1> a gracia:Record ; gracia:resource_uri <ark:/99999/ir/collection/1> ;
+  gracia:resource [ a schema:Collection ; schema:name "Theses" ] .
+<rec:collection:2> a gracia:Record ; gracia:resource_uri <ark:/99999/ir/collection/2> ;
+  gracia:resource [ a schema:Collection ; schema:name "Theses 2026" ;
+    schema:publisher <ark:/99999/ir/organization/1> ;
+    schema:isPartOf <ark:/99999/ir/collection/1> ] .
+"""
 
 
 class TypesTest(unittest.TestCase):
@@ -85,28 +105,6 @@ class TypesTest(unittest.TestCase):
                     if path != RDF_TYPE
                 ]
                 self.assertEqual(first[0], SCHEMA + "name")
-
-
-PARENTS = """
-<rec:organization:1> a gracia:Record ; gracia:resource_uri <ark:/99999/ir/organization/1> ;
-  gracia:resource [ a schema:Organization ; schema:name "University" ] .
-<rec:organization:2> a gracia:Record ; gracia:resource_uri <ark:/99999/ir/organization/2> ;
-  gracia:resource [ a schema:Organization ; schema:name "Library" ;
-    schema:parentOrganization <ark:/99999/ir/organization/1> ] .
-<rec:organization:3> a gracia:Record ; gracia:resource_uri <ark:/99999/ir/organization/3> ;
-  gracia:resource [ a schema:Organization ; schema:name "Archive" ;
-    schema:parentOrganization [ a schema:Organization ; schema:name "Library" ;
-      schema:parentOrganization [ a schema:Organization ; schema:name "University" ] ] ] .
-<rec:organization:4> a gracia:Record ; gracia:resource_uri <ark:/99999/ir/organization/4> ;
-  gracia:resource [ a schema:Organization ; schema:name "Nameless parent" ;
-    schema:parentOrganization [ a schema:Organization ] ] .
-<rec:collection:1> a gracia:Record ; gracia:resource_uri <ark:/99999/ir/collection/1> ;
-  gracia:resource [ a schema:Collection ; schema:name "Theses" ] .
-<rec:collection:2> a gracia:Record ; gracia:resource_uri <ark:/99999/ir/collection/2> ;
-  gracia:resource [ a schema:Collection ; schema:name "Theses 2026" ;
-    schema:publisher <ark:/99999/ir/organization/1> ;
-    schema:isPartOf <ark:/99999/ir/collection/1> ] .
-"""
 
 
 class RecursiveShapesTest(ConfiguredCase):
