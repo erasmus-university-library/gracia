@@ -741,7 +741,7 @@ def cmd_types_list(args) -> int:
                 print(
                     f"{res_type.slug:16} {res_type.record:20} {res_type.name:12} "
                     f"{res_type.class_uri}  {res_type.schema or '-'}  "
-                    f"{res_type.doc_template or '-'}"
+                    f"{res_type.doc_template or '-'}  {res_type.view_template or '-'}"
                 )
         finally:
             node.close()
@@ -855,6 +855,26 @@ def _with_docs(found: list, given: list[str]) -> list:
     return [by_slug[res_type.slug] for res_type in found]
 
 
+def _with_views(found: list, given: list[str]) -> list:
+    """The content types, with the view `--view SLUG=FILE` chooses for them."""
+    by_slug = {res_type.slug: res_type for res_type in found}
+    for item in given:
+        slug, _, name = item.partition("=")
+        if slug not in by_slug or not name:
+            raise ValueError(f"--view {item!r}: expected SLUG=FILE of a type to add")
+        res_type = by_slug[slug]
+        try:
+            assets.resolve(assets.view_spec(res_type.assets, name))
+        except (FileNotFoundError, ValueError) as err:
+            raise ValueError(
+                f"--view {item!r}: {name} is not a view of {slug} ({err})"
+            ) from None
+        chosen = copy.copy(res_type)
+        chosen.view = name
+        by_slug[slug] = chosen
+    return [by_slug[res_type.slug] for res_type in found]
+
+
 def cmd_types_add(args) -> int:
     with _application(args) as application:
         if not application.has_repository(args.repo):
@@ -864,6 +884,7 @@ def cmd_types_add(args) -> int:
                 types.find_content_type(registry, name) for name in args.content_types
             ]
         found = _with_docs(found, args.doc)
+        found = _with_views(found, args.view)
         with application.new_store(args.repo) as store:
             for res_type in found:
                 record = types.add_content_type(store, args.repo, res_type)
@@ -1188,6 +1209,14 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="SLUG=FILE",
         help="the doc template (a file of the type's doc/ dir) of a type to add, "
         "instead of the one it names itself (repeat it for more types)",
+    )
+    q.add_argument(
+        "--view",
+        action="append",
+        default=[],
+        metavar="SLUG=FILE",
+        help="the view (a file of the type's view/ dir) that makes the page of a "
+        "record of a type to add (repeat it for more types)",
     )
     q.set_defaults(func=cmd_types_add)
 

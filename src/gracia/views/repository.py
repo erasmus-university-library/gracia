@@ -110,12 +110,12 @@ def search_page(request):
             message = f"Nothing found. {message}".strip()
     response = render(
         request,
-        "gracia:assets/templates/search.pt",
+        "gracia:assets/xslt/skin/search.xslt",
         heading=repository.__name__,
         subtitle="Search the records",
         action=request.resource_url(repository),
         query=query,
-        hits=hits,
+        data={"hits": hits},
         message=message,
         shown=len(hits),
         total=total,
@@ -159,18 +159,24 @@ def api(request):
 @view_config(context=Repository, name="api", request_method="GET", accept="text/html")
 def api_browser(request):
     document = api_document(request)
-    operations = [
-        {"path": path, "method": method.upper(), **found}
-        for path, methods in document["paths"].items()
-        for method, found in methods.items()
-    ]
+    operations = []
+    for path, methods in document["paths"].items():
+        for method, found in methods.items():
+            operations.append(
+                {
+                    "path": path,
+                    "method": method.upper(),
+                    "summary": found.get("summary", ""),
+                    "permission": found.get("x-gracia-permission", ""),
+                }
+            )
     static.api_browser_js.need()
     response = render(
         request,
-        "gracia:assets/templates/api.pt",
+        "gracia:assets/xslt/skin/api.xslt",
         heading=document["info"]["title"],
         subtitle="What you may do here. The same document is JSON for a program.",
-        operations=operations,
+        data={"operations": operations},
         base=request.resource_url(request.context).rstrip(
             "/"
         ),  # the paths of operations follow it

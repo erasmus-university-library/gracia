@@ -64,6 +64,9 @@ SCHEMA_TEMPLATE = (
 DOC_TEMPLATE = (
     G_NS.docTemplate
 )  # type -> its file in doc/: doc-<profile>-<revision>.xsl (makes the doc of a record)
+VIEW_TEMPLATE = (
+    G_NS.viewTemplate
+)  # type -> its file in view/: <type>-<profile>-<revision>.xslt (the page of a record)
 NAME = G_NS.name
 SLUG = G_NS.slug
 CREATED_AT = (
@@ -80,6 +83,13 @@ TIMEZONE = (
 LOCALE = (
     G_NS.locale
 )  # repository -> the locale dates are shown and typed in (nl-NL); none: ISO 8601
+LAYOUT_TEMPLATE = G_NS.layoutTemplate  # repository -> the stylesheet of the page around every page (an asset spec or a path)
+TYPE_TEMPLATE = (
+    G_NS.typeTemplate
+)  # repository -> the stylesheet of the page of the records of a type
+RECORD_TEMPLATE = (
+    G_NS.recordTemplate
+)  # repository -> the stylesheet of the page of a record
 CLASS = G_NS["class"]  # type -> the rdf class of its resources
 USERID = G_NS.userid
 CREDENTIALS = G_NS.credentials  # a salted hash, never exported

@@ -13,7 +13,7 @@ trap 'rm -rf "$TMP"' EXIT
 
 (umask 077; echo sekretsekret > "$TMP/password")
 gracia repo create test --admin admin --admin-password-file "$TMP/password"
-gracia -r test types add person organization series collection work --doc work=doc-schemaorg-01.xsl
+gracia -r test types add person organization series collection work --doc work=doc-schemaorg-01.xsl --view work=work-schemaorg-01.xslt
 gracia -r test repo set timezone=Europe/Amsterdam locale=nl-NL
 gracia -r test extensions enable citations
 echo '{"style": "apa"}' | gracia -r test extensions import citations

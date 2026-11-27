@@ -1,4 +1,5 @@
 import datetime
+import logging
 import re
 import zoneinfo
 from functools import cached_property
@@ -19,12 +20,27 @@ from gracia.traversal import traversable
 from gracia.utils import assets, passwords
 from gracia.utils.validate import validate_userid
 
+log = logging.getLogger(__name__)
 _UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 _NUMBER = re.compile(r"^[1-9][0-9]{0,17}$")
 _N = ox.NamedNode
 
 # what `gracia repo set` sets: the timezone and the locale of dates
-REPOSITORY_SETTINGS = {"timezone": uri.TIMEZONE, "locale": uri.LOCALE}
+REPOSITORY_SETTINGS = {
+    "timezone": uri.TIMEZONE,
+    "locale": uri.LOCALE,
+    "layout_template": uri.LAYOUT_TEMPLATE,
+    "type_template": uri.TYPE_TEMPLATE,
+    "record_template": uri.RECORD_TEMPLATE,
+}
+
+# the stylesheets of the pages, when the repository has none of its own: the setting that
+# can name another, and the one that comes with gracia (`views/xslt.py`)
+SKINS = {
+    "layout": uri.LAYOUT_TEMPLATE,
+    "type": uri.TYPE_TEMPLATE,
+    "record": uri.RECORD_TEMPLATE,
+}
 
 _ADMINS = (Allow, "group:admin", ALL_PERMISSIONS)
 TYPE_ACLS = {
@@ -178,8 +194,9 @@ class Repository:
         return found.value if found is not None and found.value else ""
 
     def set_settings(self, values: dict[str, str]) -> None:
-        """Sets the timezone and the locale of the repository (`SETTINGS`); an empty
-        value clears one (UTC, ISO 8601). A name that is not valid is a ValueError."""
+        """Sets the settings of the repository (`REPOSITORY_SETTINGS`: the timezone and
+        the locale, and the stylesheets of the pages); an empty value clears one (UTC, ISO
+        8601, gracia's own). A value that is not valid is a ValueError."""
         for name, value in values.items():
             if name not in REPOSITORY_SETTINGS:
                 raise ValueError(
@@ -187,6 +204,13 @@ class Repository:
                 )
             if name == "locale" and value not in dates.FORMATS:
                 raise ValueError(f"{value!r} is not a locale of dates")
+            if name.endswith("_template") and value:
+                try:
+                    assets.resolve(value)
+                except FileNotFoundError:
+                    raise ValueError(
+                        f"{value!r} is not a stylesheet that is there"
+                    ) from None
             if name == "timezone" and value:
                 try:
                     zoneinfo.ZoneInfo(value)
@@ -239,6 +263,24 @@ class Repository:
                 o.value for o in graph.objects(primary, _N(uri.SH_TARGET_CLASS))
             )
         return sorted(found)
+
+    def stylesheet(self, kind: str, own: str | None = None) -> str:
+        """The stylesheet of a kind of page (`layout`, `type` or `record`): the one the
+        repository names, as an asset spec or a path, else `own` (the one of the type of
+        the record), else the one of gracia."""
+        named = self._setting(SKINS[kind])
+        if named:
+            try:
+                assets.resolve(named)
+                return named
+            except FileNotFoundError:  # a bad setting must not stop every page
+                log.warning(
+                    "%s: the %s stylesheet %s is not there, gracia's is used",
+                    self.__name__,
+                    kind,
+                    named,
+                )
+        return own or f"gracia:assets/xslt/skin/{kind}.xslt"
 
     def locale(self) -> str:
         """The locale of dates (a key of `dates.FORMATS`); ISO 8601 if none."""
@@ -452,6 +494,9 @@ class Type(Node):
         self.doc_template: str | None = (
             None  # the file in doc/ that makes their docs (`gracia:docTemplate`)
         )
+        self.view_template: str | None = (
+            None  # the file in view/ that makes their pages (`gracia:viewTemplate`)
+        )
 
     @classmethod
     def read(cls, repository: Repository, record: str, graph: Graph) -> "Type | None":
@@ -471,6 +516,10 @@ class Type(Node):
         res_type.schema = schema.value if schema is not None else None
         doc_template = graph.value(resource, _N(uri.DOC_TEMPLATE))
         res_type.doc_template = doc_template.value if doc_template is not None else None
+        view_template = graph.value(resource, _N(uri.VIEW_TEMPLATE))
+        res_type.view_template = (
+            view_template.value if view_template is not None else None
+        )
         return res_type
 
     def shacl_shape(self, include_record_shape: bool = True):
@@ -483,6 +532,24 @@ class Type(Node):
                 self._shapes[False], self.class_uri
             )
         return self._shapes[include_record_shape]
+
+    @property
+    def view_spec(self) -> str | None:
+        """The asset spec of the stylesheet that makes the page of a record of the type,
+        if the type has one and it is there."""
+        if not self.view_template or not self.assets:
+            return None
+        try:
+            spec = assets.view_spec(self.assets, self.view_template)
+            assets.resolve(spec)
+        except (FileNotFoundError, ValueError):  # a bad name must not stop every page
+            log.warning(
+                "%s: the view %s is not a file of the type, the default is used",
+                self.slug,
+                self.view_template,
+            )
+            return None
+        return spec
 
     @property
     def number(self) -> int:

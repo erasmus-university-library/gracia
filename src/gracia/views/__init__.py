@@ -49,7 +49,7 @@ def flash(request, message: str, level: str = "success") -> None:
     request.session.flash(message, queue=level)
 
 
-def _flashes(request) -> list[tuple[str, str]]:
+def pop_flashes(request) -> list[tuple[str, str]]:
     session = request.session
     return [
         (level, text)
@@ -75,27 +75,26 @@ def home_url(request) -> str:
 
 
 def render(request, spec: str, status: int = 200, **values) -> Response:
-    values.setdefault("title", values.get("heading", "gracia"))
-    values.setdefault("home", home_url(request))
-    values.setdefault("flashes", _flashes(request))
-    # a page in a dialog (a form in an iframe, see reference.js): no header, no footer
-    values.setdefault("embed", request.params.get("embed") == "1")
-    # the styles and scripts of every page: in the head, see gracia.static
-    static.page.need()
-    if values["embed"]:
-        static.embed_js.need()  # tells the page around it that the record is saved
-    body = template(spec)(
-        request=request,
-        layout=template(
-            "gracia:assets/templates/layout.pt"
-        ),  # the page around it: header, content, footer
-        panel=template(
-            "gracia:assets/templates/job_panel.pt"
-        ),  # the job panel, for pages that have one
-        favicon=static.url("img/gracia.svg"),
-        **values,
+    """A page of the site: `spec` is its stylesheet (`assets/xslt/skin/`), the values are
+    those of `views.xslt.render_page`. The import is here because that module imports
+    this one."""
+    from gracia.views.xslt import render_page
+
+    return render_page(request, spec, status, **values)
+
+
+def job_panel(
+    request, list_url: str, job_filter: str = "", compact: bool = False
+) -> str:
+    """The HTML of the job panel (templates/job_panel.pt), for a page to place."""
+    return fragment(
+        request,
+        "gracia:assets/templates/job_panel_use.pt",
+        panel_list_url=list_url,
+        panel_filter=job_filter,
+        panel_watch="",
+        panel_compact="true" if compact else "",
     )
-    return Response(body=body.encode("utf-8"), content_type="text/html", status=status)
 
 
 def render_form(
@@ -114,19 +113,22 @@ def render_form(
 ) -> Response:
     if widgets is not None:
         static.need_form(widgets)
+    data: dict = {"errors": list(errors)}
+    if toggle:
+        data["toggle"] = {"label": toggle[0], "url": toggle[1]}
+    if announce:
+        data["announce"] = announce
     return render(
         request,
-        "gracia:assets/templates/form.pt",
+        "gracia:assets/xslt/skin/form.xslt",
         status,
+        fragments={"form": form},
+        data=data,
         heading=heading,
         subtitle=subtitle,
-        form=form,
         saved=saved,
-        errors=list(errors),
-        toggle=toggle,
-        modified=modified,
-        history=history,
-        announce=announce,
+        modified=modified or "",
+        history=history or "",
     )
 
 

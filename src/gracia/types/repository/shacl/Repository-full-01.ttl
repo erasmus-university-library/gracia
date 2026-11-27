@@ -21,4 +21,19 @@ gracia:RepositoryShape a sh:NodeShape ;
         sh:path gracia:locale ; sh:name "Date format" ;
         sh:description "How dates are shown and typed in the forms (15-03-2024 or 03/15/2024). Empty: ISO 8601 (2024-03-15). They are stored as ISO dates" ;
         sh:order 3 ; sh:datatype xsd:string ; sh:maxCount 1
+    ] ,
+    [
+        sh:path gracia:layoutTemplate ; sh:name "Layout stylesheet" ;
+        sh:description "The stylesheet of the page around the pages of the site: the header, the footer. An asset spec (mypackage:skin/layout.xslt) or a path. Empty: the one of gracia" ;
+        sh:order 4 ; sh:datatype xsd:string ; sh:maxCount 1
+    ] ,
+    [
+        sh:path gracia:typeTemplate ; sh:name "Type stylesheet" ;
+        sh:description "The stylesheet of the page of the records of a type. Empty: the one of gracia" ;
+        sh:order 5 ; sh:datatype xsd:string ; sh:maxCount 1
+    ] ,
+    [
+        sh:path gracia:recordTemplate ; sh:name "Record stylesheet" ;
+        sh:description "The stylesheet of the page of a record. Empty: the one of gracia" ;
+        sh:order 6 ; sh:datatype xsd:string ; sh:maxCount 1
     ] .

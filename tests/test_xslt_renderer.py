@@ -59,14 +59,24 @@ MESSAGES = f"""<xsl:stylesheet version="3.0" {XSL}>
     <response><body>done</body></response>
   </xsl:template>
 </xsl:stylesheet>"""
-# markup in the body, written as text with serialize()
-MARKUP = f"""<xsl:stylesheet version="3.0" {XSL}>
-  <xsl:output method="xml"/>
+# a form that is HTML and not XML: what a browser takes, and a view may make
+FORM = """<form action="/x?a=1&b=2"><input type="text" readonly name="q"><br>
+<textarea name="t"> keep  spaces </textarea><uri-select data-lookup="/l?x=1&y=2"></uri-select>
+<p>caf&eacute;&nbsp;<b>bold<i>both</b></i><script>if (a < b && c) { x = "$1 ]]>"; }</script></form>"""
+# the fragment that was given, put in the page by the html5 writer
+FRAGMENT = f"""<xsl:stylesheet version="3.0" {XSL}>
+  <xsl:output method="html" html-version="5" indent="no" include-content-type="no"/>
   <xsl:template match="/request">
-    <xsl:variable name="html"><p>a &amp; b<br/></p></xsl:variable>
+    <response><body><div><xsl:copy-of select="fragments/fragment[@name = 'form']/node()"/></div></body></response>
+  </xsl:template>
+</xsl:stylesheet>"""
+# markup in the body, written by the html5 writer
+MARKUP = f"""<xsl:stylesheet version="3.0" {XSL}>
+  <xsl:output method="html" html-version="5" indent="no"/>
+  <xsl:template match="/request">
     <response>
       <headers><Content-Type>text/html</Content-Type></headers>
-      <body><xsl:value-of select="serialize($html, map{{'method': 'html'}})"/></body>
+      <body><p>a &amp; b<br/></p></body>
     </response>
   </xsl:template>
 </xsl:stylesheet>"""
@@ -157,11 +167,10 @@ class DebugViewTest(ManageCase):
     def test_debug_output_shows_the_response_the_stylesheet_makes(self):
         got = self.client().get("/test_repo/debug?debug=output", headers=ADMIN)
         self.assertEqual(got.status_int, 200)
-        self.assertEqual(got.headers["Content-Type"], "application/xml; charset=UTF-8")
-        response = ET.fromstring(got.text)  # the envelope, not what it makes of it
-        self.assertEqual(response.tag, "response")
-        self.assertEqual(found(response, "headers/Content-Type").text, "text/plain")
-        self.assertEqual(found(response, "body").text, "Hello")
+        self.assertEqual(got.headers["Content-Type"], "text/plain; charset=UTF-8")
+        self.assertIn("<response>", got.text)  # the envelope, as written
+        self.assertIn("<Content-Type>text/plain</Content-Type>", got.text)
+        self.assertIn("<body>Hello</body>", got.text)
 
     def test_debug_xslt_shows_the_stylesheet(self):
         got = self.client().get("/test_repo/debug?debug=xslt", headers=ADMIN)
@@ -264,7 +273,7 @@ class DebugPermissionTest(RendererCase):
             ("input", "application/xml"),
             ("xslt", "application/xslt+xml"),
             ("stylesheet", "application/xslt+xml"),
-            ("output", "application/xml"),
+            ("output", "text/plain"),
             ("anything", "text/plain"),
         ):
             got = client.get(f"/test_repo/plain?debug={debug}", headers=ADMIN)
@@ -278,7 +287,7 @@ class XsltRendererTest(RendererCase):
         response = self.render({"greeting": "Hello", "count": 9, "flag": True})
         self.assertEqual(response.text, "Hi greeting=Hello,count=9,flag=true")
         self.assertEqual(response.content_type, "text/html")  # the stylesheet says none
-        self.assertEqual(self.render({}).text, "Hi ")
+        self.assertEqual(self.render({}).text, "Hi")
         with self.assertRaisesRegex(TypeError, "the value count of the view is a list"):
             self.render({"count": [1]})
 
@@ -310,6 +319,52 @@ class XsltRendererTest(RendererCase):
         os.utime(common, ns=(later, later))
         self.assertEqual(self.render({}, main, reload=True).text, "Hello changed")
 
+    def test_a_fragment_of_html_is_put_in_the_page_as_the_browser_takes_it(self):
+        path = self.directory / "fragment.xslt"
+        path.write_text(FRAGMENT)
+        text = self.render({"fragments": {"form": FORM}}, path).text
+        self.assertIn('<form action="/x?a=1&amp;b=2">', text)
+        self.assertIn('<input type="text" readonly name="q"><br>', text)
+        self.assertIn('<textarea name="t"> keep  spaces </textarea>', text)  # as typed
+        self.assertIn('<uri-select data-lookup="/l?x=1&amp;y=2"></uri-select>', text)
+        self.assertIn("café&nbsp;<b>bold<i>both</i></b>", text)  # what was not nested
+        self.assertIn('<script>if (a < b && c) { x = "$1 ]]>"; }</script>', text)
+
+    def test_the_site_and_the_layout_are_what_the_pages_have_around_them(self):
+        page = self.directory / "page.xslt"
+        page.write_text(
+            f"""<xsl:stylesheet version="3.0" {XSL}>
+              <xsl:template match="/request" mode="content"><p>hello</p></xsl:template>
+            </xsl:stylesheet>"""
+        )
+        site = {
+            "home": "http://localhost/r/",
+            "favicon": "http://localhost/icon.svg",
+            "embed": False,
+            "flashes": [("success", "Saved & done"), ("danger", "Not <saved>")],
+        }
+        values = {"layout": "gracia:assets/xslt/skin/layout.xslt", "site": site}
+        text = self.render({**values, "heading": "A <page>"}, page).text
+        self.assertIn("<title>A &lt;page&gt;</title>", text)  # the heading is the title
+        self.assertIn(
+            '<link rel="icon" type="image/svg+xml" href="http://localhost/icon.svg">',
+            text,
+        )
+        self.assertIn('<a class="gracia-logo mb-3" href="http://localhost/r/"', text)
+        self.assertIn('<h1 class="h3 mb-0">A &lt;page&gt;</h1>', text)  # the header
+        self.assertIn(
+            '<div class="alert alert-success alert-dismissible fade show"', text
+        )
+        self.assertIn("Saved &amp; done", text)
+        self.assertIn("Not &lt;saved&gt;", text)
+        self.assertIn('<main class="container pb-4">', text)
+        self.assertIn("<p>hello</p>", text)  # what the page fills in
+        self.assertIn(">gracia</footer>", text)
+        framed = self.render({**values, "site": {**site, "embed": True}}, page).text
+        self.assertNotIn("<header", framed)
+        self.assertNotIn("<footer", framed)
+        self.assertIn('<main class="container-fluid px-4 py-4">', framed)
+
     def test_render_to_response_gives_a_response_to_change_before_it_is_returned(self):
         response = self.render({"greeting": "Hello"})
         response.content_type = "text/plain"  # as the view may
@@ -321,13 +376,17 @@ class XsltRendererTest(RendererCase):
             "<Cache-Control>private</Cache-Control>"
         )
         path = self.directory / "headers.xslt"
-        path.write_text(response_of("'&lt;a/&gt;'", headers))
+        path.write_text(
+            response_of("'x'", headers).replace(
+                "<body><xsl:value-of select=\"'x'\"/></body>", "<body><a/></body>"
+            )
+        )
         response = self.render({}, path)
         self.assertEqual(
             response.headers["Content-Type"], "application/xml; charset=UTF-8"
         )
         self.assertEqual(response.headers["Cache-Control"], "private")
-        self.assertEqual(response.text, "<a/>")  # the body is text: what is in it
+        self.assertEqual(response.text, "<a/>")  # the body is what the writer wrote
 
     def test_a_response_the_stylesheet_may_not_make_is_an_error(self):
         wrong = {
@@ -343,7 +402,6 @@ class XsltRendererTest(RendererCase):
             ("<xsl:value-of select=\"'Hello'\"/>", "does not make a <response>"),
             ("<page/>", "makes a <page>, not a <response>"),
             ("<response/>", "has no <body>"),
-            ("<response><body><b/></body></response>", "is text: write markup"),
         ):
             sheet = f"""<xsl:stylesheet version="3.0" {XSL}><xsl:output method="xml"/>
               <xsl:template match="/">{text}</xsl:template></xsl:stylesheet>"""
@@ -353,7 +411,7 @@ class XsltRendererTest(RendererCase):
                 self.render({}, path)
             self.forget()
 
-    def test_markup_is_written_in_the_body_as_text_with_serialize(self):
+    def test_markup_in_the_body_is_written_by_the_writer_of_the_stylesheet(self):
         path = self.directory / "markup.xslt"
         path.write_text(MARKUP)
         response = self.render({}, path)
@@ -363,8 +421,8 @@ class XsltRendererTest(RendererCase):
     def test_a_stylesheet_is_compiled_once_and_again_when_it_was_edited_and_reload_is_on(
         self,
     ):
-        for reload, expected in ((False, "Hi "), (True, "Bye ")):
-            self.assertEqual(self.render({}, reload=reload).text, "Hi ")
+        for reload, expected in ((False, "Hi"), (True, "Bye")):
+            self.assertEqual(self.render({}, reload=reload).text, "Hi")
             first = views_xslt._STYLESHEETS[str(self.path)][1]
             self.render({}, reload=reload)
             self.assertIs(views_xslt._STYLESHEETS[str(self.path)][1], first)  # once
@@ -444,9 +502,9 @@ class XsltRendererTest(RendererCase):
         self.assertIn("result: FAILED in the stylesheet", page)
 
     def logging_stylesheet(self, real):
-        def stylesheet(renderer, path, timings=None):
+        def stylesheet(renderer, path, layout=None, timings=None):
             logging.getLogger("gracia.test").warning("something odd")
-            return real(renderer, path, timings)
+            return real(renderer, path, layout, timings)
 
         return stylesheet
 
@@ -465,7 +523,7 @@ class XsltRendererTest(RendererCase):
                 elif debug == "anything":
                     self.assertIn("result: ok", response.text)
                 elif debug == "output":
-                    self.assertEqual(ET.fromstring(response.text).tag, "response")
+                    self.assertIn("<response>", response.text)
                 else:
                     document = ET.fromstring(response.text)
                     self.assertEqual(found(document, "view/param").text, "Hello")
@@ -503,6 +561,48 @@ class RequestXmlTest(unittest.TestCase):
         self.assertIsNone(document.find("csrf-token"))  # only when it is asked for
         plain = ET.fromstring(views_xslt.request_xml(request))
         self.assertIsNone(plain.find("records"))  # no list, no paging: no element
+
+    def test_fragments_are_html_that_lxml_makes_into_markup(self):
+        request = self.request(Node("work", Node(None)))
+        document = ET.fromstring(
+            views_xslt.request_xml(
+                request, fragments={"form": FORM, "text": "a & b <i>c</i>"}
+            )
+        )  # well-formed whatever the HTML was
+        names = [f.get("name") for f in document.findall("fragments/fragment")]
+        self.assertEqual(names, ["form", "text"])
+        form = found(document, "fragments/fragment/form")
+        self.assertEqual(found(form, "input").get("readonly"), "readonly")  # a bare one
+        self.assertEqual(found(form, "textarea").text, " keep  spaces ")
+        self.assertEqual(
+            found(form, "p/script").text, 'if (a < b && c) { x = "$1 ]]>"; }'
+        )
+        self.assertEqual(found(form, "p/b/i").text, "both")  # b and i were mis-nested
+        text = found(document, "fragments/fragment[@name='text']")
+        self.assertEqual((text.text, found(text, "i").text), ("a & b ", "c"))
+
+    def test_what_has_structure_is_data_with_an_element_for_each_key_and_item(self):
+        data = {
+            "revisions": [{"txn": 3, "current": True, "note": "a & <b>"}, {"txn": 2}],
+            "none": None,
+            "pair": ("x", 1.5),
+            "empty": [],
+        }
+        request = self.request(Node("work", Node(None)))
+        document = ET.fromstring(views_xslt.request_xml(request, data=data))
+        revisions = document.findall("data/revisions/item")
+        self.assertEqual([found(r, "txn").text for r in revisions], ["3", "2"])
+        self.assertEqual(found(revisions[0], "current").text, "true")
+        self.assertEqual(found(revisions[0], "note").text, "a & <b>")
+        self.assertIsNone(document.find("data/none"))  # None is not there
+        self.assertEqual(
+            [i.text for i in document.findall("data/pair/item")], ["x", "1.5"]
+        )
+        self.assertEqual(len(found(document, "data/empty")), 0)
+        with self.assertRaisesRegex(ValueError, "cannot be the name of an element"):
+            views_xslt.request_xml(request, data={"200": "ok"})
+        with self.assertRaisesRegex(TypeError, "the value x of the page is a set"):
+            views_xslt.request_xml(request, data={"x": {1}})
 
     def test_the_view_has_its_name_and_the_values_it_gives_its_page(self):
         request = self.request(Node("work", Node(None)))
@@ -611,8 +711,9 @@ class CompiledParametersTest(unittest.TestCase):
         self.assertEqual(
             got.headers, [("Content-Type", "text/plain"), ("Vary", "Accept")]
         )
-        self.assertEqual((got.body, got.body_has_markup), ("a & <b>", False))  # text
-        self.assertEqual(made("<body><b>x</b></body>").body_has_markup, True)
+        self.assertEqual(got.body, "a &amp; &lt;b&gt;")  # as the writer wrote it
+        self.assertEqual(made("<body><b>x</b></body>").body, "<b>x</b>")
+        self.assertEqual(made("<body/>").body, "")
         self.assertIsNone(made("").body)
         self.assertEqual(made("", root="page").root, "page")
         text_sheet = f"""<xsl:stylesheet version="3.0" {XSL}><xsl:output method="text"/>

@@ -120,7 +120,7 @@ class LocaleSettingTest(DatesCase):
         page = self.web.get("/test_repo/manage?tab=settings", headers=ADMIN).text
         select = re.search(r'(?s)<select[^>]*name="locale".*?</select>', page)
         assert select is not None
-        self.assertIn('selected="selected" value="">(none: ISO 8601)', select[0])
+        self.assertIn('selected value="">(none: ISO 8601)', select[0])
         self.assertIn("Dutch (15-03-2024)", select[0])
 
     def test_the_locale_is_kept_and_a_name_that_is_none_of_them_is_refused(self):

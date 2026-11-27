@@ -37,6 +37,10 @@ class ContentType:
         # the file in doc/ that makes the docs of its records (`gracia:docTemplate`)
         None
     )
+    view: str | None = (
+        # the file in view/ that makes the page of its records (`gracia:viewTemplate`)
+        None
+    )
 
 
 SYSTEM_TYPES = (
@@ -96,6 +100,7 @@ def describe(package: str) -> ContentType:
         schema=descriptor["schema"],
         assets=assets_spec(package),
         doc=descriptor.get("doc"),
+        view=descriptor.get("view"),
     )
     if found.slug in ("repository", "type", "user", "group") or found.name in (
         "Repository",
@@ -117,6 +122,13 @@ def describe(package: str) -> ContentType:
         except (FileNotFoundError, ValueError) as err:
             raise ValueError(
                 f"{package}: the doc template {found.doc} is not a file of it ({err})"
+            ) from None
+    if found.view:
+        try:
+            assets.resolve(assets.view_spec(found.assets, found.view))
+        except (FileNotFoundError, ValueError) as err:
+            raise ValueError(
+                f"{package}: the view {found.view} is not a file of it ({err})"
             ) from None
     return found
 
@@ -264,6 +276,7 @@ class TypeInfo:
         self.class_uri = class_uri
         self.name = self.slug = self.schema = self.assets = self.package = None
         self.doc: str | None = None  # the doc template its type record gets
+        self.view: str | None = None  # the view stylesheet its type record gets
         self.system = False
         self.record_class = None
 
@@ -306,6 +319,7 @@ def add_gracia_type(config, content_type, system: bool = False) -> None:
             system,
         )
         info.doc = getattr(content_type, "doc", None)
+        info.view = getattr(content_type, "view", None)
         registry.registerUtility(info, IGraciaType, name=content_type.slug)
 
     config.action(("gracia type", content_type.class_uri), register)

@@ -142,7 +142,9 @@ class NestedFormTest(ConfiguredCase):
         self.assertIn('hx-target="#nodes-address"', button)
         self.assertIn('hx-include="closest form"', button)
         self.assertIn(
-            """hx-vals='{"sequence": "resource/address", "action": "add"}'""", button
+            'hx-vals="{&#34;sequence&#34;: &#34;resource/address&#34;, '
+            '&#34;action&#34;: &#34;add&#34;}"',
+            button,
         )
         self.assertNotIn("disabled", button)  # an address can always be added
 
@@ -153,7 +155,7 @@ class NestedFormTest(ConfiguredCase):
         page = self.web.get(EDIT, headers=AUTH).text
         self.assertEqual(len(re.findall(r">address</label>", page)), 1)  # one label
         items = re.findall(
-            r'<details\s+name="nodes-address-[0-9a-f]+"( open="open")?>'
+            r'<details\s+name="nodes-address-[0-9a-f]+"( open)?>'
             r'\s*<summary class="accordion-button collapsed">\s*'
             r'<i class="bi bi-geo-alt me-2" aria-hidden="true"></i>\s*'
             r'<span class="bar-text flex-grow-1"[^>]*>([^<]*)</span>\s*'
@@ -210,9 +212,9 @@ class NestedFormTest(ConfiguredCase):
         wrong = [d for d in details if "text-bg-danger" in d]
         self.assertEqual(len(wrong), 1)
         self.assertIn("Julianalaan", wrong[0])
-        self.assertIn('open="open"', wrong[0])
+        self.assertRegex(wrong[0], r"<details[^>]* open[ >]")
         other = next(d for d in details if d is not wrong[0])
-        self.assertNotIn('open="open"', other)
+        self.assertNotRegex(other, r"<details[^>]* open[ >]")
         # and the add button says how many are wrong
         self.assertRegex(
             page,

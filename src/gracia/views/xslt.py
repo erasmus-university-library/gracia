@@ -10,22 +10,30 @@ template, the view returns a dict, or gives one to `render_to_response`:
 
 The stylesheet is run over the `<request>` document that `request_xml` makes of the
 request and of the dict: `rdfxml` is the data (in `<body>`), `records` and `paging` say
-what a listing used, `csrf` asks for the csrf token, and every other item is a value of
-the view (`<view><param name=>`: strings, numbers and booleans). The response is
+what a listing used, `csrf` asks for the csrf token, `fragments` are pieces of HTML that
+the view made (a form), `site` and `properties` are what the pages have around them and
+what the shape lets them show, `layout` is a stylesheet that the one of the page is put in
+(they are imported by one that is made, the page after the layout, so that what the page
+defines counts), and every other item is a value of the view (`<view><param name=>`:
+strings, numbers and booleans). `page` is the one that makes a page of the site, with the
+stylesheets of the repository (`skin/layout.xslt`, `skin/type.xslt`, `skin/record.xslt`). The response is
 what the stylesheet says it is, 200, and the view can change it before it is returned.
 A stylesheet is compiled from its file, so the files it imports are found beside it.
 
-What the stylesheet makes is the response:
+What the stylesheet makes is the response, written by Saxon as its `xsl:output` says (the
+skins say `method="html" html-version="5"`):
 
     <response>
-      <headers><Content-Type>application/xml</Content-Type></headers>
-      <body>text</body>
+      <headers><Content-Type>text/html</Content-Type></headers>
+      <body><html>..</html></body>
     </response>
 
 A header is an element named after it, with its value as the text, and only those of
-`ALLOWED_HEADERS` can be set. The body is text: a stylesheet that makes markup writes
-it with `serialize($nodes, map{'method': 'html', 'html-version': 5})` (or `xml`). With
-no Content-Type the response is `text/html`.
+`ALLOWED_HEADERS` can be set. The renderer does not parse it: it cuts it (`parse_response`),
+the body is what is between the first `<body>` and the last `</body>`. A body of
+`text/html` or of an XML type is markup and is as the writer wrote it (with the doctype
+added to a page, the writer has none, the root is the response); of another type it is text,
+and is unescaped. With no Content-Type the response is `text/html`.
 
 It is registered for the extension `.xslt` (`gracia.main`). `pyramid.reload_templates`
 (or PYRAMID_RELOAD_TEMPLATES=1) makes a stylesheet that was edited be compiled again
@@ -37,14 +45,23 @@ and a call of `render_to_response` too.
 """
 
 import logging
+import re
 import time
 import traceback
+from html import unescape
 from pathlib import Path
+from typing import Any
 from xml.sax.saxutils import escape, quoteattr
 
+import lxml.html
+from lxml import etree  # ty: ignore[missing-module-member]
 from pyramid.location import lineage
+from pyramid.renderers import render_to_response
+from pyramid.response import Response
 
+from gracia import static
 from gracia.utils import assets, xslt
+from gracia.views import home_url, pop_flashes
 
 # the permissions of the context that the request document says the user has: the
 # stylesheet cannot ask Python (SaxonC-HE does not call extension functions in Python)
@@ -62,6 +79,24 @@ ALLOWED_HEADERS = (
     "link",
 )
 
+# the keys and the functions to jump between the resources of the RDF/XML: before the
+# layout and the page, whatever they are
+HELPERS = assets.resolve("gracia:assets/xslt/skin/rdf.xslt")
+
+DEFAULT_LAYOUT = "gracia:assets/xslt/skin/layout.xslt"
+
+# what a view can give besides the values of its page, and what the document has of it
+DOCUMENT_ITEMS = (
+    "rdfxml",
+    "records",
+    "paging",
+    "csrf",
+    "fragments",
+    "site",
+    "properties",
+    "data",
+)
+
 # the stylesheets that were compiled, by file, with the time the file had: compiling
 # takes a while, running does not
 _STYLESHEETS: dict[str, tuple[int, xslt.Compiled]] = {}
@@ -76,6 +111,43 @@ def record_uri_of(node) -> str:
     return ""
 
 
+def html_to_xml(html: str) -> str:
+    """HTML as markup that is XML: lxml reads it the way a browser would, as far as it
+    does, and writes it again."""
+    xml = ""
+    for part in lxml.html.fragments_fromstring(html):
+        if isinstance(part, str):  # text before the first element
+            xml += escape(part)
+        else:
+            xml += etree.tostring(part, method="xml", encoding="unicode")
+    return xml
+
+
+def data_xml(name: str, value) -> str:
+    """The XML of what a view gives its page: a dict is an element with an element for
+    each key, a list or tuple an element with an `<item>` for each of its values, a
+    string, number or boolean the text of an element, and None nothing at all. A key must
+    be a name that an element can have."""
+    if not re.fullmatch(r"[A-Za-z_][\w.-]*", name):
+        raise ValueError(f"{name!r} cannot be the name of an element")
+    if value is None:
+        return ""
+    inner = ""
+    if isinstance(value, dict):
+        for key, part in value.items():
+            inner += data_xml(key, part)
+    elif isinstance(value, list | tuple):
+        for part in value:
+            inner += data_xml("item", part)
+    elif isinstance(value, bool):
+        inner = "true" if value else "false"
+    elif isinstance(value, str | int | float):
+        inner = escape(str(value))
+    else:
+        raise TypeError(f"the value {name} of the page is a {type(value).__name__}")
+    return f"<{name}>{inner}</{name}>"
+
+
 def request_xml(
     request,
     rdfxml: str = "",
@@ -83,6 +155,10 @@ def request_xml(
     paging=None,
     csrf: bool = False,
     view_params=None,
+    fragments=None,
+    site=None,
+    properties=(),
+    data=None,
 ) -> str:
     """The XML text that a stylesheet makes the response from: the request, where it is
     in the tree (every node up to the root, with its address, so the stylesheet can
@@ -104,6 +180,14 @@ def request_xml(
 
     `records` are the uris of the records that were got, as of `referencing_records`,
     and `paging` is what a listing says of its page (`page`, `pages`, `total`, `size`).
+    `fragments` are pieces of HTML that the view made (a Deform form): each is read by
+    lxml, which repairs what is not XML (a bare `readonly`, a `<br>`, `&nbsp;`), and put
+    in as markup, `<fragments><fragment name=>..</fragment></fragments>`, for the
+    stylesheet to copy where it wants it. `site` is what the pages of the site have
+    around them (`home`, `favicon`, `embed` and the `flashes`, each a level and a text)
+    and `properties` the properties of the shape of the type that a page may show, each
+    a path, a name and a role (`key_info`, `description`). `data` is what a page has of
+    structure, a dict as of `data_xml`: `<data><revisions><item><txn>3</txn>..`.
     The view has its name (`request.view_name`) and `view_params`, the values it gives
     its page besides the data (a heading, a subtitle: strings, numbers, booleans). The
     headers are only `Accept` for now. The csrf token is made when it is asked for: it makes a session, and so a cookie."""
@@ -148,6 +232,28 @@ def request_xml(
         xml.append(f"<param name={quoteattr(name)}>{escape(text)}</param>")
     xml.append("</view>")
 
+    if data:
+        xml.append(data_xml("data", data))
+
+    if site:
+        embed = "true" if site["embed"] else "false"
+        xml.append(
+            f"<site home={quoteattr(site['home'])} favicon={quoteattr(site['favicon'])} "
+            f"embed={quoteattr(embed)}>"
+        )
+        for level, text in site["flashes"]:
+            xml.append(f"<flash level={quoteattr(level)}>{escape(text)}</flash>")
+        xml.append("</site>")
+
+    if properties:
+        xml.append("<properties>")
+        for path, name, role in properties:
+            xml.append(
+                f"<property path={quoteattr(path)} name={quoteattr(name)} "
+                f"role={quoteattr(role)}/>"
+            )
+        xml.append("</properties>")
+
     xml.append("<permissions>")
     for permission in PERMISSIONS:
         if request.has_permission(permission, context):
@@ -174,6 +280,14 @@ def request_xml(
             xml.append(f"<record uri={quoteattr(record_uri)}/>")
         xml.append("</records>")
 
+    if fragments:
+        xml.append("<fragments>")
+        for name, html in fragments.items():
+            xml.append(
+                f"<fragment name={quoteattr(name)}>{html_to_xml(html)}</fragment>"
+            )
+        xml.append("</fragments>")
+
     if csrf:
         xml.append(
             f"<csrf-token>{escape(request.session.get_csrf_token())}</csrf-token>"
@@ -185,6 +299,55 @@ def request_xml(
     xml.append("</body>")
     xml.append("</request>")
     return "\n".join(xml)
+
+
+def render_page(
+    request,
+    spec: str,
+    status: int = 200,
+    fragments=None,
+    data=None,
+    bare: bool = False,
+    **values,
+) -> Response:
+    """A page of the site made by stylesheets: the stylesheet `spec` (an asset spec or a
+    path) put in the layout of the repository, or alone when it is `bare` (a page that
+    is no part of the site). The values are those of `XsltRenderer`: strings, numbers and
+    booleans for the page, `data` for what has structure, and `fragments` for the HTML
+    that the view made (the pieces are copied into the page by the stylesheet). The site
+    is added: where home is, the icon, whether it is shown in a frame, and the flashes."""
+    repository = getattr(request.context, "repository", None)
+    embed = request.params.get("embed") == "1"
+    static.page.need()  # the styles and scripts of every page
+    if embed:
+        static.embed_js.need()  # tells the page around it that the record is saved
+    flashes = []
+    if "debug" not in request.params:  # a look at the page does not use them up
+        flashes = pop_flashes(request)
+    values["site"] = {
+        "home": home_url(request),
+        "favicon": static.url("img/gracia.svg"),
+        "embed": embed,
+        "flashes": flashes,
+    }
+    if fragments:
+        values["fragments"] = fragments
+    if data:
+        values["data"] = data
+    if not bare:
+        values["layout"] = DEFAULT_LAYOUT
+        if repository is not None:
+            values["layout"] = repository.stylesheet("layout")
+    response = render_to_response(spec, values, request=request)
+    response.status_int = status
+    return response
+
+
+def page(request, kind: str, own: str | None = None, **values) -> Response:
+    """The page of a kind (`type` or `record`) of the repository, as `render_page`: the
+    stylesheet that the repository names, else `own` (that of the type), else gracia's."""
+    repository = request.context.repository
+    return render_page(request, repository.stylesheet(kind, own), **values)
 
 
 class _Records(logging.Handler):
@@ -217,10 +380,14 @@ class XsltRenderer:
     def __call__(self, value, system):
         request = system["request"]
         values = dict(value)
-        rdfxml = values.pop("rdfxml", "")
-        records = values.pop("records", ())
-        paging = values.pop("paging", None)
-        csrf = values.pop("csrf", False)
+        document: dict[str, Any] = {}  # what is not a value of the view: the data ...
+        for name in DOCUMENT_ITEMS:
+            if name in values:
+                document[name] = values.pop(name)
+        document["view_params"] = values
+        layout = values.pop("layout", None)  # the stylesheet that the page is put in
+        if layout is not None:
+            layout = str(assets.resolve(layout))
         path = str(assets.resolve(self.spec))
         # `?debug=` is for who manages the context: whatever it says, for the others
         # the page is the page
@@ -235,36 +402,52 @@ class XsltRenderer:
             request.response.content_type = "application/xslt+xml"
             return Path(path).read_text(encoding="utf-8")
         if debug not in (None, "input", "output"):
-            return self._debug_page(
-                request, path, (rdfxml, records, paging, csrf, values)
-            )
-        xml = request_xml(request, rdfxml, records, paging, csrf, values)
+            return self._debug_page(request, path, layout, document)
+        xml = request_xml(request, **document)
         if debug == "input":
             request.response.content_type = "application/xml"
             return xml
-        stylesheet = self._stylesheet(path)
-        if debug == "output":
-            request.response.content_type = "application/xml"
+        stylesheet = self._stylesheet(path, layout)
+        if debug == "output":  # as the writer wrote it: html5 is not XML
+            request.response.content_type = "text/plain"
             return stylesheet.transform(xml)
         return self._response(request, path, stylesheet.transform_response(xml))
 
     def _stylesheet(
-        self, path: str, timings: dict[str, float] | None = None
+        self,
+        path: str,
+        layout: str | None = None,
+        timings: dict[str, float] | None = None,
     ) -> xslt.Compiled:
         """The stylesheet, compiled the first time (and again when it was edited, if
-        `pyramid.reload_templates` is on)."""
+        `pyramid.reload_templates` is on). With a layout it is one that imports the
+        helpers (`skin/rdf.xslt`), the layout and then the stylesheet of the page, so what
+        the page defines is what counts, and a repository can have another of each."""
+        files = xslt.imported_files(path)
+        key = path
+        if layout:
+            files += xslt.imported_files(layout) + xslt.imported_files(HELPERS)
+            key = f"{layout} {path}"
         modified = 0
-        if self.reload:  # the files that the stylesheet imports too
-            for file in xslt.imported_files(path):
+        if self.reload:  # the files that the stylesheets import too
+            for file in files:
                 if file.exists():
                     modified = max(modified, file.stat().st_mtime_ns)
-        kept = _STYLESHEETS.get(path)
+        kept = _STYLESHEETS.get(key)
         if kept is None or kept[0] != modified:
             started = time.perf_counter()
             if kept is not None:  # an edited stylesheet
                 kept[1].close()
-            kept = (modified, xslt.Compiled(path))
-            _STYLESHEETS[path] = kept
+            source = path
+            if layout:  # by their addresses: a stylesheet that is text has no place
+                source = (
+                    f'<xsl:stylesheet version="3.0" xmlns:xsl="{xslt.XSL}">'
+                    f'<xsl:import href="{HELPERS.as_uri()}"/>'
+                    f'<xsl:import href="{Path(layout).as_uri()}"/>'
+                    f'<xsl:import href="{Path(path).as_uri()}"/></xsl:stylesheet>'
+                )
+            kept = (modified, xslt.Compiled(source))
+            _STYLESHEETS[key] = kept
             if timings is not None:
                 timings["compile"] = time.perf_counter() - started
         return kept[1]
@@ -285,13 +468,17 @@ class XsltRenderer:
                 request.response.headers[name] = header_value
         if made.body is None:
             raise xslt.XsltError(f"the <response> of {path} has no <body>")
-        if made.body_has_markup:
-            raise xslt.XsltError(
-                f"the <body> of {path} is text: write markup with serialize()"
-            )
-        return made.body
+        content_type = request.response.content_type
+        if content_type != "text/html" and not content_type.endswith("xml"):
+            return unescape(made.body)  # text: the writer escaped its `&` and `<`
+        body = made.body.strip()  # markup is as the writer wrote it
+        if content_type == "text/html" and body.lower().startswith("<html"):
+            body = "<!DOCTYPE html>\n" + body  # the root of the writer was the response
+        return body
 
-    def _debug_page(self, request, path: str, document_arguments: tuple) -> str:
+    def _debug_page(
+        self, request, path: str, layout: str | None, document: dict
+    ) -> str:
         """The page of `?debug=<anything>`: the whole run, the document made too, with
         how long each step took, what the stylesheet said, what was logged and what went
         wrong and where, as text."""
@@ -304,10 +491,10 @@ class XsltRenderer:
         result = ""
         started = time.perf_counter()
         try:
-            xml = request_xml(request, *document_arguments)
+            xml = request_xml(request, **document)
             timings["document"] = time.perf_counter() - started
             step = "the stylesheet"  # compiled, the document parsed, run
-            stylesheet = self._stylesheet(path, timings)
+            stylesheet = self._stylesheet(path, layout, timings)
             made = stylesheet.transform_response(xml, None, messages, timings)
             step = "the response of the stylesheet"
             response_started = time.perf_counter()
@@ -341,7 +528,10 @@ class XsltRenderer:
         lines += [f"  {line}" for line in records.lines] or ["  (none)"]
         lines += ["", "files the stylesheet is made of (read from the stylesheet):"]
         calls = []
-        for file in xslt.imported_files(path):
+        files = xslt.imported_files(path)
+        if layout:
+            files += xslt.imported_files(layout) + xslt.imported_files(HELPERS)
+        for file in files:
             if not file.exists():
                 lines.append(f"  {file}  (there is no such file)")
                 continue

@@ -80,8 +80,8 @@ class PersonBagTest(ConfiguredCase):
         self.assertRegex(bag, r'(?s)<input[^>]*name="value"[^>]*value=""')
         self.assertRegex(
             bag,
-            r'(?s)<button[^>]*bag-add[^>]*hx-vals=\'\{"sequence": '
-            r'"resource/alternateName", "action": "add"\}\'',
+            r'(?s)<button[^>]*bag-add[^>]*hx-vals="\{&#34;sequence&#34;: '
+            r'&#34;resource/alternateName&#34;, &#34;action&#34;: &#34;add&#34;\}"',
         )
         self.assertNotIn("bag-remove", bag)  # the only row has no x
         self.assertNotIn("Add alternate name</button>", page)  # no button under it

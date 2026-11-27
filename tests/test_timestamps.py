@@ -208,9 +208,7 @@ class TimezoneTest(TimesCase):
     def test_the_settings_tab_has_a_drop_down_of_zones_that_can_be_empty(self):
         page = self.web.get("/test_repo/manage?tab=settings", headers=ADMIN).text
         select = must_search(r'<select name="timezone".*?</select>', page, re.S)[0]
-        self.assertIn(
-            '<option selected="selected" value="">(none: UTC)</option>', select
-        )
+        self.assertIn('<option selected value="">(none: UTC)</option>', select)
         self.assertIn('<optgroup label="Europe">', select)
         self.assertIn('<option value="Europe/Amsterdam">Amsterdam</option>', select)
         self.assertNotIn('value="US/Eastern"', select)

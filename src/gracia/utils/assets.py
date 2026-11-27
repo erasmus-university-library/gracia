@@ -36,6 +36,11 @@ SCHEMA_NAME = re.compile(r"^([A-Za-z][A-Za-z0-9]*)-([a-z][a-z0-9_]*)-([0-9]{2,})
 DOC_DIR = "doc/"
 DOC_NAME = re.compile(r"^doc-([a-z][a-z0-9_]*)-([0-9]{2,})\.xsl$")
 DOC_BASE = "type:type/" + DOC_DIR + "doc-base-01.xsl"
+# the stylesheets that make the page of a record of a type (`gracia:viewTemplate`) are in
+# `view/`, as <type>-<profile>-<revision>.xslt; the one with the profile `base` is what
+# the others import, and is not one to choose
+VIEW_DIR = "view/"
+VIEW_NAME = re.compile(r"^([a-z][a-z0-9]*)-([a-z][a-z0-9_]*)-([0-9]{2,})\.xslt$")
 MEDIA_TYPES = {
     ".ttl": "text/turtle",
     ".xsl": "application/xslt+xml",
@@ -262,6 +267,32 @@ def schemas_of(prefix: str) -> list[str]:
     except (ImportError, KeyError):
         return []
     return sorted(n for n in names if SCHEMA_NAME.match(n))
+
+
+def view_spec(prefix: str, name: str) -> str:
+    """The asset spec of a view stylesheet of a type, whose files are at `prefix`."""
+    found = VIEW_NAME.match(name or "")
+    if not found or found[2] == "base":
+        raise ValueError(
+            f"not a view stylesheet: {name!r} (expected <type>-<profile>-<revision>.xslt)"
+        )
+    return join(prefix, VIEW_DIR + name)
+
+
+def views_of(prefix: str) -> list[str]:
+    try:
+        asset = AssetResolver().resolve(join(prefix, VIEW_DIR.rstrip("/")))
+        if not asset.isdir():
+            return []
+        names = asset.listdir()
+    except (ImportError, KeyError):
+        return []
+    found = []
+    for name in sorted(names):
+        match = VIEW_NAME.match(name)
+        if match and match[2] != "base":
+            found.append(name)
+    return found
 
 
 def docs_of(prefix: str) -> list[str]:

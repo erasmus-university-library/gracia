@@ -49,7 +49,7 @@ def _age(moment) -> str:
 
 
 class Manage(View):
-    template = "gracia:assets/templates/manage.pt"
+    template = "gracia:assets/xslt/skin/manage.xslt"
     scope = ""  # "repository" or "type": the form of a pane is `form-<scope>-<name>`
     panes: tuple[tuple[str, str], ...] = ()  # (name, title) in the order of the strip
 
@@ -81,19 +81,20 @@ class Manage(View):
             states[active] = result
         if active not in names:
             active = names[0]
-        panes = [
-            {
-                "name": name,
-                "title": title,
-                "active": name == active,
-                "html": getattr(self, f"pane_{name}")(states.get(name, {})),
-            }
-            for name, title in self.panes
-        ]
+        panes = []
+        fragments = {}
+        for name, title in self.panes:
+            panes.append({"name": name, "title": title, "active": name == active})
+            fragments[f"pane-{name}"] = getattr(self, f"pane_{name}")(
+                states.get(name, {})
+            )
         static.jobs_js.need()  # the job panel that a pane may include
         static.manage_js.need()
         return self.render(
-            heading=self.heading(), subtitle=self.subtitle(), panes=panes
+            heading=self.heading(),
+            subtitle=self.subtitle(),
+            data={"panes": panes},
+            fragments=fragments,
         )
 
     def _post(self, form_id: str):

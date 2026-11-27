@@ -286,23 +286,6 @@ class Graph:
     # ---- reading
     # -------------------------------------------------------------------------
 
-    def labels(self) -> dict[str, tuple[str, str | None]]:
-        """The label and the slug of each record in the graph: `{record uri: (label,
-        slug)}` (a compound graph has those of the records it is made of too)."""
-        found: dict[str, tuple[str, str | None]] = {}
-        for quad in self.dataset:
-            subject = quad.subject
-            if not isinstance(subject, ox.NamedNode):
-                continue
-            if not subject.value.startswith("rec:"):
-                continue
-            label, slug = found.get(subject.value, ("", None))
-            if quad.predicate.value == uri.LABEL:
-                found[subject.value] = (quad.object.value, slug)
-            elif quad.predicate.value == uri.SLUG:
-                found[subject.value] = (label, quad.object.value)
-        return found
-
     def objects(self, subject, predicate) -> list:
         subject, predicate = _term(subject), _term(predicate)
         return [

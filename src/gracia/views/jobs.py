@@ -13,7 +13,7 @@ from gracia.jobs.db import JobsDb
 from gracia.jobs.job import all_jobs
 from gracia.jobs.spec import JobSpecError, validate_spec
 from gracia.resources import JobRun, Jobs
-from gracia.views import render, same_origin
+from gracia.views import job_panel, render, same_origin
 
 LIST_LIMIT = (
     50  # the newest jobs of the list; the finished ones go with `gracia jobs clean`
@@ -149,27 +149,31 @@ def jobs_page(request):
     node = request.context
     repository = node.repository
     startable = []
+    fragments = {}
     for job in all_jobs(request.registry):
         if request.has_permission(job.start_permission, node):
             form = job.form(node, request)
             static.need_form(form)
             startable.append(
                 {
-                    "job": job,
-                    "form": form.render({}),
+                    "name": job.name,
+                    "title": job.title,
+                    "description": job.description,
+                    "form_id": job.form_id,
                     "fields": len(form.schema.children),
                 }
             )
+            fragments[f"form-{job.name}"] = form.render({})
     static.jobs_js.need()
+    fragments["panel"] = job_panel(request, request.resource_url(node, "list"))
     return render(
         request,
-        "gracia:assets/templates/jobs.pt",
+        "gracia:assets/xslt/skin/jobs.xslt",
         heading=f"Jobs of {repository.__name__}",
         subtitle="Start a job, and watch the jobs that run.",
-        startable=startable,
+        data={"startable": startable},
+        fragments=fragments,
         start_url=request.resource_url(node, "start"),
-        list_url=request.resource_url(node, "list"),
-        panel_filter="",
     )
 
 
@@ -299,9 +303,10 @@ def log_page(request):
     )  # for the iframe in the job panel: just the log
     return render(
         request,
-        "gracia:assets/templates/job_log_embed.pt"
+        "gracia:assets/xslt/skin/job_log_embed.xslt"
         if embedded
-        else "gracia:assets/templates/job_log.pt",
+        else "gracia:assets/xslt/skin/job_log.xslt",
+        bare=embedded,
         heading=f"Log of {_label(request, row)}",
         subtitle=node.__name__,
         name=name if name in LOGS else "luigi",

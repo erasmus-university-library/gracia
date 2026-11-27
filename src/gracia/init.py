@@ -26,6 +26,7 @@ _TYPE_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9]{0,62}$")
 
 _SCHEMA = re.compile(r"^[A-Za-z][A-Za-z0-9]*-[a-z][a-z0-9_]*-[0-9]{2,}\.ttl$")
 _DOC = re.compile(r"^doc-[a-z][a-z0-9_]*-[0-9]{2,}\.xsl$")
+_VIEW = re.compile(r"^[a-z][a-z0-9]*-[a-z][a-z0-9_]*-[0-9]{2,}\.xslt$")
 _ASSETS = re.compile(r"^[A-Za-z0-9_.:/-]+/?$")
 
 
@@ -92,6 +93,7 @@ def type_turtle(record: str, content_type, resource_uri: str = "") -> str:
         ("schema", content_type.schema, _SCHEMA),
         ("assets", content_type.assets, _ASSETS),
         ("doc template", getattr(content_type, "doc", None) or "doc-none-01.xsl", _DOC),
+        ("view", getattr(content_type, "view", None) or "none-none-01.xslt", _VIEW),
     ):
         if not isinstance(text, str) or not pattern.match(text):
             raise ValueError(f"invalid {label} for a type: {text!r}")
@@ -109,6 +111,11 @@ def type_turtle(record: str, content_type, resource_uri: str = "") -> str:
         + (
             f' ; gracia:docTemplate "{content_type.doc}"'
             if getattr(content_type, "doc", None)
+            else ""
+        )
+        + (
+            f' ; gracia:viewTemplate "{content_type.view}"'
+            if getattr(content_type, "view", None)
             else ""
         )
         + " ] .\n"

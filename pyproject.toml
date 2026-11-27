@@ -12,6 +12,7 @@ dependencies = [
     "fanstatic>=1.8",
     "lmdb>=3.0.0",
     "luigi>=3.8.1",
+    "lxml>=6.0",
     "pyoxigraph>=0.5.13",
     "pyramid>=2.1",
     "pyrudof>=0.3.37",

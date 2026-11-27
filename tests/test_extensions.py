@@ -377,7 +377,7 @@ class TabTest(ExtensionsCase):
         button = must_search(r'<button[^>]*name="disable"[^>]*>', card)[
             0
         ]  # there, and greyed out
-        self.assertIn('disabled="disabled"', button)
+        self.assertRegex(button, r"\sdisabled[\s>]")
         self.assertIn("cannot be disabled", button)
         self.assertNotIn('name="enable"', card)
         self.assertIn(">Settings</button>", card)

@@ -4,10 +4,11 @@ from pyramid.renderers import render_to_response
 from pyramid.view import view_config
 
 from gracia import forms, hints, uri
+from gracia.graph import dataset_rdfxml
 from gracia.resources import Record, RecordDeleted, Type
 from gracia.store import PAGE_SIZE, page_window
-from gracia.views import render
 from gracia.views.index import index
+from gracia.views.xslt import page
 
 # never shown, whoever asks and whatever the record says
 HIDDEN = frozenset({uri.CREDENTIALS})
@@ -25,52 +26,24 @@ def _reachable(request, res_type, number) -> bool:
     return bool(request.has_permission("view", record))
 
 
-SAFE_SCHEMES = frozenset(
-    {"http", "https", "mailto", "tel"}
-)  # a value is a link only to these
-
-
 def wants_html(request) -> bool:
     accept = request.headers.get("Accept", "")
     return "text/html" in accept and "application/json" not in accept
 
 
-def page_links(request, context, page: int, pages: int) -> list[dict]:
-
-    def address(n: int) -> str:
-        return request.resource_url(context, query={"page": n})
-
-    near = sorted({1, pages, *range(max(1, page - 2), min(pages, page + 2) + 1)})
-    links = [
-        {
-            "label": "Newer",
-            "url": address(page - 1) if page > 1 else None,
-            "kind": "step",
-            "current": False,
-        }
-    ]
-    before = 0
-    for n in near:
-        if n - before > 1:
-            links.append({"label": "…", "url": None, "kind": "gap", "current": False})
-        links.append(
-            {"label": str(n), "url": address(n), "kind": "page", "current": n == page}
-        )
-        before = n
-    links.append(
-        {
-            "label": "Older",
-            "url": address(page + 1) if page < pages else None,
-            "kind": "step",
-            "current": False,
-        }
-    )
-    return links
+def page_rdfxml(graph) -> str:
+    """The RDF/XML that a page of the stylesheets is given of a graph, without what is
+    never shown."""
+    shown = graph.without(HIDDEN)
+    if not len(shown):
+        return ""
+    return dataset_rdfxml(shown.dataset).decode()
 
 
 def type_page(request):
-    """The records of a type, in the order of `etags`, a page of them at a time
-    (`Cache.referencing_records`)."""
+    """The records of a type, in the order of `etags`, a page of them at a time, made by
+    the stylesheets of the repository (`skin/type.xslt`): the numbers, the records of the
+    page and their own triples, which have their labels and slugs."""
     context, store = request.context, request.store
     published = not request.has_permission("edit", context)
     total_published = store.count_referencing_records(record_type=context.number)
@@ -83,115 +56,63 @@ def type_page(request):
     )
     asked = request.params.get("page")
     try:
-        page, pages, offset, limit = page_window(
+        page_number, pages, offset, limit = page_window(
             total_published if published else total_all,
             int(asked) if asked is not None else None,
             PAGE_SIZE,
         )
     except ValueError:  # not a number, or a page that is not there
         raise HTTPNotFound from None
-    ids = (
-        store.referencing_records(
+    ids = []
+    if limit:
+        ids = store.referencing_records(
             record_type=context.number,
             offset=offset,
             limit=limit,
             include_non_public=not published,
         )
-        if limit
-        else []
-    )
-    # the labels are in the compound graphs of the records of the page: they are in the
-    # graph cache, made in one go for those that are not (a placeholder, the page is
-    # to be made by XSLT)
-    names = store.get_multi(ids, compound_records=True).labels()
-    items = []
+    record_uris = []
     for record_id in ids:
-        number = str(record_id % uri.TYPE_BASE)
-        label, slug = names.get(uri.record_uri(context.slug, int(number)), ("", None))
-        items.append(
-            {
-                "label": label or "(Unnamed)",
-                "number": number,
-                "url": request.resource_url(context, slug or number),
-            }
-        )
-    if published:
-        noun = "record" if total_published == 1 else "records"
-        summary = f"{total_published} {noun}"
-    else:
-        unpublished = total_all - total_published
-        summary = f"{total_published} published, {unpublished} not published"
-    return render(
+        record_uris.append(uri.record_uri(context.slug, record_id % uri.TYPE_BASE))
+    return page(
         request,
-        "gracia:assets/templates/type_index.pt",
+        "type",
         heading=context.name,
-        summary=summary,
-        items=items,
-        page=page,
-        pages=pages,
-        nav=page_links(request, context, page, pages),
-        add_url=request.resource_url(context, "add")
-        if request.has_permission("add", context)
-        else None,
-        manage_url=request.resource_url(context, "manage")
-        if request.has_permission("manage", context)
-        else None,
+        total_published=total_published,
+        total_all=total_all,
+        records=record_uris,
+        paging={
+            "page": page_number,
+            "pages": pages,
+            "total": total_published if published else total_all,
+            "size": PAGE_SIZE,
+        },
+        rdfxml=page_rdfxml(store.get_multi(ids)),
     )
-
-
-def value_link(request, record, term) -> str | None:
-    if not isinstance(term, ox.NamedNode):
-        return None
-    found = record.repository.store.record_with_resource_uri(term.value)
-    parsed = uri.parse_record_uri(found) if found else None
-    if parsed is not None:
-        return request.resource_url(record.repository, parsed[0], str(parsed[1]))
-    return term.value if term.value.split(":", 1)[0].lower() in SAFE_SCHEMES else None
 
 
 def record_page(request):
+    """A record, made by the stylesheets of the repository (`skin/record.xslt`): the
+    properties of the shape that may be shown, each under the name the shape gives it, and
+    the RDF/XML of the record and what it is made of."""
     record = request.context
     res_type = record.type
     shapes, shape = res_type.shacl_shape()
     names = hints.names(shapes, shape)
-
-    def values(path: str) -> list[dict]:
-        found = [
-            q.object
-            for q in record.graph
-            if q.predicate.value == path and path not in HIDDEN
-        ]
-        return [
-            {"text": term.value, "url": value_link(request, record, term)}
-            for term in sorted(found, key=lambda t: t.value)
-        ]
-
-    description = next(
-        (
-            found
-            for path in res_type.property_role_paths("description")
-            if (found := values(path))
-        ),
-        [],
-    )
-    rows = []
-    for path in dict.fromkeys(res_type.property_role_paths("key_info")):
-        if found := values(path):
-            rows.append(
-                {"name": names.get(path, forms.local_name(path)), "values": found}
-            )
-    return render(
+    properties = []
+    for role in ("key_info", "description"):
+        for path in dict.fromkeys(res_type.property_role_paths(role)):
+            if path not in HIDDEN:
+                properties.append((path, names.get(path, forms.local_name(path)), role))
+    graph = request.store.get_multi([record.uri], compound_records=True)
+    return page(
         request,
-        "gracia:assets/templates/record.pt",
+        "record",
+        own=res_type.view_spec,
         heading=record.title,
         type_name=res_type.name,
-        type_url=request.resource_url(res_type),
-        uri=record.uri,
-        description=[item["text"] for item in description],
-        rows=rows,
-        edit_url=request.resource_url(record, "edit")
-        if request.has_permission("edit", record)
-        else None,
+        properties=properties,
+        rdfxml=page_rdfxml(graph),
     )
 
 

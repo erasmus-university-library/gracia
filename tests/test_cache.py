@@ -606,22 +606,6 @@ class GetMultiTest(CacheCase):
         )
         self.assertEqual(self.cached.get_multi([999], format="rdfxml"), "")
 
-    def test_the_labels_and_slugs_of_the_records_in_a_graph(self):
-        graph = self.cached.get_multi(["rec:work:1", "rec:org:1"])
-        self.assertEqual(
-            graph.labels(), {}
-        )  # the records of these tests have neither a label nor a slug
-        text = (
-            '<rec:person:9> <https://gracia.pub/ns/label> "Ada" ; '
-            '<https://gracia.pub/ns/slug> "ada" .\n'
-            '<rec:person:8> <https://gracia.pub/ns/label> "Bob" .\n'
-            '<http://ex/x> <https://gracia.pub/ns/label> "Not a record" .'
-        )
-        self.assertEqual(
-            Graph.parse(text, "turtle").labels(),
-            {"rec:person:9": ("Ada", "ada"), "rec:person:8": ("Bob", None)},
-        )
-
 
 class GraphStoreTest(CacheCase):
     def test_an_entry_is_used_for_its_etag_only(self):

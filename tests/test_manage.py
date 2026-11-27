@@ -56,7 +56,15 @@ class FormFromShapeTest(WebCase):
         )  # a file, not data
         schema = forms.schema_from_shape(*found)
         self.assertEqual(
-            [n.name for n in schema.children], ["title", "timezone", "locale"]
+            [n.name for n in schema.children],
+            [
+                "title",
+                "timezone",
+                "locale",
+                "layoutTemplate",
+                "typeTemplate",
+                "recordTemplate",
+            ],
         )
         self.assertEqual(schema.children[0].title, "Title")
         self.assertEqual(schema.children[0].predicate, uri.TITLE)

@@ -25,4 +25,8 @@ gracia:TypeShape a sh:NodeShape ;
     [ sh:path gracia:docTemplate ; sh:name "Doc template" ; sh:order 6 ;
         sh:description "The file in doc/ that makes the doc of a record: doc-<profile>-<revision>.xsl; none: the doc every record has" ;
         sh:datatype xsd:string ; sh:maxCount 1 ;
-        sh:pattern "^doc-[a-z][a-z0-9_]*-[0-9]{2,}\\.xsl$" ] .
+        sh:pattern "^doc-[a-z][a-z0-9_]*-[0-9]{2,}\\.xsl$" ] ,
+    [ sh:path gracia:viewTemplate ; sh:name "View template" ; sh:order 7 ;
+        sh:description "The file in view/ that makes the page of a record: <type>-<profile>-<revision>.xslt; none: the page every record has" ;
+        sh:datatype xsd:string ; sh:maxCount 1 ;
+        sh:pattern "^[a-z][a-z0-9]*-[a-z][a-z0-9_]*-[0-9]{2,}\\.xslt$" ] .

@@ -51,9 +51,7 @@ class PageTest(JobsViewCase):
         select = must_search(r'<select name="schemaTemplate".*?</select>', page, re.S)[
             0
         ]
-        self.assertRegex(
-            select, r'<option selected="selected" value="Person-full-01.ttl">'
-        )
+        self.assertRegex(select, r'<option selected value="Person-full-01.ttl">')
         self.assertIn('value="Person-strict-01.ttl"', select)
         self.assertRegex(self.form(), r'<input type="text" name="slug"')
         self.assertRegex(
@@ -269,9 +267,7 @@ class SaveTest(JobsViewCase):
         again = self.web.get(
             got.headers["Location"], headers=ADMIN
         )  # the tab is in focus again
-        self.assertRegex(
-            again.text, r'<option selected="selected" value="Person-strict-01.ttl">'
-        )
+        self.assertRegex(again.text, r'<option selected value="Person-strict-01.ttl">')
         self.assertRegex(again.text, r'<div class="tab-pane active" id="tab-settings"')
         self.assertRegex(
             again.text, r'<div class="alert alert-success[^"]*"[^>]*>\s*Saved\.'

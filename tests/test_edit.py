@@ -645,7 +645,7 @@ class SwitchingSchemaTest(EditCase):
             re.findall(r'<option[^>]*value="([^"]+)"', select),
             ["Person-full-01.ttl", "Person-minimal-01.ttl"],
         )
-        self.assertIn('<option selected="selected" value="Person-full-01.ttl">', select)
+        self.assertIn('<option selected value="Person-full-01.ttl">', select)
 
     def test_a_schema_that_is_not_a_file_of_the_type_is_refused(self):
         for schema in ("Person-full-09.ttl", "Work-full-01.ttl", "../../etc/passwd"):

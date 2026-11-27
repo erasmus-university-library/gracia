@@ -12,6 +12,7 @@ from collections.abc import Callable, Iterable
 from concurrent.futures import Future
 from dataclasses import dataclass, field
 from functools import wraps
+from html import unescape
 from importlib.resources import files
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -53,13 +54,37 @@ class XsltError(RuntimeError):
 @dataclass(frozen=True)
 class Response:
     """What a stylesheet made, as the response of a view: the name of the element it
-    made (`response`, or another, or none), the header elements in it (name, text), its
-    body (None: it has none) and whether there are elements in the body."""
+    made (`response`, or another, or none), the header elements in it (name, text) and
+    the body as the output method wrote it (None: it has none)."""
 
     root: str
     headers: list[tuple[str, str]] = field(default_factory=list)
     body: str | None = None
-    body_has_markup: bool = False
+
+
+def parse_response(text: str) -> Response:
+    """The headers and the body of what a stylesheet made, which Saxon wrote in whatever
+    way its `xsl:output` says (html5, xml): the text is cut, and not parsed. The body is
+    what is between the first `<body>` and the last `</body>`: the ones of the response
+    are the outermost, so a page in it, with its own body, is in between whole. The
+    headers are the elements of `<headers>` (a value is escaped as the writer does)."""
+    found = re.match(r"\s*(?:<\?xml[^>]*\?>\s*)?<([A-Za-z][\w:.-]*)", text)
+    root = found.group(1) if found else ""
+    if root != "response":
+        return Response(root)
+    head, body = text, None
+    start, end = text.find("<body>"), text.rfind("</body>")
+    if start != -1 and end > start:
+        head, body = text[:start], text[start + len("<body>") : end]
+    elif "<body/>" in text:  # the xml writer writes an empty element like that
+        head, body = text[: text.find("<body/>")], ""
+    headers = []
+    block = re.search(r"<headers>(.*?)</headers>", head, re.S)
+    for name, value in re.findall(
+        r"<([A-Za-z][\w-]*)>(.*?)</\1>", block[1] if block else "", re.S
+    ):
+        headers.append((name, unescape(value).strip()))
+    return Response("response", headers, body)
 
 
 class Xml(str):
@@ -289,41 +314,18 @@ class Compiled:
         gets the seconds it took to parse the XML (`parse`) and to run (`transform`)."""
         return self._owner.call(self._run, xml_text, params, messages, timings)
 
-    @_guarded
     def transform_response(
         self,
         xml_text: str,
         params: dict[str, str | int | float | bool] | None = None,
         messages: list[str] | None = None,
         timings: dict[str, float] | None = None,
-    ) -> "Response":
-        """What the stylesheet makes, read as the response of a view: the text it makes,
-        read with the standard parser. (The nodes of the document of Saxon, read with
-        `transform_to_value`, crashed the process now and then when the tests ran in
-        parallel, with no report, and a forced garbage collection did not help.)"""
-        return self._owner.call(
-            self._transform_response, xml_text, params, messages, timings
-        )
-
-    def _transform_response(self, xml_text, params, messages, timings) -> "Response":
-        text = self._run(xml_text, params, messages, timings)
-        try:
-            root = ET.fromstring(text)
-        except ET.ParseError:
-            return Response("")
-        if root.tag != "response":
-            return Response(root.tag)
-        headers = []
-        body = None
-        has_markup = False
-        for part in root:
-            if part.tag == "headers":
-                for header in part:
-                    headers.append((header.tag, (header.text or "").strip()))
-            elif part.tag == "body":
-                body = part.text or ""
-                has_markup = len(part) > 0
-        return Response("response", headers, body, has_markup)
+    ) -> Response:
+        """What the stylesheet makes, read as the response of a view (`parse_response`).
+        (The nodes of the document of Saxon, read with `transform_to_value`, crashed the
+        process now and then when the tests ran in parallel, with no report, and a forced
+        garbage collection did not help: the text is what is read.)"""
+        return parse_response(self.transform(xml_text, params, messages, timings))
 
     def _run(
         self,

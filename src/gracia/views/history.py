@@ -16,7 +16,7 @@ SHOWN = "%Y-%m-%d %H:%M:%S UTC"
 
 
 class HistoryView(View):
-    template = "gracia:assets/templates/history.pt"
+    template = "gracia:assets/xslt/skin/history.xslt"
 
     def __init__(self, request):
         super().__init__(request)
@@ -66,7 +66,7 @@ class HistoryView(View):
         return self.render(
             heading=record.title,
             subtitle=record.uri,
-            revisions=shown,
+            data={"revisions": shown},
             back=request.resource_url(record, "edit"),
         )
 

@@ -1,0 +1,2 @@
+<!-- The job panel as a piece of HTML, for the pages made by stylesheets to place (views.job_panel). -->
+<div tal:omit-tag="" metal:use-macro="panel.macros['panel']"></div>

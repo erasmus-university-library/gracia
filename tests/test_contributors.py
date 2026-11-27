@@ -568,7 +568,7 @@ class NodeErrorTest(ContributorCase):
         rows = self.nodes(self.failing([("ThesisSupervisor", ADA)]))
         self.assertEqual(len(rows), 1)
         self.assertIn('class="badge text-bg-danger me-3">errors</span>', rows[0])
-        self.assertRegex(rows[0], r'<details\s[^>]*\bopen="open"')
+        self.assertRegex(rows[0], r"<details\s[^>]*\bopen[\s>]")
 
     def test_the_message_is_under_the_role_and_says_what_the_role_is_for(self):
         row = self.nodes(self.failing([("ThesisSupervisor", ADA)]))[0]
