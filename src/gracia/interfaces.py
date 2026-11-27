@@ -1,29 +1,43 @@
-from zope.interface import Attribute, Interface
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+import venusian
+from pyramid.exceptions import ConfigurationError
+from zope.interface import Attribute, Interface, providedBy
+
+from gracia import uri
+
+if TYPE_CHECKING:
+    from gracia.types.repository import Repository
 
 
-class IGraciaType(Interface):
-    class_uri = Attribute("the rdf class of its resources")
-    name = Attribute(
-        "the name of the type (None: not described); its records are rec:<slug>:<n>"
-    )
-    slug = Attribute("the first path segment it normally has (None: not described)")
-    schema = Attribute("the file in its shacl/ it starts on")
-    assets = Attribute("the asset spec of the directory of its files")
-    package = Attribute("the dotted name of its package")
-    system = Attribute("True for the types a repository cannot work without")
-    record_class = Attribute(
-        "the class of its records, or None for the generic `Record`"
-    )
+class IRecordType(Interface):
+    """What is registered for the class of the resources of a type (`gracia:class`): the
+    class of its records, a subclass of `Record` (the utility is that class, by the class
+    uri and by the slug of its type). A class that declares a type has a `content_type`
+    (`ContentType`: the name, the slug, the schema, ...)."""
+
+    content_type = Attribute("what the class declares of its type, or None")
 
 
 def known_types(registry) -> list:
+    """The record classes that declare a type, by slug."""
     unique = {
-        id(res_type): res_type
-        for _name, res_type in registry.getUtilitiesFor(IGraciaType)
+        id(cls): cls
+        for _name, cls in registry.getUtilitiesFor(IRecordType)
+        if cls.content_type is not None
     }
-    return sorted(
-        unique.values(), key=lambda k: (k.slug is None, k.slug or k.class_uri)
-    )
+    return sorted(unique.values(), key=lambda cls: cls.content_type.slug)
+
+
+def content_types(registry) -> dict:
+    """The types a repository can be given, by slug: all but the system types."""
+    return {
+        cls.content_type.slug: cls
+        for cls in known_types(registry)
+        if not cls.content_type.system
+    }
 
 
 class IJob(Interface):
@@ -42,9 +56,24 @@ class IRepository(Interface):
     pass
 
 
+class IType(Interface):
+    """A type of a repository: the node that its records are below (`rec:<slug>:<n>`)."""
+
+    slug = Attribute("the first path segment of its records")
+    name = Attribute("the name of the type")
+    class_uri = Attribute("the rdf class of the resources of its records")
+
+
+class IRecord(Interface):
+    """A record of a type: its subject (`rec:<slug>:<n>`) and what is stored of it."""
+
+    uri = Attribute("the subject of the record (None: it is not stored yet)")
+    graph = Attribute("what is stored of the record")
+
+
 class IExtension(Interface):
     # what the author of an extension says (class attributes)
-    name = Attribute("the name of the extension (set by `@extension(name)`)")
+    name = Attribute("the name of the extension (a class that has none is not one)")
     title = Attribute("what the extensions tab calls it")
     description = Attribute("one or two sentences for the extensions tab")
     settings_schema = Attribute(
@@ -118,3 +147,82 @@ class IPredicate(Interface):
 
     def derive(record):
         pass
+
+
+class Node:
+    """A node of the traversal tree below a repository: what its children, jobs and
+    other things are made of."""
+
+    def __init__(self, repository, parent=None):
+        self.repository: Repository = repository
+        self.__parent__ = repository if parent is None else parent
+
+    @property
+    def store(self):
+        return self.repository.store
+
+    @property
+    def registry(self):
+        return self.repository.registry
+
+    @property
+    def application(self):
+        return self.repository.application
+
+
+def traversable(
+    name: str | None = None, *, prefix: str | None = None, context=IRepository
+):
+
+    def decorate(factory):
+        def callback(scanner, _name, _obj):
+            scanner.config.add_gracia_traversable(
+                factory, name=name, prefix=prefix, context=context
+            )
+
+        venusian.attach(factory, callback, category="pyramid")
+        return factory
+
+    return decorate
+
+
+def add_gracia_traversable(
+    config,
+    factory,
+    name: str | None = None,
+    prefix: str | None = None,
+    context=IRepository,
+) -> None:
+    key = name if name is not None else prefix
+    if key is None or (name is not None and prefix is not None):
+        raise ConfigurationError("give a name or a prefix, not both and not neither")
+    if context is IRepository and uri.slug_like(key) and key not in uri.RESERVED_SLUGS:
+        raise ConfigurationError(
+            f"{key!r} could be the slug of a type: add it to uri.RESERVED_SLUGS or use "
+            "another key"
+        )
+    provided = ITraversable if name is not None else IPrefixTraversable
+
+    def register():
+        config.registry.registerAdapter(factory, (context,), provided, name=key)
+
+    config.action(("gracia traversable", context, provided, key), register)
+
+
+def find_child(parent, segment: str):
+    """The node below `parent` at the path segment: by its name, else by the longest
+    prefix that is registered for it (`rec:`). None: nothing is there."""
+    registry = parent.registry
+    found = registry.queryAdapter(parent, ITraversable, name=segment)
+    if found is not None:
+        return found
+    starts = [
+        (prefix, factory)
+        for prefix, factory in registry.adapters.lookupAll(
+            (providedBy(parent),), IPrefixTraversable
+        )
+        if segment.startswith(prefix)
+    ]
+    if not starts:
+        return None
+    return max(starts, key=lambda pair: len(pair[0]))[1](parent, segment)

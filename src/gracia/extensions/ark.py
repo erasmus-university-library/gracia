@@ -5,8 +5,9 @@ from pyramid.httpexceptions import HTTPFound, HTTPNotFound
 from pyramid.view import view_config
 
 from gracia import uri
-from gracia.extensions import Extension, extension
-from gracia.resources import RecordDeleted, Repository
+from gracia.extensions import Extension
+from gracia.types.repository import Repository
+from gracia.types.type import RecordDeleted
 
 
 class ArkSettings(colander.MappingSchema):
@@ -40,8 +41,8 @@ class ArkSettings(colander.MappingSchema):
     )
 
 
-@extension("ark")
 class ArkExtension(Extension):
+    name = "ark"
     title = "ARK"
     description = (
         "Persistent identifiers for the resources, "
@@ -82,7 +83,7 @@ def resolve_ark(request):
     if parsed is None or parsed[0] not in repository.types:
         raise HTTPNotFound()
     try:
-        target = repository.types[parsed[0]][str(parsed[1])]
+        target = repository.types[parsed[0]].find_record(str(parsed[1]))
     except (KeyError, RecordDeleted):
         raise HTTPNotFound() from None
     if not request.has_permission("view", target):

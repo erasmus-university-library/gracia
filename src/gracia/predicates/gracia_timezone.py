@@ -5,7 +5,7 @@ import deform
 import deform.widget
 
 from gracia import uri
-from gracia.predicates import Predicate, predicate
+from gracia.predicates import Predicate
 
 # the regions of the IANA names people choose from; the legacy aliases (US/Eastern,
 # EST5EDT,
@@ -54,9 +54,10 @@ def valid_zone(node, value) -> None:
         raise colander.Invalid(node, "Not a time zone")
 
 
-@predicate(uri.TIMEZONE)
 class TimezonePredicate(Predicate):
     """`gracia:timezone`: the zone times are shown in, or none for UTC."""
+
+    uri = uri.TIMEZONE
 
     def schema_node(self, record, request, schema_node=None):
         if schema_node is None:

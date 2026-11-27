@@ -1,13 +1,15 @@
 import colander
 import deform.widget
 
-from gracia import dates, uri
-from gracia.predicates import Predicate, predicate
+from gracia import uri
+from gracia.predicates import Predicate
+from gracia.utils import dates
 
 
-@predicate(uri.LOCALE)
 class LocalePredicate(Predicate):
     """`gracia:locale`: the format of dates in the forms, or none for ISO 8601."""
+
+    uri = uri.LOCALE
 
     def schema_node(self, record, request, schema_node=None):
         if schema_node is None:

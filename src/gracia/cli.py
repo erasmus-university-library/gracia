@@ -1,6 +1,6 @@
 import argparse
 import contextlib
-import copy
+import dataclasses
 import datetime
 import getpass
 import json
@@ -14,8 +14,7 @@ from pathlib import Path
 import duckdb
 from pyramid.registry import Registry
 
-from gracia import config, types
-from gracia.application import Application
+from gracia import interfaces, presets, scan
 from gracia.database import DEFAULT_PORT, read_owner, serve_db
 from gracia.graph import (
     INPUT_BY_EXTENSION,
@@ -28,7 +27,8 @@ from gracia.graph import (
 )
 from gracia.main import init_from_settings, opened, shutdown
 from gracia.store import DEFAULT_REPOSITORY, NoSuchRepository, Store
-from gracia.utils import assets, passwords, xslt
+from gracia.types.application import Application
+from gracia.utils import assets, config, passwords, xslt
 from gracia.utils.validate import validate_password, validate_userid
 
 _probe_error = ""  # why the last owner discovery failed, for the lock-error hint
@@ -399,7 +399,8 @@ def cmd_repo_create(args) -> int:
             application.create_repository(
                 repo,
                 admin=_admin_credentials(args, repo),
-                content_types=types.enabled(registry, settings),
+                content_types=_enabled_types(registry, settings),
+                preset=args.preset,
             )
             print(f"created repository {repo}")
     return 0
@@ -420,7 +421,7 @@ def cmd_assets_list(args) -> int:
                 node = application[repo]
                 try:
                     wanted = [
-                        (k.assets, k.schema, k.name)
+                        (k.assets, k.schema, k.slug)
                         for k in node.types.values()
                         if k.assets
                     ]
@@ -721,12 +722,36 @@ def _registry(args, application=None):
         yield stand_in, config_.registry, settings
 
 
+def _find_type(registry, name: str):
+    """The content type of a slug or of the module that declares it."""
+    known = interfaces.content_types(registry)
+    found = known.get(name)
+    if found is None:
+        for cls in known.values():
+            if cls.__module__ == name:
+                found = cls
+    if found is None:
+        raise ValueError(
+            f"no content type {name!r} (there are: "
+            f"{', '.join(sorted(known)) or 'none'}; one that is not here has to be "
+            "listed in gracia.types, or be an entry point of the group "
+            f"{scan.ENTRY_POINT_GROUP})"
+        )
+    return found.content_type
+
+
+def _enabled_types(registry, settings: dict) -> list:
+    names = settings.get("gracia.content_types", "").split()
+    return [_find_type(registry, name) for name in names]
+
+
 def cmd_types_available(args) -> int:
     with _registry(args) as (_app, registry, _cfg):
-        for res_type in types.content_types(registry).values():
+        for cls in interfaces.content_types(registry).values():
+            res_type = cls.content_type
             print(
                 f"{res_type.slug:16} {res_type.class_uri}  {res_type.schema}  "
-                f"({res_type.package})"
+                f"({cls.__module__})"
             )
     return 0
 
@@ -844,14 +869,17 @@ def _with_docs(found: list, given: list[str]) -> list:
             raise ValueError(f"--doc {item!r}: expected SLUG=FILE of a type to add")
         res_type = by_slug[slug]
         try:
-            assets.resolve(assets.join(res_type.assets, assets.DOC_DIR + name))
+            assets.resolve(
+                assets.join(
+                    res_type.assets,
+                    assets.DOC_DIR + assets.doc_name(res_type.slug, name),
+                )
+            )
         except (FileNotFoundError, ValueError) as err:
             raise ValueError(
                 f"--doc {item!r}: {name} is not a doc template of {slug} ({err})"
             ) from None
-        chosen = copy.copy(res_type)
-        chosen.doc = name
-        by_slug[slug] = chosen
+        by_slug[slug] = dataclasses.replace(res_type, doc=name)
     return [by_slug[res_type.slug] for res_type in found]
 
 
@@ -869,9 +897,7 @@ def _with_views(found: list, given: list[str]) -> list:
             raise ValueError(
                 f"--view {item!r}: {name} is not a view of {slug} ({err})"
             ) from None
-        chosen = copy.copy(res_type)
-        chosen.view = name
-        by_slug[slug] = chosen
+        by_slug[slug] = dataclasses.replace(res_type, view=name)
     return [by_slug[res_type.slug] for res_type in found]
 
 
@@ -880,22 +906,20 @@ def cmd_types_add(args) -> int:
         if not application.has_repository(args.repo):
             raise NoSuchRepository(args.repo)
         with _registry(args, application) as (_app, registry, _cfg):
-            found = [
-                types.find_content_type(registry, name) for name in args.content_types
-            ]
+            found = [_find_type(registry, name) for name in args.content_types]
         found = _with_docs(found, args.doc)
         found = _with_views(found, args.view)
         with application.new_store(args.repo) as store:
+            node = application[args.repo]
+            node.use_store(store)
             for res_type in found:
-                record = types.add_content_type(store, args.repo, res_type)
+                record = node.add_type(res_type)
                 print(
                     f"{res_type.slug}: added as {record}"
                     if record
                     else f"{res_type.slug}: {args.repo} has it already"
                 )
             # the shapes of the new types say what their records have
-            node = application[args.repo]
-            node.use_store(store)
             node.sync_roles()
     return 0
 
@@ -1065,6 +1089,13 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="FILE",
         help="file with the password of the first user, mode 0600 (else asked for)",
     )
+    q.add_argument(
+        "--preset",
+        default=presets.DEFAULT_PRESET,
+        metavar="NAME",
+        help="what the repository is configured with: "
+        f"{', '.join(presets.names())} (default %(default)s)",
+    )
     q.set_defaults(func=cmd_repo_create)
     q = rsub.add_parser(
         "set", help="set the timezone and the locale of the repository (-r)"
@@ -1132,7 +1163,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     q.add_argument(
         "--schema",
-        help="<Type>-<profile>-<revision>.ttl (default: the one the type is on)",
+        help="<type>-<profile>-<revision>.ttl (default: the one the type is on)",
     )
     q.add_argument(
         "--size",
@@ -1207,7 +1238,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         metavar="SLUG=FILE",
-        help="the doc template (a file of the type's doc/ dir) of a type to add, "
+        help="the doc template (a file of xslt/doc/) of a type to add, "
         "instead of the one it names itself (repeat it for more types)",
     )
     q.add_argument(
@@ -1215,7 +1246,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         metavar="SLUG=FILE",
-        help="the view (a file of the type's view/ dir) that makes the page of a "
+        help="the view (a file of xslt/view/) that makes the page of a "
         "record of a type to add (repeat it for more types)",
     )
     q.set_defaults(func=cmd_types_add)

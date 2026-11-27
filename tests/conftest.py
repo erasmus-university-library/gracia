@@ -55,9 +55,9 @@ import tempfile  # noqa: E402
 from pathlib import Path  # noqa: E402
 
 from gracia import uri as _uri  # noqa: E402
-from gracia.application import Application  # noqa: E402
 from gracia.database import Database  # noqa: E402
 from gracia.main import init, shutdown  # noqa: E402
+from gracia.types.application import Application  # noqa: E402
 
 _TEMPLATES = Path(tempfile.mkdtemp(prefix="gracia_test_repositories_"))
 atexit.register(shutil.rmtree, _TEMPLATES, ignore_errors=True)
@@ -138,10 +138,11 @@ def _create_repository(
     admin=None,
     content_types=(),
     ark=(_uri.DEFAULT_NAAN, _uri.DEFAULT_ROOT_PREFIX),
+    preset="minimal",
 ):
     content_types = list(content_types)
     if not _clonable(self):
-        return _real_create(self, repo_id, admin, content_types, ark)
+        return _real_create(self, repo_id, admin, content_types, ark, preset)
     key = (
         repo_id,
         tuple(admin) if admin else None,
@@ -154,13 +155,14 @@ def _create_repository(
             for c in content_types
         ),
         tuple(ark),
+        preset,
     )
     template = _templates.get(key)
     if template is None:  # the normal way, once, into a file that is then only copied
         template = _TEMPLATES / f"template-{len(_templates)}.db"
         with _built_on(template, self.registry) as built:
-            if not _real_create(built, repo_id, admin, content_types, ark):
-                return _real_create(self, repo_id, admin, content_types, ark)
+            if not _real_create(built, repo_id, admin, content_types, ark, preset):
+                return _real_create(self, repo_id, admin, content_types, ark, preset)
         _templates[key] = template
     _swap_in(self, template)
     return True

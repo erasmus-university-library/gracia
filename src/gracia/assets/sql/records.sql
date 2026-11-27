@@ -84,17 +84,17 @@ CREATE TABLE IF NOT EXISTS history (
     source      VARCHAR NOT NULL
 );
 
--- What the things that follow the data (the search index, the graph cache: see `gracia.actions`) still have
+-- What the things that follow the data (the search index, the graph cache: see `gracia.change_events`) still have
 -- to do, one row for a record and a transaction, written by the same triggers as the history, in the
--- transaction of the write. `action` is `insert` (the record is new, or was deleted before), `update`,
+-- transaction of the write. `kind` is `insert` (the record is new, or was deleted before), `update`,
 -- `delete`, or `ref_update` (the record was not written, but its page changed because something it is made
 -- of did: `Store.refresh_etags`). A row says that a record changed, not how: whoever handles it reads the
 -- record as it is then. No index: the rows are appended in the order of the transactions, and taken from the
 -- front 100 at a time.
-CREATE TABLE IF NOT EXISTS actions_queue (
+CREATE TABLE IF NOT EXISTS change_events (
     transaction_id BIGINT NOT NULL,
     record_id      INTEGER NOT NULL,
-    action         VARCHAR NOT NULL
+    kind           VARCHAR NOT NULL
 );
 
 -- Every slug a record has had, for ever (see predicates/gracia_slug.py): a slug is a name for a record

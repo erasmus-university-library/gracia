@@ -49,10 +49,10 @@ class FormFromShapeTest(WebCase):
         prefix = data.objects(content, ox.NamedNode(uri.ASSETS))[0].value
         name = data.objects(content, ox.NamedNode(uri.SCHEMA_TEMPLATE))[0].value
         self.assertEqual(
-            (prefix, name), ("gracia.types:repository/", "Repository-full-01.ttl")
+            (prefix, name), ("gracia:assets/", "repository-minimal-01.ttl")
         )
         found = assets.shape(
-            prefix, name, uri.REPOSITORY_CLASS, "Repository"
+            prefix, name, uri.REPOSITORY_CLASS, "repository"
         )  # a file, not data
         schema = forms.schema_from_shape(*found)
         self.assertEqual(
@@ -133,7 +133,7 @@ class ManageViewTest(ManageCase):
             "".join(cards.values()).count("system</span>"), 4
         )  # the four the repository cannot work without
         self.assertNotIn(
-            "Person-minimal-01.ttl", "".join(cards.values())
+            "person-minimal-01.ttl", "".join(cards.values())
         )  # not the schema
         self.assertIn(
             "A person, by name.", cards["person"]
@@ -306,7 +306,12 @@ class JobsTabTest(ManageCase):
         pane = self.pane()
         self.assertEqual(
             re.findall(r'<form id="repository-job-(\w+)"', pane),
-            ["rebuild_etags", "update_cache", "rebuild_search", "process_actions"],
+            [
+                "rebuild_etags",
+                "update_cache",
+                "rebuild_search",
+                "process_change_events",
+            ],
         )
         cache = must_search(
             r'<form id="repository-job-update_cache".*?</form>', pane, re.S
@@ -326,7 +331,7 @@ class JobsTabTest(ManageCase):
         )
         self.assertNotIn("res_type", form)  # it is about the repository, not a type
         self.assertIn(
-            'data-filter="job=rebuild_etags,update_cache,rebuild_search,process_actions"',
+            'data-filter="job=rebuild_etags,update_cache,rebuild_search,process_change_events"',
             pane,
         )  # their runs are listed, no others
 
@@ -396,14 +401,16 @@ class StatsTabTest(ManageCase):
             ox.Dataset(ox.parse(text.encode(), format=ox.RdfFormat.TURTLE))
         )
 
-    def test_the_fieldsets_are_cache_then_pending_actions(self):
+    def test_the_fieldsets_are_cache_then_pending_change_events(self):
         pane = self.pane()
         positions = [
-            pane.index(f'id="{name}"') for name in ("stats-cache", "stats-actions")
+            pane.index(f'id="{name}"')
+            for name in ("stats-cache", "stats-change-events")
         ]
         self.assertEqual(positions, sorted(positions))
         self.assertEqual(
-            re.findall(r"<legend[^>]*>([^<]+)", pane), ["Cache", "Pending actions"]
+            re.findall(r"<legend[^>]*>([^<]+)", pane),
+            ["Cache", "Pending change events"],
         )
         for gone in ("stats-types", "stats-search"):  # they have their own tabs
             self.assertNotIn(f'id="{gone}"', pane)
@@ -482,7 +489,7 @@ class StatsTabTest(ManageCase):
         )
 
     def test_nothing_waiting_is_said_so_and_has_no_oldest(self):
-        from gracia.actions import process_pending
+        from gracia.change_events import process_pending
 
         process_pending(self.application, Registry())
         pane = self.pane()
@@ -502,9 +509,9 @@ class StatsTabTest(ManageCase):
         self.assertIn('data-state="running"', page)
 
     def test_a_worker_that_is_not_running_or_keeps_failing_says_so(self):
-        from gracia.actions import Worker
+        from gracia.change_events import ChangeEventsWorker
 
-        worker = Worker(self.application, Registry())
+        worker = ChangeEventsWorker(self.application, Registry())
         self.application.cache.worker = worker
         self.assertIn('data-state="stopped"', self.pane())  # never started
         worker._retry["test_repo"] = (time.monotonic() + 30, 3)
@@ -519,7 +526,7 @@ class StatsTabTest(ManageCase):
         pane = self.pane()
         for job, form in (
             ("update_cache", "stats-job-update_cache"),
-            ("process_actions", "stats-job-process_actions"),
+            ("process_change_events", "stats-job-process_change_events"),
         ):
             found = must_search(rf'<form id="{form}".*?</form>', pane, re.S)[0]
             self.assertIn(
@@ -542,7 +549,7 @@ class StatsTabTest(ManageCase):
         dialog = must_search(
             r'<div class="job-panel"[^>]*data-compact="true"[^>]*>', pane
         )[0]
-        self.assertIn('data-filter="job=update_cache,process_actions"', dialog)
+        self.assertIn('data-filter="job=update_cache,process_change_events"', dialog)
         self.assertIn("http://localhost/test_repo/jobs/list", dialog)
         self.assertIn('data-progress-dialog=""', pane)
         self.assertRegex(
@@ -567,10 +574,10 @@ class StatsTabTest(ManageCase):
 def test_sizes_and_times_are_text():
     import datetime
 
-    from gracia.views.manage import _size, _when
+    from gracia.utils import pretty_size, pretty_when
 
     assert [
-        _size(n) for n in (0, 999, 1000, 12345, 123456, 5_000_000, 3_200_000_000)
+        pretty_size(n) for n in (0, 999, 1000, 12345, 123456, 5_000_000, 3_200_000_000)
     ] == [
         "0 B",
         "999 B",
@@ -580,8 +587,11 @@ def test_sizes_and_times_are_text():
         "5.0 MB",
         "3.2 GB",
     ]
-    assert _when(None) == ""
-    assert _when(datetime.datetime(2026, 11, 16, 14, 5, 59)) == "2026-11-16 14:05 UTC"
+    assert pretty_when(None) == ""
+    assert (
+        pretty_when(datetime.datetime(2026, 11, 16, 14, 5, 59))
+        == "2026-11-16 14:05 UTC"
+    )
 
 
 class LogoTest(ManageCase):
@@ -631,9 +641,17 @@ class LogoTest(ManageCase):
             self.assertEqual(self.logo(home), f"http://localhost/{repo}/")
 
     def test_a_page_that_is_in_no_repository_goes_to_the_application(self):
-        from pyramid.request import Request
+        from types import SimpleNamespace
+        from unittest import mock
 
-        from gracia.views import home_url
+        from gracia.templates import XsltRenderer
 
-        request = Request.blank("/")
-        self.assertEqual(home_url(request), "http://localhost/")
+        request = SimpleNamespace(
+            context=None,
+            params={},
+            application_url="http://localhost",
+            session=SimpleNamespace(peek_flash=lambda level: False),
+        )
+        with mock.patch("gracia.templates.static"):
+            values = XsltRenderer.page_values(request)
+        self.assertEqual(values["site"]["home"], "http://localhost/")

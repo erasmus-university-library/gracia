@@ -422,6 +422,14 @@ class Graph:
     # ---- whole graphs
     # --------------------------------------------------------------------
 
+    def rdfxml(self, without=()) -> str:
+        """The RDF/XML of the graph, without the values of the predicates in `without`
+        (what is never shown); "" when nothing is left."""
+        shown = self.without(without) if without else self
+        if not len(shown):
+            return ""
+        return dataset_rdfxml(shown.dataset).decode()
+
     def without(self, predicates) -> "Graph":
         hidden = {_term(p) for p in predicates}
         return Graph(ox.Dataset(q for q in self.dataset if q.predicate not in hidden))

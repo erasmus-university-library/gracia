@@ -12,9 +12,9 @@ from test_web import WebCase
 
 from gracia import init, uri
 from gracia import uri as gracia_uri
-from gracia.interfaces import IGraciaType
+from gracia.interfaces import IRecordType
 from gracia.main import make_config
-from gracia.resources import Record
+from gracia.types.type import Record
 from gracia.types.user import UserRecord
 
 ADMIN = ("admin", "correct horse")
@@ -43,7 +43,7 @@ PEOPLE = """
 <rec:type:5> a gracia:Record ; gracia:resource_uri foaf:Person ;
     gracia:resource [ a gracia:Type ; gracia:name "Person" ; gracia:slug "person" ;
         gracia:class foaf:Person ; gracia:assets "@ASSETS@" ;
-        gracia:schemaTemplate "Person-full-01.ttl" ] .
+        gracia:schemaTemplate "person-unittest-01.ttl" ] .
 <rec:person:1> a gracia:Record ;
     gracia:resource [ a foaf:Person ; foaf:name "Ada" ; foaf:knows
       <ark:/99999/ir/person/2> ] .
@@ -58,14 +58,14 @@ PERSON_PREFIXES = """
 """
 # two profiles of the person type: everything, and just the name
 PERSON_SCHEMAS = {
-    "Person-full-01.ttl": PERSON_PREFIXES
+    "person-unittest-01.ttl": PERSON_PREFIXES
     + """<urn:test:PersonShape> a sh:NodeShape ; sh:targetClass foaf:Person ;
     sh:property [ sh:path foaf:name ; sh:name "Name" ; sh:order 1 ;
         dash:propertyRole dash:LabelRole ;
         sh:datatype xsd:string ; sh:minCount 1 ; sh:maxCount 1 ] ,
     [ sh:path foaf:mbox ; sh:name "Mail" ; sh:order 2 ;
         sh:datatype xsd:string ; sh:maxCount 1 ] .""",
-    "Person-minimal-01.ttl": PERSON_PREFIXES
+    "person-minimal-01.ttl": PERSON_PREFIXES
     + """<urn:test:MinimalPersonShape> a sh:NodeShape ; sh:targetClass foaf:Person ;
     sh:property [ sh:path foaf:name ; sh:name "Name" ; sh:order 1 ;
         dash:propertyRole dash:LabelRole ;
@@ -144,7 +144,7 @@ class RegistryTest(EditCase):
     def record_class(self, slug):
         config = make_config(self.settings)
         config.commit()
-        return config.registry.queryUtility(IGraciaType, slug).record_class  # ty: ignore[missing-union-attribute]
+        return config.registry.queryUtility(IRecordType, slug)
 
     def context_class(self, path):
         seen = []
@@ -163,7 +163,7 @@ class RegistryTest(EditCase):
             self.context_class("/test_repo/user/1"), self.record_class("user")
         )
         self.assertIs(self.context_class("/test_repo/person/1"), Record)
-        self.assertIs(self.context_class("/test_repo/type/2"), Record)
+        self.assertEqual(self.context_class("/test_repo/type/2").__name__, "TypeRecord")
 
     def test_a_type_package_is_included_by_its_dotted_name(self):
         import sys
@@ -172,7 +172,7 @@ class RegistryTest(EditCase):
             package = Path(root) / "extra_types"
             package.mkdir()
             (package / "__init__.py").write_text(
-                "from gracia.resources import Record\n"
+                "from gracia.types.type import Record\n"
                 "class PersonRecord(Record): ...\n"
                 "def includeme(config):\n"
                 "    config.add_record_class('http://xmlns.com/foaf/0.1/Person', "
@@ -237,7 +237,7 @@ class SubclassedViewTest(EditCase):
     def test_a_subclass_changes_the_heading_and_leaves_the_form_the_source_and_saving(
         self,
     ):
-        from gracia.views.record import RecordView
+        from gracia.types.type import RecordView
 
         class Shouting(RecordView):
             def __init__(self, request):
@@ -462,7 +462,10 @@ class AddViewTest(EditCase):
     def numbers(self, res_type):
         return (
             self.client()
-            .get(f"/test_repo/{res_type}", headers=self.admin)
+            .get(
+                f"/test_repo/{res_type}",
+                headers={**self.admin, "Accept": "application/json"},
+            )
             .json["records"]
         )
 
@@ -569,7 +572,12 @@ class AddViewTest(EditCase):
         self.assertEqual(response.status_int, 501)
         self.assertIn("cannot fill in", response.text)
         self.assertEqual(
-            self.client().get("/test_repo/type", headers=self.admin).json["records"],
+            self.client()
+            .get(
+                "/test_repo/type",
+                headers={**self.admin, "Accept": "application/json"},
+            )
+            .json["records"],
             [1, 2, 3, 4, 5],
         )
 
@@ -600,10 +608,10 @@ class SwitchingSchemaTest(EditCase):
         self.assertEqual(self.fields(), {"name", "mbox"})
 
     def test_switching_to_the_minimal_profile_changes_the_forms(self):
-        self.assertEqual(self.switch("Person-minimal-01.ttl").status_int, 302)
+        self.assertEqual(self.switch("person-minimal-01.ttl").status_int, 302)
         self.assertEqual(self.fields(), {"name"})
         self.assertEqual(self.fields("/test_repo/person/add"), {"name"})
-        self.switch("Person-full-01.ttl")  # and back
+        self.switch("person-unittest-01.ttl")  # and back
         self.assertEqual(self.fields(), {"name", "mbox"})
 
     def test_what_the_minimal_form_cannot_show_is_kept(self):
@@ -613,7 +621,7 @@ class SwitchingSchemaTest(EditCase):
         )
         form["mbox"] = "ada@example.org"
         form.submit("save", headers=self.admin)
-        self.switch("Person-minimal-01.ttl")
+        self.switch("person-minimal-01.ttl")
         form = (
             self.client().get("/test_repo/person/1/edit", headers=self.admin).forms[0]
         )
@@ -629,7 +637,7 @@ class SwitchingSchemaTest(EditCase):
         node = self.application["test_repo"]
         self.addCleanup(node.close)
         full = node["person"].assets_version
-        self.switch("Person-minimal-01.ttl")
+        self.switch("person-minimal-01.ttl")
         other = self.application["test_repo"]
         self.addCleanup(other.close)
         self.assertNotEqual(other["person"].assets_version, full)
@@ -643,12 +651,12 @@ class SwitchingSchemaTest(EditCase):
         ]
         self.assertEqual(
             re.findall(r'<option[^>]*value="([^"]+)"', select),
-            ["Person-full-01.ttl", "Person-minimal-01.ttl"],
+            ["person-minimal-01.ttl", "person-unittest-01.ttl"],
         )
-        self.assertIn('<option selected value="Person-full-01.ttl">', select)
+        self.assertIn('<option selected value="person-unittest-01.ttl">', select)
 
     def test_a_schema_that_is_not_a_file_of_the_type_is_refused(self):
-        for schema in ("Person-full-09.ttl", "Work-full-01.ttl", "../../etc/passwd"):
+        for schema in ("person-full-09.ttl", "work-full-01.ttl", "../../etc/passwd"):
             response = self.switch(schema, by_hand=True)
             self.assertEqual(
                 response.status_int, 200, schema

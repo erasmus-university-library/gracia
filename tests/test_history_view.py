@@ -6,7 +6,7 @@ from datetime import datetime
 from support import must_search
 from test_source import SourceCase
 
-from gracia.views import last_modified
+from gracia.utils import pretty_modified
 
 FOAF = "http://xmlns.com/foaf/0.1/"
 ORIGIN = {"Origin": "http://localhost:80"}
@@ -18,7 +18,7 @@ class LastModifiedTest(unittest.TestCase):
     def said(self, **ago) -> str:
         from datetime import timedelta
 
-        return last_modified(self.NOW - timedelta(**ago), self.NOW)
+        return pretty_modified(self.NOW - timedelta(**ago), self.NOW)
 
     def test_how_long_ago_in_minutes_hours_or_days_and_after_30_days_the_day(self):
         self.assertEqual(self.said(seconds=20), "Last modified just now")
@@ -29,11 +29,11 @@ class LastModifiedTest(unittest.TestCase):
         self.assertEqual(self.said(days=2), "Last modified 2 days ago")
         self.assertEqual(self.said(days=30), "Last modified 30 days ago")
         self.assertEqual(
-            last_modified(datetime(2026, 8, 23, 9, 30), self.NOW),
+            pretty_modified(datetime(2026, 8, 23, 9, 30), self.NOW),
             "Last modified on Sunday, August 23 2026",
         )
         self.assertEqual(
-            last_modified(datetime(2026, 9, 7, 9, 30), datetime(2026, 11, 20)),
+            pretty_modified(datetime(2026, 9, 7, 9, 30), datetime(2026, 11, 20)),
             "Last modified on Monday, September 7 2026",  # no zero before the day
         )
 

@@ -309,7 +309,7 @@ class Indexes:
             )
             return {"indexed": 0, "deleted": 0, "problems": {}, "state": "stale"}
         alive = [
-            docs[c.record] for c in changes if c.action != "delete" and c.record in docs
+            docs[c.record] for c in changes if c.kind != "delete" and c.record in docs
         ]
         made, problems = self._prepare(definition, alive)
         self._write(index, [c.record_id for c in changes], made)
@@ -317,7 +317,7 @@ class Indexes:
             log.warning("%s of %s: %s", record, repo, "; ".join(found))
         return {
             "indexed": len(made),
-            "deleted": sum(c.action == "delete" for c in changes),
+            "deleted": sum(c.kind == "delete" for c in changes),
             "problems": problems,
             "state": "ok",
         }
@@ -554,7 +554,7 @@ def on_records_changed(event) -> None:
     missing = {
         c.record: c.record_id
         for c in event.changes
-        if c.action != "delete" and c.record in event.graphs and c.record not in docs
+        if c.kind != "delete" and c.record in event.graphs and c.record not in docs
     }
     if (
         definitions and missing

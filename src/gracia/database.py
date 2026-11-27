@@ -7,7 +7,7 @@ from pathlib import Path
 
 import duckdb
 
-from gracia import config
+from gracia.utils import config
 
 
 def literal(value: str) -> str:

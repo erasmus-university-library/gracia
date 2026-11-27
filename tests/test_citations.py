@@ -4,7 +4,7 @@ import json
 
 from test_work_doc import WorkDocCase
 
-from gracia import citations
+from gracia.utils import citations
 
 
 class CitationsTest(WorkDocCase):

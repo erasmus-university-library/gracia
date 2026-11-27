@@ -3,15 +3,16 @@ import deform
 import deform.widget
 
 from gracia import uri
-from gracia.predicates import Predicate, predicate
+from gracia.predicates import Predicate
 from gracia.utils import assets
 
 
-@predicate(uri.DOC_TEMPLATE)
 class DocTemplatePredicate(Predicate):
+    uri = uri.DOC_TEMPLATE
+
     def schema_node(self, record, request, schema_node=None):
         prefix = record.content_value(uri.ASSETS)
-        files = assets.docs_of(prefix) if prefix else []
+        files = assets.docs_of(prefix, record.content_value(uri.SLUG)) if prefix else []
         if schema_node is None or not files:
             return schema_node
         current = record.content_value(uri.DOC_TEMPLATE)

@@ -5,9 +5,9 @@ from unittest import mock
 import pyoxigraph as ox
 from test_edit import FOAF, EditCase
 
-from gracia import hints
+from gracia import forms
 from gracia.graph import Graph
-from gracia.resources import Type
+from gracia.types.type import Type
 
 HTML = {"Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8"}
 PREFIX = (
@@ -149,13 +149,14 @@ class TypeIndexTest(PagesCase):
         after = self.labels(self.get("/test_repo/person/?page=2", self.admin))
         self.assertEqual(before, after)
 
-    def test_asking_for_json_or_nothing_still_gets_json(self):
-        for headers in ({}, {"Accept": "application/json"}):
-            got = self.client().get(
-                "/test_repo/person/", headers={**self.admin, **headers}
-            )
-            self.assertEqual(got.content_type, "application/json")
-            self.assertEqual(len(got.json["records"]), 47)
+    def test_the_records_of_a_type_are_json_when_asked_and_html_by_default(self):
+        got = self.client().get(
+            "/test_repo/person/", headers={**self.admin, "Accept": "application/json"}
+        )
+        self.assertEqual(got.content_type, "application/json")
+        self.assertEqual(len(got.json["records"]), 47)
+        got = self.client().get("/test_repo/person/", headers=self.admin)
+        self.assertEqual(got.content_type, "text/html")
 
 
 class RecordPageTest(PagesCase):
@@ -243,18 +244,18 @@ class RecordPageTest(PagesCase):
             "User id", got.text
         )  # its key information: the user id, under its name in the shape
 
-    def test_no_accept_is_still_rdfxml_and_json_is_still_json(self):
-        plain = self.client().get("/test_repo/person/1", headers=self.admin)
-        self.assertEqual(plain.content_type, "application/rdf+xml")
-        self.assertEqual(
-            self.client()
-            .get(
-                "/test_repo/person/1",
-                headers={**self.admin, "Accept": "application/json"},
+    def test_no_accept_is_html_and_the_other_types_are_asked_for(self):
+        for accept in (None, "*/*", "text/html"):
+            headers = dict(self.admin)
+            if accept:
+                headers["Accept"] = accept
+            got = self.client().get("/test_repo/person/1", headers=headers)
+            self.assertEqual(got.content_type, "text/html", accept)
+        for accept in ("application/json", "application/rdf+xml"):
+            got = self.client().get(
+                "/test_repo/person/1", headers={**self.admin, "Accept": accept}
             )
-            .content_type,
-            "application/json",
-        )
+            self.assertEqual(got.content_type, accept)
 
 
 class NamesTest(PagesCase):
@@ -272,7 +273,7 @@ class NamesTest(PagesCase):
             "turtle",
         )
         self.assertEqual(
-            hints.names(shapes, ox.NamedNode("http://ex/Shape")),
+            forms.property_names(shapes, ox.NamedNode("http://ex/Shape")),
             {
                 "http://ex/a": "Alpha",
                 "http://ex/b": "b",

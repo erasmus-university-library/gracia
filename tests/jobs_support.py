@@ -12,12 +12,12 @@ import luigi
 import pyoxigraph as ox
 from harness import open_application
 
-from gracia.application import Application
 from gracia.jobs import runner
 from gracia.jobs.builtin import Source
 from gracia.jobs.db import JobsDb
 from gracia.jobs.spec import validate_spec
 from gracia.jobs.stage import Stage, StageFailure, read_lines
+from gracia.types.application import Application
 
 FOAF = "http://xmlns.com/foaf/0.1/"
 PREFIXES = """
@@ -27,12 +27,12 @@ PREFIXES = """
 @prefix foaf: <http://xmlns.com/foaf/0.1/> .
 """
 SCHEMAS = {
-    "Person-full-01.ttl": PREFIXES
+    "person-unittest-01.ttl": PREFIXES
     + """<urn:t:Full> a sh:NodeShape ; sh:targetClass foaf:Person ;
     sh:property [ sh:path foaf:name ; dash:propertyRole dash:LabelRole ;
                   sh:minCount 1 ; sh:maxCount 1 ] .""",
     # a candidate: it also wants a mail address that looks like one
-    "Person-strict-01.ttl": PREFIXES
+    "person-strict-01.ttl": PREFIXES
     + """<urn:t:Strict> a sh:NodeShape ; sh:targetClass foaf:Person ;
     sh:property [ sh:path foaf:name ; sh:minCount 1 ; sh:maxCount 1 ] ,
         [ sh:path foaf:mbox ; sh:minCount 1 ; sh:maxCount 1 ; sh:pattern "@" ] .""",
@@ -48,7 +48,7 @@ REPOSITORY = """
 <rec:type:5> a gracia:Record ; gracia:resource_uri foaf:Person ;
     gracia:resource [ a gracia:Type ; gracia:name "Person" ; gracia:slug "person" ;
         gracia:class foaf:Person ; gracia:assets "@ASSETS@" ; gracia:schemaTemplate
-          "Person-full-01.ttl" ] .
+          "person-unittest-01.ttl" ] .
 """
 
 

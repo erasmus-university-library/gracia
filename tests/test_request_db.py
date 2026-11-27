@@ -4,8 +4,8 @@ from pyramid.httpexceptions import HTTPNotFound
 from pyramid.response import Response
 from pyramid.security import NO_PERMISSION_REQUIRED
 
-from gracia.application import Application
-from gracia.resources import Repository
+from gracia.types.application import Application
+from gracia.types.repository import Repository
 
 
 class RequestDbTest(ConfiguredCase):

@@ -10,15 +10,16 @@ from pathlib import Path
 from typing import ClassVar
 
 import pyoxigraph as ox
+from harness import BUNDLED
 from pyramid.registry import Registry
 from support import must_search
 from test_dates import ADMIN, POSTING
 from test_list_widget import ListCase
 
-from gracia import forms, types
-from gracia.actions import RecordsChanged, process_pending
+from gracia import forms
+from gracia.change_events import RecordsChanged, process_pending
 from gracia.search import Indexes, on_records_changed
-from gracia.views.lookup import item, visible
+from gracia.types.repository import RepositoryView
 
 PERSON = "https://schema.org/Person"
 UNIVERSITY = "https://schema.org/CollegeOrUniversity"
@@ -32,9 +33,7 @@ class ReferenceCase(ListCase):
         self.application.create_repository(
             "refs",
             admin=("admin", "correct horse battery"),
-            content_types=[
-                types.available()[k] for k in ("work", "person", "organization")
-            ],
+            content_types=[BUNDLED[k] for k in ("work", "person", "organization")],
         )
         self._index = tempfile.TemporaryDirectory()
         self.addCleanup(self._index.cleanup)
@@ -247,7 +246,8 @@ class VisibleTest(unittest.TestCase):
     ]
 
     def records(self, who):
-        return [h["record"] for h in visible(who, who, self.hits)]
+        who.context = who  # the stand-in is the request and the repository
+        return [h["record"] for h in RepositoryView(who).visible(self.hits)]
 
     def test_a_record_of_a_type_that_may_not_be_viewed_is_not_there(self):
         self.assertEqual(self.records(Allowed({"person"}, set())), ["rec:person:1"])
@@ -258,13 +258,18 @@ class VisibleTest(unittest.TestCase):
 
     def test_the_uri_is_the_resource_uri_or_the_ark_of_the_record(self):
         self.assertEqual(
-            item({"record": "rec:person:7", "resource_uri": "https://x/y"})["uri"],
+            RepositoryView.item(
+                {"record": "rec:person:7", "resource_uri": "https://x/y"}
+            )["uri"],
             "https://x/y",
         )
         self.assertEqual(
-            item({"record": "rec:person:7"})["uri"], "ark:/99999/ir/person/7"
+            RepositoryView.item({"record": "rec:person:7"})["uri"],
+            "ark:/99999/ir/person/7",
         )
-        self.assertEqual(item({"record": "rec:person:7"})["label"], "rec:person:7")
+        self.assertEqual(
+            RepositoryView.item({"record": "rec:person:7"})["label"], "rec:person:7"
+        )
 
 
 class ShapeClassesTest(ReferenceCase):
@@ -352,7 +357,7 @@ class FormTest(ReferenceCase):
 
     def test_the_uri_is_posted_and_stored_and_the_label_is_what_the_form_shows(self):
         self.save_work([ADA], publisher=DELFT)
-        work = self.application["refs"].types["work"]["1"]
+        work = self.application["refs"].types["work"].find_record("1")
         head = work.graph.objects(work.resource, "https://schema.org/author")
         self.assertEqual([o.value for o in work.graph.walk_list(head[0])], [ADA])
         publisher = work.graph.objects(work.resource, "https://schema.org/publisher")
@@ -411,7 +416,9 @@ class FormTest(ReferenceCase):
 
     def test_a_work_with_an_author_that_was_looked_for_conforms(self):
         self.save_work([ADA, "ark:/99999/ir/person/2"])
-        self.assertEqual(self.application["refs"].types["work"]["1"].validate(), [])
+        self.assertEqual(
+            self.application["refs"].types["work"].find_record("1").validate(), []
+        )
 
 
 def group(page: str, uri: str) -> str:
@@ -476,7 +483,7 @@ class ButtonTest(ReferenceCase):
         )
 
     def test_a_person_who_may_not_edit_that_type_has_no_edit_button(self):
-        from gracia.resources import edit_address
+        from gracia.forms import edit_address
 
         class Request:
             def has_permission(self, permission, node):

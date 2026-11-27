@@ -3,12 +3,7 @@ import deform
 import deform.widget
 from pyramid.response import Response
 
-from gracia.views.deform import (
-    deform_view,
-    dependent_select,
-    options_validator,
-    render_fields,
-)
+from gracia.templates import DeformViews, DependentSelectWidget
 
 SEEN: list = []  # (form, field) the shades view was called with
 SHADES = {"red": ["crimson", "scarlet"], "blue": ["navy", "azure"]}
@@ -20,38 +15,39 @@ class Colours(colander.MappingSchema):
         widget=deform.widget.SelectWidget(values=[("red", "Red"), ("blue", "Blue")]),
     )
     shade = colander.SchemaNode(
-        colander.String(), widget=dependent_select("shades", depends_on="family")
+        colander.String(),
+        widget=DependentSelectWidget.deferred("shades", depends_on="family"),
     )
-    validator = options_validator("shade", "shades", depends_on="family")
+    validator = DependentSelectWidget.validator("shade", "shades", depends_on="family")
 
 
 def colours_form(context, request) -> deform.Form:
     return deform.Form(Colours().bind(request=request, context=context), buttons=())
 
 
-@deform_view("shades", permission="view", form=colours_form)
+@DeformViews.declare("shades", permission="view", form=colours_form)
 def shades(context, request, values, form, field):
     SEEN.append((form, field))
     return [(s, s.title()) for s in SHADES.get(values.get("family"), [])]
 
 
-@deform_view("palette", permission="view", form=colours_form)
+@DeformViews.declare("palette", permission="view", form=colours_form)
 def palette(context, request, values, form, field):
     return f"<p id='palette'>{values.get('family', 'none')}</p>"
 
 
-@deform_view("hue", permission="edit", form=colours_form)
+@DeformViews.declare("hue", permission="edit", form=colours_form)
 def hue(context, request, values, form, field):
     if values.get("family") == "blue":
         form["shade"].widget = deform.widget.TextInputWidget()
     return form
 
 
-@deform_view("teapot", permission="view", form=colours_form)
+@DeformViews.declare("teapot", permission="view", form=colours_form)
 def teapot(context, request, values, form, field):
     return Response("short and stout", status=418, content_type="text/plain")
 
 
-@deform_view("row", permission="view", form=colours_form)
+@DeformViews.declare("row", permission="view", form=colours_form)
 def row(context, request, values, form, field):
-    return render_fields(form, request.params.items(), [field.name])
+    return DeformViews.render_fields(form, request.params.items(), [field.name])

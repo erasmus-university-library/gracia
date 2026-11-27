@@ -1,8 +1,9 @@
-"""The page of a work: the view of the type `work` (types/work/view/), in the layout."""
+"""The page of a work: the view of the type `work` (assets/xslt/view/), in the layout."""
 
 from dataclasses import replace
 
 import pyoxigraph as ox
+from harness import BUNDLED
 from test_manage import ADMIN, ManageCase
 from test_work_doc import (
     ARTICLE,
@@ -13,7 +14,6 @@ from test_work_doc import (
     work,
 )
 
-from gracia import types
 from gracia.utils import assets
 
 HTML = {"Accept": "text/html"}
@@ -37,7 +37,7 @@ def labelled(kind: str, number: int, name: str, schema_class: str = "Person") ->
 class WorkViewCase(ManageCase):
     def setUp(self):
         super().setUp()
-        found = types.available()
+        found = BUNDLED
         self.application.create_repository(
             "lib",
             admin=("admin", "correct horse battery"),
@@ -76,11 +76,11 @@ class WorkViewTest(WorkViewCase):
         res_type = repository.types["work"]
         self.assertEqual(res_type.view_template, "work-schemaorg-01.xslt")
         self.assertTrue(
-            str(res_type.view_spec).endswith("work/view/work-schemaorg-01.xslt")
+            str(res_type.view_spec).endswith("xslt/view/work-schemaorg-01.xslt")
         )
         self.assertIsNone(repository.types["person"].view_spec)
         self.assertEqual(
-            assets.views_of("gracia.types:work/"), ["work-schemaorg-01.xslt"]
+            assets.views_of("gracia:assets/", "work"), ["work-schemaorg-01.xslt"]
         )
 
     def test_a_work_has_a_header_a_publication_and_its_metadata(self):

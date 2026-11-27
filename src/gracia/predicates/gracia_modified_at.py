@@ -4,7 +4,7 @@ import colander
 
 from gracia import uri
 from gracia.forms import ReadOnlyWidget
-from gracia.predicates import HookContext, Predicate, predicate
+from gracia.predicates import HookContext, Predicate
 from gracia.store import literal
 
 XSD_DATETIME = "http://www.w3.org/2001/XMLSchema#dateTime"
@@ -37,8 +37,9 @@ class LocalTimeWidget(ReadOnlyWidget):
         return f"{local:%Y-%m-%d %H:%M:%S} {local.tzname()}"
 
 
-@predicate(uri.MODIFIED_AT)
 class ModifiedAtPredicate(Predicate):
+    uri = uri.MODIFIED_AT
+
     def schema_node(self, record, request, schema_node=None):
         if schema_node is None:
             return schema_node

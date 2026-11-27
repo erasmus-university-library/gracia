@@ -64,7 +64,7 @@ class ContributorCase(ReferenceCase):
         return self.web.post(WORK, params=params, headers=POSTING, expect_errors=True)
 
     def work_graph(self, number=1):
-        return self.application["refs"].types["work"][str(number)]
+        return self.application["refs"].types["work"].find_record(str(number))
 
     @staticmethod
     def roles_of(work):
@@ -411,11 +411,7 @@ class ShapeSaysTest(unittest.TestCase):
 
     def test_the_work_shape_does_not_use_terms_of_its_own_for_any_of_this(self):
         text = (
-            Path(forms.__file__).parent
-            / "types"
-            / "work"
-            / "shacl"
-            / "Work-schemaorg-01.ttl"
+            Path(forms.__file__).parent / "assets" / "shacl" / "work-schemaorg-01.ttl"
         ).read_text()
         for term in ("refersTo", "classesFollow", "onlyFor"):
             self.assertNotIn(f"gracia:{term}", text)

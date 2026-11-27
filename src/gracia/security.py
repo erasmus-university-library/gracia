@@ -1,10 +1,20 @@
 import base64
 import binascii
+from urllib.parse import urlsplit
 
-from pyramid.authorization import ACLHelper, Authenticated, Everyone
+from pyramid.authorization import (
+    ALL_PERMISSIONS,
+    ACLHelper,
+    Allow,
+    Authenticated,
+    Everyone,
+)
+from pyramid.httpexceptions import HTTPBadRequest
 from pyramid.location import lineage
 
-from gracia.resources import Repository
+from gracia.interfaces import IRepository
+
+ADMINS = (Allow, "group:admin", ALL_PERMISSIONS)
 
 
 class UsersPolicy:
@@ -20,7 +30,7 @@ class UsersPolicy:
         except (binascii.Error, UnicodeDecodeError):
             return None
         repository = next(
-            (n for n in lineage(context) if isinstance(n, Repository)), None
+            (n for n in lineage(context) if IRepository.providedBy(n)), None
         )
         cache = request.environ.setdefault("gracia.login", {})
         key = repository.__name__ if repository else None
@@ -55,3 +65,9 @@ class UsersPolicy:
 
     def forget(self, request, **kw):
         return []
+
+
+def same_origin(request) -> None:
+    source = request.headers.get("Origin") or request.headers.get("Referer")
+    if not source or urlsplit(source).netloc != request.host:
+        raise HTTPBadRequest("this request does not come from this site")

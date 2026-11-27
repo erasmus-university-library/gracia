@@ -5,11 +5,11 @@ from typing import cast
 
 from harness import etag_of, graph_of, stopped_worker
 from pyramid.registry import Registry
-from test_actions import STAMP2, BatchCase
+from test_change_events import STAMP2, BatchCase
 from test_etags import record
 
-from gracia.actions import Worker
 from gracia.cache import EtagStore, GraphStore
+from gracia.change_events import ChangeEventsWorker
 from gracia.store import fetch_one
 
 
@@ -60,7 +60,7 @@ class StoreStatsTest(BatchCase):
 
     def test_an_empty_repository_has_nothing_to_count(self):
         self.assertEqual(self.store.pending_summary()["rows"], 4)  # what was put above
-        self.store.con.execute("DELETE FROM actions_queue")
+        self.store.con.execute("DELETE FROM change_events")
         summary = self.store.pending_summary()
         self.assertEqual(
             (
@@ -72,7 +72,7 @@ class StoreStatsTest(BatchCase):
             ),
             (0, 0, 0, None, None),
         )
-        self.assertEqual(summary["actions"], {})
+        self.assertEqual(summary["change_events"], {})
 
     def test_the_queue_is_summed_by_action_with_the_oldest_transaction_and_when_it_was(
         self,
@@ -80,7 +80,7 @@ class StoreStatsTest(BatchCase):
         self.put(record("rec:org:1", refs=["rec:org:9"], stamp=STAMP2))
         summary = self.store.pending_summary()
         self.assertEqual(
-            summary["actions"], {"insert": 4, "update": 1, "ref_update": 2}
+            summary["change_events"], {"insert": 4, "update": 1, "ref_update": 2}
         )
         self.assertEqual(
             (summary["oldest"], summary["last"], summary["records"]), (1, 2, 4)
@@ -175,7 +175,7 @@ class GraphCacheStatsTest(BatchCase):
 
 class WorkerStatusTest(BatchCase):
     def test_a_worker_that_was_never_started_is_not_running_and_not_in_line(self):
-        worker = Worker(self.app, Registry())
+        worker = ChangeEventsWorker(self.app, Registry())
         self.assertEqual(
             worker.status("main"),
             {
@@ -189,7 +189,7 @@ class WorkerStatusTest(BatchCase):
         )
 
     def test_a_running_worker_is_running_and_a_stopped_one_says_so(self):
-        worker = Worker(self.app, Registry(), poll=0.05)
+        worker = ChangeEventsWorker(self.app, Registry(), poll=0.05)
         self.addCleanup(worker.stop)
         worker.start()
         self.assertTrue(worker.status("main")["running"])
@@ -198,7 +198,7 @@ class WorkerStatusTest(BatchCase):
         self.assertEqual((status["running"], status["stopped"]), (False, True))
 
     def test_the_line_and_the_failures_of_a_repository_are_in_it(self):
-        worker = Worker(self.app, Registry())
+        worker = ChangeEventsWorker(self.app, Registry())
         worker._line.extend(["main", "other"])
         worker._retry["main"] = (time.monotonic() + 20, 2)
         status = worker.status("main")
@@ -213,7 +213,7 @@ class WorkerStatusTest(BatchCase):
         )  # the pause is over: not negative
 
     def test_the_thread_of_the_worker_is_a_thread(self):
-        worker = Worker(self.app, Registry(), poll=0.05)
+        worker = ChangeEventsWorker(self.app, Registry(), poll=0.05)
         self.addCleanup(worker.stop)
         worker.start()
         self.assertIn("gracia-worker", [t.name for t in threading.enumerate()])

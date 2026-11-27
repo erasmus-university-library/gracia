@@ -22,7 +22,7 @@
       You may not start any job here.
     </div>
   </div>
-  <div tal:define="panel_list_url string:${list_url}; panel_watch string:; panel_compact string:;
+  <div tal:define="panel load: job_panel.pt; panel_list_url string:${list_url}; panel_watch string:; panel_compact string:;
                    panel_filter string:subject=${res_type}"
        tal:condition="can_list"
        metal:use-macro="panel.macros['panel']"></div>

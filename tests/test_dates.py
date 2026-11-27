@@ -6,10 +6,12 @@ import unittest
 import colander
 import deform
 import pyoxigraph as ox
+from harness import BUNDLED
 from test_web import HeaderPolicy, WebCase
 
-from gracia import dates, forms, types
+from gracia import forms
 from gracia.main import make_config
+from gracia.utils import dates
 
 ADMIN = {"X-User": "admin"}
 POSTING = {**ADMIN, "Origin": "http://localhost:80"}
@@ -94,7 +96,7 @@ class DatesCase(WebCase):
         self.application.create_repository(
             "test_repo",
             admin=("admin", "correct horse battery"),
-            content_types=[types.available()["series"]],
+            content_types=[BUNDLED["series"]],
         )
         self.web = self.client(self.config)
 
@@ -144,7 +146,7 @@ class DateFormTest(DatesCase):
         form["startDate"] = "15-03-2024"
         response = self.save(form)
         self.assertEqual(response.status_int, 302, response.text[:600])
-        series = self.application["test_repo"].types["series"]["1"]
+        series = self.application["test_repo"].types["series"].find_record("1")
         found = series.graph.objects(series.resource, START)
         self.assertEqual(
             [(o.value, o.datatype.value) for o in found],
@@ -159,7 +161,7 @@ class DateFormTest(DatesCase):
         form["name"] = "Series 1"
         form["startDate"] = "2024"
         self.assertEqual(self.save(form).status_int, 302)
-        series = self.application["test_repo"].types["series"]["1"]
+        series = self.application["test_repo"].types["series"].find_record("1")
         found = series.graph.objects(series.resource, START)
         self.assertEqual(
             [(o.value, o.datatype.value) for o in found], [("2024", XSD + "gYear")]
@@ -224,7 +226,7 @@ class LanguageFieldTest(DatesCase):
         form["name"] = "A series"
         form["inLanguage"] = "nl"
         self.assertEqual(self.save(form).status_int, 302)
-        series = self.application["test_repo"].types["series"]["1"]
+        series = self.application["test_repo"].types["series"].find_record("1")
         found = series.graph.objects(series.resource, "https://schema.org/inLanguage")
         self.assertEqual([o.value for o in found], ["nl"])
 
@@ -254,7 +256,7 @@ class WorkFormTest(DatesCase):
         self.application.create_repository(
             "work_repo",
             admin=("admin", "correct horse battery"),
-            content_types=[types.available()["work"]],
+            content_types=[BUNDLED["work"]],
         )
 
     def form(self):
@@ -295,7 +297,7 @@ class WorkFormTest(DatesCase):
         self.bag_input(form, page, "isPartOf").value = "ark:/99999/ir/series/3"
         response = form.submit("save", headers=POSTING, expect_errors=True)
         self.assertEqual(response.status_int, 302, response.text[:600])
-        work = self.application["work_repo"].types["work"]["1"]
+        work = self.application["work_repo"].types["work"].find_record("1")
         for name, value in (
             ("publisher", "ark:/99999/ir/organization/2"),
             ("isPartOf", "ark:/99999/ir/series/3"),
@@ -311,7 +313,7 @@ class WorkFormTest(DatesCase):
         form["name"] = "An article"
         form.fields["item"][0].value = "ark:/99999/ir/person/1"
         self.assertEqual(form.submit("save", headers=POSTING).status_int, 302)
-        work = self.application["work_repo"].types["work"]["1"]
+        work = self.application["work_repo"].types["work"].find_record("1")
         part = "https://schema.org/isPartOf"
         issue = ox.BlankNode()
         work.graph.add_value(work.resource, part, issue)

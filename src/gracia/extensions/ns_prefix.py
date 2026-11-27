@@ -3,7 +3,7 @@ import deform
 import deform.widget
 
 from gracia import uri
-from gracia.extensions import Extension, extension
+from gracia.extensions import Extension
 
 DEFAULT_PREFIXES = [
     {"prefix": "dc", "namespace": "http://purl.org/dc/elements/1.1/"},
@@ -68,8 +68,8 @@ class PrefixSettings(colander.MappingSchema):
     )
 
 
-@extension("ns_prefix")
 class NsPrefixExtension(Extension):
+    name = "ns_prefix"
     title = "Namespace prefixes"
     description = "The prefixes for exports, the XSLT and the label queries. Always on."
     settings_schema = PrefixSettings

@@ -5,9 +5,8 @@ from types import SimpleNamespace
 import colander
 import deform
 import pyoxigraph as ox
-from harness import ConfiguredCase
+from harness import BUNDLED, ConfiguredCase
 
-from gracia import types
 from gracia.forms import Form, change_sequence
 from gracia.graph import Graph
 
@@ -37,7 +36,7 @@ class NestedFormTest(ConfiguredCase):
         self.application.create_repository(
             "test_repo",
             admin=("admin", "correct horse"),
-            content_types=[types.available()["person"]],
+            content_types=[BUNDLED["person"]],
         )
         self.web = self.client()
 
@@ -88,7 +87,7 @@ class NestedFormTest(ConfiguredCase):
         self.assertEqual(response.status_int, 302, response.text[:400])
 
     def addresses(self) -> list[dict[str, str]]:
-        record = self.application["test_repo"].types["person"]["1"]
+        record = self.application["test_repo"].types["person"].find_record("1")
         found = []
         for node in record.graph.objects(record.resource, SCHEMA + "address"):
             said = {
@@ -342,7 +341,7 @@ class CardinalityTest(ConfiguredCase):
     def setUp(self):
         super().setUp()
         self.application.create_repository(
-            "test_repo", content_types=[types.available()["person"]]
+            "test_repo", content_types=[BUNDLED["person"]]
         )
         self.config.commit()
         record = self.application["test_repo"].types["person"].blank_record()

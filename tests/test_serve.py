@@ -18,9 +18,11 @@ class ServeProcessTest(DbTestCase):
 
     def get(self, port: int, path: str):
         try:
-            with urllib.request.urlopen(
-                f"http://127.0.0.1:{port}{path}", timeout=5
-            ) as response:
+            request = urllib.request.Request(
+                f"http://127.0.0.1:{port}{path}",
+                headers={"Accept": "application/json"},
+            )
+            with urllib.request.urlopen(request, timeout=5) as response:
                 return response.status, json.loads(response.read())
         except urllib.error.HTTPError as err:
             return err.code, json.loads(err.read())

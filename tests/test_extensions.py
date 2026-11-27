@@ -15,7 +15,7 @@ from gracia import extensions, uri
 from gracia.extensions import Extension, ExtensionError
 from gracia.forms import to_json
 from gracia.main import make_config
-from gracia.resources import Repository
+from gracia.types.repository import Repository
 
 ADMIN = {"X-User": "admin"}
 POSTING = {
@@ -46,12 +46,14 @@ class DemoSettings(colander.MappingSchema):
 
 
 class Demo(Extension):
+    name = "demo"
     title = "Demo"
     description = "An extension for the tests."
     settings_schema = DemoSettings
 
 
 class OnlyWithPerson(Extension):
+    name = "depends"
     title = "Only with person"
     description = "Depends on the repository."
 
@@ -75,8 +77,8 @@ class ExtensionsCase(WebCase):
         self.settings["gracia.security_policy"] = HeaderPolicy()  # ty: ignore[invalid-assignment]
         self.application.create_repository("test_repo")
         self.config = make_config(self.settings)
-        self.config.add_gracia_extension("demo", Demo)
-        self.config.add_gracia_extension("depends", OnlyWithPerson)
+        self.config.add_gracia_extension(Demo)
+        self.config.add_gracia_extension(OnlyWithPerson)
         self.config.add_view(
             lambda request: Response("the demo"),
             context=Repository,

@@ -1,6 +1,7 @@
 from test_edit import EditCase
 
-from gracia.resources import Jobs, Record, Type
+from gracia.jobs.nodes import Jobs
+from gracia.types.type import Record, Type
 
 
 class RepositoryOfNodeTest(EditCase):
@@ -37,21 +38,24 @@ class RepositoryOfNodeTest(EditCase):
         self.assertFalse(hasattr(self.application, "repository"))
 
     def test_what_is_below_a_repository_is_what_says_so_with_traversable(self):
-        from gracia import traversal
-        from gracia.resources import DeformViews, Resolved
+        from gracia import interfaces
+        from gracia.templates import DeformViews
+        from gracia.types.repository import Resolved
 
-        self.assertIsInstance(traversal.child(self.repo, "jobs"), Jobs)
-        self.assertIsInstance(traversal.child(self.repo, "deform"), DeformViews)
-        resolved = traversal.child(self.repo, "rec:person:1")
+        self.assertIsInstance(interfaces.find_child(self.repo, "jobs"), Jobs)
+        self.assertIsInstance(interfaces.find_child(self.repo, "deform"), DeformViews)
+        resolved = interfaces.find_child(self.repo, "rec:person:1")
         self.assertIsInstance(resolved, Resolved)
         self.assertIs(resolved.repository, self.repo)  # given in its `__init__`
         self.assertEqual(resolved.record.uri, "rec:person:1")
-        self.assertIsNone(traversal.child(self.repo, "person"))  # a type is not one
+        self.assertIsNone(
+            interfaces.find_child(self.repo, "person")
+        )  # a type is not one
         with self.assertRaises(KeyError):
-            traversal.child(self.repo, "rec:person:999")
+            interfaces.find_child(self.repo, "rec:person:999")
 
     def test_a_node_has_the_repository_the_store_the_registry_and_the_application(self):
-        record = self.repo["person"]["1"]
+        record = self.repo["person"].find_record("1")
         self.assertIs(record.repository, self.repo)
         self.assertIs(record.store, self.repo.store)
         self.assertIs(record.registry, self.repo.registry)
@@ -68,7 +72,7 @@ class RepositoryOfNodeTest(EditCase):
     def test_a_traversed_record_has_its_type_as_parent_and_a_loose_one_the_repository(
         self,
     ):
-        traversed = self.repo["person"]["1"]
+        traversed = self.repo["person"].find_record("1")
         self.assertIs(traversed.__parent__, self.repo.types["person"])
         self.assertIs(traversed.type, self.repo.types["person"])
         loose = self.repo.record()
@@ -81,7 +85,7 @@ class RepositoryOfNodeTest(EditCase):
         self.assertIs(self.repo.types["person"].repository, self.repo)
 
     def test_it_is_found_once(self):
-        record = self.repo["person"]["1"]
+        record = self.repo["person"].find_record("1")
         self.assertIs(record.repository, record.repository)
         self.assertIn("repository", record.__dict__)  # kept on the node
 
@@ -91,5 +95,8 @@ class RepositoryOfNodeTest(EditCase):
             web.get("/test_repo/person/1", headers=self.admin).status_int, 200
         )
         self.assertEqual(
-            web.get("/test_repo/", headers=self.admin).json["id"], "test_repo"
+            web.get(
+                "/test_repo/", headers={**self.admin, "Accept": "application/json"}
+            ).json["id"],
+            "test_repo",
         )

@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 import colander
 import pyoxigraph as ox
-import venusian
+from zope.interface import implementer
 
 from gracia.interfaces import IPredicate
 from gracia.store import literal
@@ -45,8 +45,11 @@ def write_text(
     record.graph.replace(subject, predicate_uri, term)
 
 
+@implementer(IPredicate)
 class Predicate:
-    uri: str | None = None
+    uri: str | None = (
+        None  # the predicate it is the code of (`gracia:label`), by a type
+    )
 
     def schema_node(
         self, record, request, schema_node=None
@@ -76,21 +79,11 @@ class HookContext:
         return f"starts_with(s, {literal('rec:' + self.type.slug + ':')})"  # ty: ignore[missing-attribute]
 
 
-def predicate(predicate_uri: str):
-
-    def decorate(cls):
-        cls.uri = predicate_uri
-
-        def callback(scanner, _name, _obj):
-            scanner.config.add_gracia_predicate(cls)
-
-        venusian.attach(cls, callback, category="pyramid")
-        return cls
-
-    return decorate
-
-
-def add_gracia_predicate(config, cls: type) -> None:
+def add_gracia_predicate(config, cls: type[Predicate]) -> None:
+    """The directive of the scan for a class that implements `IPredicate`: one that has no
+    `uri` is not the code of a predicate (the base class)."""
+    if cls.uri is None:
+        return
 
     def register():
         config.registry.registerUtility(cls(), IPredicate, name=cls.uri)  # ty: ignore[missing-attribute]

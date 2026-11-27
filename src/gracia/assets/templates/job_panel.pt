@@ -2,7 +2,8 @@
      the progress of each stage, and a dialog that follows one job. Any page can include it (the
      address is `request.resource_url(jobs, "list")`, made by the view):
 
-       <div tal:define="panel_list_url list_url;
+       <div tal:define="panel load: job_panel.pt;
+                        panel_list_url list_url;
                         panel_filter string:job=validate&subject=person;
                         panel_watch string:;
                         panel_compact string:"

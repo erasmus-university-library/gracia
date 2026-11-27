@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- How to jump between the resources of the RDF/XML that a page is given in the body of the
-     request, with keys, so that it is a lookup and not a search. views/xslt.py `page` puts
+     request, with keys, so that it is a lookup and not a search. templates.py `page` puts
      it before the layout and the page, so every skin has it, a repository's own too.
 
      The RDF/XML is flat (what pyoxigraph writes): each resource is an element child of

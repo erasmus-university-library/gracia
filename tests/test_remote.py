@@ -169,7 +169,10 @@ class RemoteApplicationTest(DbTestCase):
         response = form.submit("save", headers=admin)
         self.assertEqual(response.status_int, 302)
         self.assertEqual(
-            web.get("/test_repo/user", headers=admin).json["records"], [1, 2]
+            web.get(
+                "/test_repo/user", headers={**admin, "Accept": "application/json"}
+            ).json["records"],
+            [1, 2],
         )
         again = web.get(
             "/test_repo/user/2",
@@ -186,7 +189,10 @@ class RemoteApplicationTest(DbTestCase):
         self.app.create_repository("test_repo")
         web = TestApp(make_config({"gracia.application": self.app}).make_wsgi_app())
         self.assertEqual(web.get("/").json, {"repositories": ["test_repo"]})
-        self.assertGreater(web.get("/test_repo/").json["rows"], 0)
+        self.assertGreater(
+            web.get("/test_repo/", headers={"Accept": "application/json"}).json["rows"],
+            0,
+        )
 
 
 @unittest.skipUnless(quack_available(), "the DuckDB quack extension is not available")

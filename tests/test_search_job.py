@@ -5,7 +5,7 @@ import tantivy
 from jobs_support import person as jobs_person
 from test_graph_jobs import LINKED, GraphJobsCase
 
-from gracia.actions import RecordsChanged, process_pending
+from gracia.change_events import RecordsChanged, process_pending
 from gracia.jobs import context, runner
 from gracia.jobs.repository_jobs import RebuildSearchJob
 from gracia.search import RECORDS, Indexes, on_records_changed
@@ -147,13 +147,13 @@ class MeanwhileTest(SearchJobCase):
             )  # after the export, before the swap
             self.put(LINKED.replace("Thirteen", "Renamed"))
             self.store.delete(["rec:person:14"])
-            written["queued"] = self.store.pending_actions()[0]
+            written["queued"] = self.store.pending_change_events()[0]
             return real(this, repo, definition, token)
 
         with mock.patch.object(Indexes, "swap", swap):
             self.rebuild()
         self.assertGreater(
-            self.store.pending_actions()[0], written["queued"]
+            self.store.pending_change_events()[0], written["queued"]
         )  # and more, queued again after the swap
         process_pending(
             self.application, context.registry()
@@ -175,13 +175,13 @@ class MeanwhileTest(SearchJobCase):
             LINKED.split("<rec:person:14>")[0].replace("Thirteen", "Renamed")
         )  # only 13: 14 is made of it
         self.store.delete(["rec:person:2"])
-        self.store.con.execute("DELETE FROM actions_queue")
+        self.store.con.execute("DELETE FROM change_events")
         count = self.store.requeue_changes_since(bound)
         rows = dict(
             (
                 (r, a)
                 for r, a in self.store.con.execute(
-                    "SELECT record_uri(record_id), action FROM actions_queue"
+                    "SELECT record_uri(record_id), kind FROM change_events"
                 ).fetchall()
             )
         )

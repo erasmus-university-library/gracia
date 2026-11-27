@@ -142,10 +142,10 @@ class AccessTest(JobsViewCase):
         self.assertIn('id="form-job-validate"', page)
         self.assertIn('value="person"', page)
         self.assertIn(
-            "Person-full-01.ttl", page
+            "person-unittest-01.ttl", page
         )  # the content types come first: person is on top
         self.assertNotIn(
-            "User-full-01.ttl", page
+            "user-minimal-01.ttl", page
         )  # the schemas of the other types wait for htmx
 
     def test_the_schema_select_declares_that_it_follows_the_type_select(self):
@@ -174,14 +174,14 @@ class AccessTest(JobsViewCase):
             options,
             [
                 ("", "the schema the type is on"),
-                ("Person-full-01.ttl", "Person-full-01.ttl"),
-                ("Person-strict-01.ttl", "Person-strict-01.ttl"),
+                ("person-strict-01.ttl", "person-strict-01.ttl"),
+                ("person-unittest-01.ttl", "person-unittest-01.ttl"),
             ],
         )
         other = self.web.get(
             "/test_repo/deform/schema-files?res_type=user", headers=as_user("ed")
         )
-        self.assertIn("User-full-01.ttl", other.text)
+        self.assertIn("user-minimal-01.ttl", other.text)
         self.assertNotIn("Person-", other.text)
         nothing = self.web.get(
             "/test_repo/deform/schema-files?res_type=nobody", headers=as_user("ed")
@@ -201,13 +201,13 @@ class AccessTest(JobsViewCase):
         self,
     ):
         got = self.start(
-            "ed", res_type="user", schema="Person-full-01.ttl"
+            "ed", res_type="user", schema="person-unittest-01.ttl"
         )  # not a schema of user
         self.assertEqual(got.status_int, 422)
         form = got.json["form"]
         self.assertIn("Not one of the choices for this type", form)
-        self.assertIn("User-full-01.ttl", form)
-        self.assertNotIn("Person-strict-01.ttl", form)
+        self.assertIn("user-minimal-01.ttl", form)
+        self.assertNotIn("person-strict-01.ttl", form)
 
     def test_a_job_is_offered_only_to_those_who_may_start_it(self):
         self.assertNotIn(
@@ -262,7 +262,11 @@ class ApiDocumentTest(JobsViewCase):
         self.assertIn("post", self.paths("ed")["/jobs/start"])
         for user in ("guest", None):
             found = self.web.get(
-                "/test_repo/api", headers={**(as_user(user) if user else {})}
+                "/test_repo/api",
+                headers={
+                    **(as_user(user) if user else {}),
+                    "Accept": "application/json",
+                },
             )
             self.assertFalse([p for p in found.json["paths"] if p.startswith("/jobs")])
 
@@ -275,7 +279,7 @@ class ApiDocumentTest(JobsViewCase):
 
 class StartTest(JobsViewCase):
     def test_starting_makes_a_job_for_the_caller_and_starts_its_process(self):
-        got = self.start("ed", schema="Person-strict-01.ttl")
+        got = self.start("ed", schema="person-strict-01.ttl")
         self.assertEqual(got.status_int, 200, got.text)
         job_id = got.json["id"]
         self.spawn.assert_called_once()
@@ -290,7 +294,7 @@ class StartTest(JobsViewCase):
         self.assertEqual(stages[0]["params"]["res_type"], "person")
         self.assertEqual(
             stages[1]["params"],
-            {"res_type": "person", "schema": "Person-strict-01.ttl"},
+            {"res_type": "person", "schema": "person-strict-01.ttl"},
         )
         self.assertTrue((self.jobs_dir / job_id).is_dir())
 
@@ -304,7 +308,7 @@ class StartTest(JobsViewCase):
         got = self.start("ed", res_type="")
         self.assertEqual(got.status_int, 422)
         self.assertIn("Required", got.json["form"])
-        got = self.start("ed", res_type="person", schema="Nobody-full-01.ttl")
+        got = self.start("ed", res_type="person", schema="nobody-full-01.ttl")
         self.assertEqual(got.status_int, 422)
         self.assertIn("Not one of the choices for this type", got.json["form"])
         self.spawn.assert_not_called()
@@ -744,14 +748,14 @@ class FormTest(JobsViewCase):
         from gracia.jobs.validate import ValidateJob
 
         spec = ValidateJob().spec(
-            "test_repo", {"res_type": "person", "schema": "Person-full-01.ttl"}
+            "test_repo", {"res_type": "person", "schema": "person-unittest-01.ttl"}
         )
         self.assertEqual((spec["job"], spec["subject"]), ("validate", "person"))
         self.assertEqual(
             spec["stages"][1],
             {
                 "stage": "Validate",
-                "params": {"res_type": "person", "schema": "Person-full-01.ttl"},
+                "params": {"res_type": "person", "schema": "person-unittest-01.ttl"},
             },
         )
         self.assertEqual(spec["stages"][0]["stage"], "Export")

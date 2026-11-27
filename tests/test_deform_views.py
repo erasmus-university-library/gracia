@@ -9,9 +9,9 @@ from pyramid.exceptions import ConfigurationConflictError
 from support import must_search
 from test_web import HeaderPolicy, WebCase
 
+from gracia import templates
 from gracia.interfaces import IDeformView
 from gracia.main import make_config
-from gracia.views import deform as deform_views
 
 
 class FieldsCase(WebCase):
@@ -40,7 +40,7 @@ class FieldsCase(WebCase):
 def fields_rows(form, query):
     from urllib.parse import parse_qsl
 
-    return deform_views.render_fields(form, parse_qsl(query))
+    return templates.DeformViews.render_fields(form, parse_qsl(query))
 
 
 class DeclaredTest(FieldsCase):
@@ -121,7 +121,7 @@ class DeclaredTest(FieldsCase):
 
     def test_a_deform_view_must_say_which_form_it_belongs_to(self):
         with self.assertRaises(TypeError):
-            deform_views.deform_view("x", context=object)  # ty: ignore[missing-argument, unknown-argument]
+            templates.DeformViews.declare("x", context=object)  # ty: ignore[missing-argument, unknown-argument]
 
     def test_the_views_live_in_one_namespace_so_they_cannot_clash_with_a_type(self):
         from gracia import uri
@@ -229,7 +229,9 @@ class WidgetTest(FieldsCase):
             family = colander.SchemaNode(colander.String())
             shade = colander.SchemaNode(
                 colander.String(),
-                widget=deform_views.dependent_select("nope", depends_on="family"),
+                widget=templates.DependentSelectWidget.deferred(
+                    "nope", depends_on="family"
+                ),
             )
 
         request = mock.Mock(registry=self.config.registry)

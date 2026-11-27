@@ -98,13 +98,12 @@ class RepositoryTest(WebCase):
         self.assertFalse(self.application.has_repository("test_repo"))
 
     def test_a_type_added_later_is_published_as_its_class_not_as_an_ark(self):
-        from gracia import types
-
         self.application.create_repository("test_repo", ark=("12345", "lib"))
-        with self.application.new_store("test_repo") as store:
-            person = FOAF_PERSON
-            record = types.add_content_type(store, "test_repo", person)
-            self.assertEqual(record, "rec:type:5")
+        node = self.application["test_repo"]
+        self.addCleanup(node.close)
+        person = FOAF_PERSON
+        record = node.add_type(person)
+        self.assertEqual(record, "rec:type:5")
         self.assertEqual(
             self.resource_uris("test_repo")["rec:type:5"], person.class_uri
         )  # the settings are for the other records

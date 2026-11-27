@@ -6,12 +6,11 @@ import unittest
 from pathlib import Path
 
 import pyoxigraph as ox
-from harness import etag_of, graph_of, open_application
+from harness import BUNDLED, etag_of, graph_of, open_application
 from pyramid.registry import Registry
 from test_web import WebCase
 
-from gracia import types
-from gracia.actions import RecordsChanged, process_pending
+from gracia.change_events import RecordsChanged, process_pending
 from gracia.store import fetch_one
 from gracia.utils import assets, xslt
 
@@ -64,7 +63,7 @@ class DocsCase(WebCase):
         self.application.create_repository(
             "test_repo",
             admin=ADMIN,
-            content_types=[types.describe("gracia.types.person")],
+            content_types=[BUNDLED["person"]],
         )
         self.cache = self.application.cache
         self.put(ADA, THING, USER)
@@ -216,7 +215,7 @@ class DocTest(DocsCase):
 
     def test_a_doc_template_that_is_not_a_file_is_left_out_and_the_others_go_on(self):
         repository = self.library()
-        for name in ("doc-nothing-01.xsl", "evil/../x.xsl"):
+        for name in ("person-nothing-01.xsl", "evil/../x.xsl"):
             repository.types["person"].doc_template = name
             self.cache.docs.drop("test_repo")
             with self.assertLogs("gracia.cache", level="WARNING"):
@@ -226,7 +225,9 @@ class DocTest(DocsCase):
 
     def test_the_type_record_names_the_doc_template(self):
         repository = self.library()
-        self.assertEqual(repository.types["person"].doc_template, "doc-full-01.xsl")
+        self.assertEqual(
+            repository.types["person"].doc_template, "person-schemaorg-01.xsl"
+        )
         self.assertIn("given_name", self.person_doc(repository))
 
 
@@ -340,13 +341,13 @@ class WorkerTest(DocsCase):
             raise xslt.XsltError("no")
 
         self.cache.docs._compile = broken
-        with self.assertLogs("gracia.actions", level="ERROR"):
+        with self.assertLogs("gracia.change_events", level="ERROR"):
             events = self.run_worker()
         self.assertTrue(events)
         self.assertTrue(all(event.docs == {} for event in events))
         with self.application.new_store("test_repo") as store:
             self.assertEqual(
-                fetch_one(store.con.execute("SELECT count(*) FROM actions_queue"))[0], 0
+                fetch_one(store.con.execute("SELECT count(*) FROM change_events"))[0], 0
             )
 
 
@@ -373,7 +374,7 @@ class DocTemplateFieldTest(DocsCase):
             .text
         )
         self.assertIn('name="docTemplate"', page)
-        self.assertIn("doc-full-01.xsl", page)
+        self.assertIn("person-schemaorg-01.xsl", page)
 
 
 class SwitchingDocTemplateTest(DocsCase):
@@ -431,15 +432,15 @@ class SwitchingDocTemplateTest(DocsCase):
     def test_a_template_written_to_the_type_record_is_used_and_taken_away_again(self):
         self.write(None)
         self.assertNotIn("given_name", self.doc("rec:person:1"))
-        self.write("doc-full-01.xsl")
-        self.assertEqual(self.template(), "doc-full-01.xsl")
+        self.write("person-schemaorg-01.xsl")
+        self.assertEqual(self.template(), "person-schemaorg-01.xsl")
         self.assertIn("given_name", self.doc("rec:person:1"))
 
     def test_a_name_that_is_not_a_file_is_refused(self):
         self.assertEqual(
-            self.post("doc-evil-09.xsl", force=True).status_int, 200
+            self.post("person-evil-09.xsl", force=True).status_int, 200
         )  # the form again, with the error
-        self.assertEqual(self.template(), "doc-full-01.xsl")
+        self.assertEqual(self.template(), "person-schemaorg-01.xsl")
 
 
 class CompiledTest(unittest.TestCase):
@@ -586,7 +587,7 @@ class ManagePageAfterSaveTest(DocsCase):
     def test_the_page_and_a_second_save_work_after_a_save(self):
         web = self.client()
         headers = {**basic(*ADMIN), **HTML}
-        for template in ("", "doc-full-01.xsl"):
+        for template in ("", "person-schemaorg-01.xsl"):
             page = web.get("/test_repo/person/manage", headers=headers)
             self.assertEqual(page.status_int, 200)
             form = page.forms[

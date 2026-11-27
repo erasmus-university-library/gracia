@@ -336,7 +336,7 @@ class ReferencingStore(StampedStore):
 
 
 class DocStore(GraphStore):
-    BUNDLED_BASE = "gracia.types:type/doc/doc-base-01.xsl"
+    BUNDLED_BASE = "gracia:assets/xslt/doc/record-base-01.xsl"
 
     def __init__(
         self,
@@ -483,7 +483,7 @@ class DocStore(GraphStore):
     @staticmethod
     def _cite(style: str, made: dict[str, dict]) -> None:
         """Renders the CSL JSON of the batch in the style: `doc["citation"]`."""
-        from gracia import citations
+        from gracia.utils import citations
 
         blobs = {
             uri: doc["csl"]
@@ -522,7 +522,7 @@ class Cache:
         self._graphs: GraphStore | None = None  # opened by the first use
         self._docs: DocStore | None = None  # likewise
         self._stamped: dict[str, StampedStore] = {}  # the ones that are open, by name
-        # what follows the writes (`gracia.actions.Worker`): kept running by `check`
+        # what follows the writes (`gracia.change_events.ChangeEventsWorker`): kept running by `check`
         self.worker = None
 
     @property

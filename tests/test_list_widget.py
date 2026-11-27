@@ -3,9 +3,8 @@
 import re
 
 import pyoxigraph as ox
+from harness import BUNDLED
 from test_dates import ADMIN, POSTING, DatesCase
-
-from gracia import types
 
 AUTHOR = "https://schema.org/author"
 RDF = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
@@ -20,7 +19,7 @@ class ListCase(DatesCase):
         self.application.create_repository(
             "work_repo",
             admin=("admin", "correct horse battery"),
-            content_types=[types.available()["work"]],
+            content_types=[BUNDLED["work"]],
         )
 
     def fields(self, path=ADD, authors=(), name="A work"):
@@ -50,7 +49,7 @@ class ListCase(DatesCase):
         )
 
     def work(self, number=1):
-        return self.application["work_repo"].types["work"][str(number)]
+        return self.application["work_repo"].types["work"].find_record(str(number))
 
     def authors(self, number=1) -> list[str]:
         work = self.work(number)

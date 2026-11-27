@@ -7,10 +7,10 @@ from typing import ClassVar
 
 import colander
 import pyoxigraph as ox
-from harness import ConfiguredCase, fake_type, open_store
+from harness import BUNDLED, ConfiguredCase, fake_type, open_store
 from test_records import graph
 
-from gracia import forms, templates, types
+from gracia import forms, shacl
 from gracia.predicates import HookContext
 from gracia.utils import assets
 
@@ -23,13 +23,13 @@ AUTH = {"Authorization": "Basic " + base64.b64encode(b"admin:correct horse").dec
 class ParseTest(unittest.TestCase):
     def test_a_placeholder_is_the_next_property(self):
         self.assertEqual(
-            templates.parse("{} {}", 2),
+            shacl.parse("{} {}", 2),
             (("source", 0), ("text", " "), ("source", 1)),
         )
 
     def test_an_optional_part_has_its_own_placeholders(self):
         self.assertEqual(
-            templates.parse("{} [{} ]{}", 3),
+            shacl.parse("{} [{} ]{}", 3),
             (
                 ("source", 0),
                 ("text", " "),
@@ -39,7 +39,7 @@ class ParseTest(unittest.TestCase):
         )
 
     def test_doubled_braces_and_brackets_are_themselves(self):
-        self.assertEqual(templates.parse("{{x}} [[y]]", 0), (("text", "{x} [y]"),))
+        self.assertEqual(shacl.parse("{{x}} [[y]]", 0), (("text", "{x} [y]"),))
 
     def test_a_template_that_makes_no_sense_is_refused(self):
         for text, count in (
@@ -53,13 +53,11 @@ class ParseTest(unittest.TestCase):
             ("[[{}]{}]", 2),  # nested
         ):
             with self.subTest(text=text), self.assertRaises(ValueError):
-                templates.parse(text, count)
+                shacl.parse(text, count)
 
 
-def made(text: str, *sources: str) -> templates.PropertyTemplate:
-    return templates.PropertyTemplate(
-        NAME, sources, templates.parse(text, len(sources))
-    )
+def made(text: str, *sources: str) -> shacl.PropertyTemplate:
+    return shacl.PropertyTemplate(NAME, sources, shacl.parse(text, len(sources)))
 
 
 class RenderTest(unittest.TestCase):
@@ -100,7 +98,7 @@ class ShapeTest(unittest.TestCase):
         return data, ox.NamedNode("http://example.org/S")
 
     def test_the_templates_of_a_shape_are_found(self):
-        found = templates.of_shape(
+        found = shacl.of_shape(
             *self.shape(
                 '[ sh:path s:name ; gracia:propertyTemplate ( "{} {}" s:givenName '
                 "s:familyName ) ] , [ sh:path s:givenName ; sh:maxCount 1 ] , "
@@ -129,10 +127,10 @@ class ShapeTest(unittest.TestCase):
         }
         for why, body in bad.items():
             with self.subTest(why), self.assertRaises(ValueError):
-                templates.of_shape(*self.shape(body))
+                shacl.of_shape(*self.shape(body))
 
     def test_a_template_in_an_alternative_is_for_the_value_that_alternative_has(self):
-        found = templates.of_shape(
+        found = shacl.of_shape(
             *self.shape(
                 "[ sh:path s:url ; sh:nodeKind sh:IRI ; sh:maxCount 1 ] , "
                 "[ sh:path s:id ; sh:maxCount 1 ] , "
@@ -160,7 +158,7 @@ class ShapeTest(unittest.TestCase):
             'sh:property [ sh:path s:id ; sh:hasValue "B" ] ; ',
         ):
             with self.subTest(guards=guards), self.assertRaises(ValueError):
-                templates.of_shape(
+                shacl.of_shape(
                     *self.shape(
                         "[ sh:path s:url ; sh:maxCount 1 ] , [ sh:path s:id ; "
                         "sh:maxCount 1 ] , [ sh:path s:kind ; sh:maxCount 1 ] ; "
@@ -172,16 +170,16 @@ class ShapeTest(unittest.TestCase):
     def test_the_shapes_of_the_person_profiles_have_theirs(self):
         foaf = "http://xmlns.com/foaf/0.1/"
         for spec, class_uri, name, given, family in (
-            ("Person-schemaorg-01.ttl", SCHEMA + "Person", NAME, GIVEN, FAMILY),
+            ("person-schemaorg-01.ttl", SCHEMA + "Person", NAME, GIVEN, FAMILY),
             (
-                "Person-full-01.ttl",
+                "person-unittest-01.ttl",
                 foaf + "Person",
                 foaf + "name",
                 foaf + "givenName",
                 foaf + "familyName",
             ),
             (
-                "Person-minimal-01.ttl",
+                "person-minimal-01.ttl",
                 foaf + "Person",
                 foaf + "name",
                 foaf + "givenName",
@@ -189,10 +187,10 @@ class ShapeTest(unittest.TestCase):
             ),
         ):
             with self.subTest(spec=spec):
-                path = assets.resolve(f"gracia.types:person/shacl/{spec}")
+                path = assets.resolve(f"gracia:assets/shacl/{spec}")
                 shapes, shape = assets.load_shape(path, class_uri)
                 self.assertEqual(
-                    [(t.target, t.sources) for t in templates.of_shape(shapes, shape)],
+                    [(t.target, t.sources) for t in shacl.of_shape(shapes, shape)],
                     [(name, (given, family))],
                 )
 
@@ -276,10 +274,10 @@ class SqlTest(unittest.TestCase):
                 self.assertEqual(self.names(result), [expected] if expected else [])
 
     def test_a_node_inside_the_record_has_its_own_name_from_its_own_parts(self):
-        template = templates.PropertyTemplate(
+        template = shacl.PropertyTemplate(
             "http://example.org/label",
             ("http://example.org/a", "http://example.org/b"),
-            templates.parse("{}, {}", 2),
+            shacl.parse("{}, {}", 2),
         )
         result = self.hooked(
             'a schema:Thing ; schema:note [ <http://example.org/a> "x" ; '
@@ -300,7 +298,7 @@ class PersonRecordTest(ConfiguredCase):
         self.application.create_repository(
             "test_repo",
             admin=("admin", "correct horse"),
-            content_types=[types.available()["person"]],
+            content_types=[BUNDLED["person"]],
         )
         self.web = self.client()
 
@@ -312,7 +310,7 @@ class PersonRecordTest(ConfiguredCase):
         return self.web.post(path, params=out, headers=AUTH, expect_errors=True)
 
     def person(self):
-        record = self.application["test_repo"].types["person"]["1"]
+        record = self.application["test_repo"].types["person"].find_record("1")
         return record, record.graph.value(record.resource, NAME)
 
     def test_the_name_is_made_of_the_parts_and_is_the_label(self):
@@ -399,18 +397,18 @@ SHAPES = "http://example.org/shapes#"
 
 class HeaderTest(ConfiguredCase):
     def person_shapes(self):
-        path = assets.resolve("gracia.types:person/shacl/Person-schemaorg-01.ttl")
+        path = assets.resolve("gracia:assets/shacl/person-schemaorg-01.ttl")
         return assets.load_shape(path, SCHEMA + "Person")[0]
 
     def test_a_node_shape_has_a_header_and_perhaps_a_badge(self):
         shapes = self.person_shapes()
-        header, addon = templates.header_of(
+        header, addon = shacl.header_of(
             shapes, ox.NamedNode(SHAPES + "PropertyValueShape")
         )
         assert header is not None and addon is not None
         self.assertEqual(header.sources, (SCHEMA + "value",))
         self.assertEqual(addon.sources, (SCHEMA + "propertyID",))
-        address, none = templates.header_of(
+        address, none = shacl.header_of(
             shapes, ox.NamedNode(SHAPES + "PostalAddressShape")
         )
         assert address is not None
@@ -443,7 +441,7 @@ class HeaderTest(ConfiguredCase):
             "s:streatAddress ) ; sh:property [ sh:path s:streetAddress ] ."
         )
         with self.assertRaises(ValueError):
-            templates.header_of(data, ox.NamedNode("http://example.org/S"))
+            shacl.header_of(data, ox.NamedNode("http://example.org/S"))
 
     def test_the_bar_of_a_node_has_the_icon_the_badge_and_the_header(self):
         record = self.person_record()
@@ -481,7 +479,7 @@ class HeaderTest(ConfiguredCase):
         self.application.create_repository(
             "test_repo",
             admin=("admin", "correct horse"),
-            content_types=[types.available()["person"]],
+            content_types=[BUNDLED["person"]],
         )
         return self.application["test_repo"].types["person"].blank_record()
 
@@ -508,7 +506,7 @@ class IdentifierTest(ConfiguredCase):
         self.application.create_repository(
             "test_repo",
             admin=("admin", "correct horse"),
-            content_types=[types.available()["person"]],
+            content_types=[BUNDLED["person"]],
         )
         self.web = self.client()
 
@@ -530,7 +528,7 @@ class IdentifierTest(ConfiguredCase):
         )
 
     def identifier(self, number: int = 1):
-        record = self.application["test_repo"].types["person"][str(number)]
+        record = self.application["test_repo"].types["person"].find_record(str(number))
         (node,) = record.graph.objects(record.resource, SCHEMA + "identifier")
         return {
             q.predicate.value.removeprefix(SCHEMA): q.object
@@ -613,12 +611,12 @@ class IdentifierTest(ConfiguredCase):
 
 class FewStatementsTest(unittest.TestCase):
     def test_the_variants_of_one_property_are_one_delete_and_one_insert(self):
-        path = assets.resolve("gracia.types:person/shacl/Person-schemaorg-01.ttl")
+        path = assets.resolve("gracia:assets/shacl/person-schemaorg-01.ttl")
         shapes, _shape = assets.load_shape(path, SCHEMA + "Person")
-        found = templates.of_shape(shapes, ox.NamedNode(SHAPES + "PropertyValueShape"))
+        found = shacl.of_shape(shapes, ox.NamedNode(SHAPES + "PropertyValueShape"))
         self.assertEqual(len(found), 5)  # one for each kind that has an url
         context = HookContext(None, fake_type(slug="person"), SCHEMA + "url")
-        statements = templates.sql_of(found, context)
+        statements = shacl.sql_of(found, context)
         self.assertEqual(len(statements), 2)
         self.assertTrue(statements[0].lstrip().startswith("DELETE"))
         self.assertTrue(statements[1].lstrip().startswith("INSERT"))

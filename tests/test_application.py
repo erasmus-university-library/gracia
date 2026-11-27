@@ -92,7 +92,7 @@ class ApplicationTest(unittest.TestCase):
                 "property_roles",
                 "unique_values",
                 "history",
-                "actions_queue",  # what the followers of the data still have to do
+                "change_events",  # what the followers of the data still have to do
                 "slugs",
                 "etags",  # the etags of the pages and what a refresh works on
                 "etags_seed",

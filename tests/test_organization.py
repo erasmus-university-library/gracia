@@ -5,10 +5,10 @@ import re
 from typing import ClassVar
 
 import pyoxigraph as ox
-from harness import ConfiguredCase
+from harness import BUNDLED, ConfiguredCase
 from support import uri_select
 
-from gracia import forms, types
+from gracia import forms
 from gracia.utils import assets
 
 SCHEMA = "https://schema.org/"
@@ -45,7 +45,7 @@ class OrganizationCase(ConfiguredCase):
         self.application.create_repository(
             "test_repo",
             admin=("admin", "correct horse"),
-            content_types=[types.available()["organization"]],
+            content_types=[BUNDLED["organization"]],
         )
         self.web = self.client()
 
@@ -65,7 +65,9 @@ class OrganizationCase(ConfiguredCase):
         return self.web.post(path, params=out, headers=AUTH, expect_errors=True)
 
     def record(self, number: int = 1):
-        return self.application["test_repo"].types["organization"][str(number)]
+        return (
+            self.application["test_repo"].types["organization"].find_record(str(number))
+        )
 
     def types_of(self, number: int = 1) -> list[str]:
         record = self.record(number)
@@ -143,9 +145,9 @@ class SubclassTest(OrganizationCase):
         self.assertTrue(record.validate())
 
     def test_the_shape_is_found_by_any_of_its_classes(self):
-        content = types.available()["organization"]
+        content = BUNDLED["organization"]
         path = assets.resolve(
-            assets.schema_spec(content.assets, content.schema, content.name)
+            assets.schema_spec(content.assets, content.schema, content.slug)
         )
         for kind in CLASSES:
             with self.subTest(kind=kind):
@@ -156,9 +158,9 @@ class SubclassTest(OrganizationCase):
     def test_the_record_shape_asks_for_one_of_the_classes_and_not_the_class_of_the_type(
         self,
     ):
-        content = types.available()["organization"]
+        content = BUNDLED["organization"]
         shapes, shape = assets.shape(
-            content.assets, content.schema, content.class_uri, content.name
+            content.assets, content.schema, content.class_uri, content.slug
         )
         data, _node = assets.record_shape((shapes, shape), content.class_uri)
         resource = next(
@@ -185,9 +187,9 @@ class SubclassTest(OrganizationCase):
         self.assertEqual(classes, {SCHEMA + c for c in CLASSES})
 
     def test_a_type_with_one_class_still_asks_for_that_class(self):
-        content = types.available()["person"]
+        content = BUNDLED["person"]
         shapes, shape = assets.shape(
-            content.assets, content.schema, content.class_uri, content.name
+            content.assets, content.schema, content.class_uri, content.slug
         )
         data, _node = assets.record_shape((shapes, shape), content.class_uri)
         found = {
@@ -221,9 +223,9 @@ class TabFollowsTheClassTest(OrganizationCase):
         return tab[2], tab[1]
 
     def test_the_shape_says_what_each_class_is_called_and_has_as_an_icon(self):
-        content = types.available()["organization"]
+        content = BUNDLED["organization"]
         shapes, _shape = assets.shape(
-            content.assets, content.schema, content.class_uri, content.name
+            content.assets, content.schema, content.class_uri, content.slug
         )
         said = forms.describe(shapes, [SCHEMA + c for c in self.LOOKS])
         self.assertEqual(
@@ -235,9 +237,9 @@ class TabFollowsTheClassTest(OrganizationCase):
         )
 
     def test_a_class_the_shape_does_not_describe_is_named_by_its_uri(self):
-        content = types.available()["organization"]
+        content = BUNDLED["organization"]
         shapes, _shape = assets.shape(
-            content.assets, content.schema, content.class_uri, content.name
+            content.assets, content.schema, content.class_uri, content.slug
         )
         said = forms.describe(shapes, ["http://example.org/ns#SomethingElse"])
         self.assertEqual(

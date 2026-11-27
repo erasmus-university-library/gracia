@@ -5,7 +5,7 @@ import deform
 import deform.widget
 
 from gracia import search
-from gracia.extensions import Extension, ExtensionError, extension
+from gracia.extensions import Extension, ExtensionError
 
 TOKENIZERS = ("default", "raw", "en_stem", "whitespace")
 
@@ -153,8 +153,8 @@ def _removed(fields: list[dict], name: str) -> list[dict]:
     return [f for f in fields if f["name"] != name]
 
 
-@extension("search")
 class SearchExtension(Extension):
+    name = "search"
     title = "Search"
     description = (
         "Full-text search of the records: the indexes (Tantivy) and their fields; the "

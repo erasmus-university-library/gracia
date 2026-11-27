@@ -4,6 +4,8 @@
 # COUNT/2 works (a fourth of them articles in the issue of a volume of a journal; every
 # second series is a journal), that point at each other by their resource uris (ark:/99999/ir/<type>/<n>).
 # Organizations and collections have a parent now and then (a link, as every other).
+# The types, the doc and view stylesheets, the settings and the citations are the preset
+# `schemaorg` (src/gracia/presets/schemaorg.py).
 # Needs `gracia serve-db` running and the venv active; run it where config.ini is.
 set -euo pipefail
 
@@ -12,11 +14,7 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
 (umask 077; echo sekretsekret > "$TMP/password")
-gracia repo create test --admin admin --admin-password-file "$TMP/password"
-gracia -r test types add person organization series collection work --doc work=doc-schemaorg-01.xsl --view work=work-schemaorg-01.xslt
-gracia -r test repo set timezone=Europe/Amsterdam locale=nl-NL
-gracia -r test extensions enable citations
-echo '{"style": "apa"}' | gracia -r test extensions import citations
+gracia repo create test --preset schemaorg --admin admin --admin-password-file "$TMP/password"
 awk -v n="$COUNT" '
 function pick(list, size) { return list[int(rand() * size) + 1] }
 function day(year) { return sprintf("%04d-%02d-%02d", year, 1 + int(rand() * 12), 1 + int(rand() * 28)) }

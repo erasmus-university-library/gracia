@@ -1,11 +1,15 @@
+import contextlib
 from unittest import mock
 
 import pyoxigraph as ox
 from pyramid.authorization import ACLHelper, Allow, Everyone
 from test_edit import EditCase
 
-from gracia import resources, uri
+from gracia import uri
 from gracia.main import make_config
+from gracia.types import type as record_module
+from gracia.types.group import UserGroupRecord
+from gracia.types.user import UserRecord
 
 
 class PrincipalsPolicy:
@@ -80,15 +84,16 @@ class EditorsTest(PermissionsCase):
 
 class SpecialPermissionsTest(PermissionsCase):
     def acls(self, **extra):
-        acls = dict(resources.TYPE_ACLS)
-        for cls, entries in extra.items():
-            acls[getattr(uri, cls)] = entries
-        return mock.patch.object(resources, "TYPE_ACLS", acls)
+        classes = {"USER_CLASS": UserRecord, "GROUP_CLASS": UserGroupRecord}
+        patched = contextlib.ExitStack()
+        for name, entries in extra.items():
+            patched.enter_context(mock.patch.object(classes[name], "acl", entries))
+        return patched
 
     def test_super_edit_alone_opens_the_users_and_nothing_else(self):
         grant = [
             (Allow, "group:useradmin", ["view", "super_edit"]),
-            *resources.TYPE_ACLS[uri.USER_CLASS],
+            *UserRecord.acl,
         ]
         with self.acls(USER_CLASS=grant):
             self.assertTrue(self.can("/test_repo/user/1/edit", "group:useradmin"))
@@ -105,7 +110,7 @@ class SpecialPermissionsTest(PermissionsCase):
         # user asks for super_edit, which `edit` does not include
         grant = [
             (Allow, "group:editor", ["view", "edit", "add"]),
-            *resources.TYPE_ACLS[uri.USER_CLASS],
+            *UserRecord.acl,
         ]
         with self.acls(USER_CLASS=grant):
             self.assertFalse(self.can("/test_repo/user/1/edit", "group:editor"))
@@ -117,7 +122,7 @@ class SpecialPermissionsTest(PermissionsCase):
     def test_manage_alone_opens_the_groups(self):
         grant = [
             (Allow, "group:groupadmin", ["view", "manage"]),
-            *resources.TYPE_ACLS[uri.GROUP_CLASS],
+            *UserGroupRecord.acl,
         ]
         with self.acls(GROUP_CLASS=grant):
             self.assertTrue(self.can("/test_repo/group/1/edit", "group:groupadmin"))
@@ -125,7 +130,7 @@ class SpecialPermissionsTest(PermissionsCase):
             self.assertFalse(self.can("/test_repo/user/1/edit", "group:groupadmin"))
 
     def test_an_extension_can_name_its_own_permissions(self):
-        class Person(resources.Record):
+        class Person(record_module.Record):
             edit_permission = "edit_people"
 
         config = make_config(self.settings)
@@ -177,11 +182,18 @@ class NeverPublicTest(PermissionsCase):
         self.assertTrue(self.can("/test_repo/type/5"))
 
     def test_the_type_list_does_not_name_them_to_the_public(self):
-        public = self.client().get("/test_repo/type", headers=as_()).json["records"]
+        public = (
+            self.client()
+            .get("/test_repo/type", headers={**as_(), "Accept": "application/json"})
+            .json["records"]
+        )
         self.assertEqual(public, [2, 5])  # Type itself and Person
         admin = (
             self.client()
-            .get("/test_repo/type", headers=as_("group:admin"))
+            .get(
+                "/test_repo/type",
+                headers={**as_("group:admin"), "Accept": "application/json"},
+            )
             .json["records"]
         )
         self.assertEqual(admin, [1, 2, 3, 4, 5])

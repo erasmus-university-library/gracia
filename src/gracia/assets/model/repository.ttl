@@ -20,7 +20,7 @@
 
 _:content a gracia:Repository ;
     gracia:title "@TITLE@" ;
-    gracia:assets "@A1@" ; gracia:schemaTemplate "Repository-full-01.ttl" ;
+    gracia:assets "@A1@" ; gracia:schemaTemplate "repository-minimal-01.ttl" ;
     gracia:types ( <@C1@> <@C2@> <@C3@> <@C4@>@EXTRA_TYPES@ ) .
 
 <@K1@> a gracia:Record ;
@@ -28,28 +28,28 @@ _:content a gracia:Repository ;
     gracia:label "Repository" ;
     gracia:resource [ a gracia:Type ; gracia:name "Repository" ; gracia:slug "repository" ;
         gracia:class gracia:Repository ; gracia:assets "@A1@" ;
-        gracia:schemaTemplate "Repository-full-01.ttl" ] .
+        gracia:schemaTemplate "repository-minimal-01.ttl" ] .
 
 <@K2@> a gracia:Record ;
     gracia:resource_uri <@K2U@> ;
     gracia:label "Type" ;
     gracia:resource [ a gracia:Type ; gracia:name "Type" ; gracia:slug "type" ;
         gracia:class gracia:Type ; gracia:assets "@A2@" ;
-        gracia:schemaTemplate "Type-full-01.ttl" ] .
+        gracia:schemaTemplate "type-minimal-01.ttl" ] .
 
 <@K3@> a gracia:Record ;
     gracia:resource_uri <@K3U@> ;
     gracia:label "User" ;
     gracia:resource [ a gracia:Type ; gracia:name "User" ; gracia:slug "user" ;
         gracia:class gracia:User ; gracia:assets "@A3@" ;
-        gracia:schemaTemplate "User-full-01.ttl" ] .
+        gracia:schemaTemplate "user-minimal-01.ttl" ] .
 
 <@K4@> a gracia:Record ;
     gracia:resource_uri <@K4U@> ;
     gracia:label "UserGroup" ;
     gracia:resource [ a gracia:Type ; gracia:name "UserGroup" ; gracia:slug "group" ;
         gracia:class gracia:UserGroup ; gracia:assets "@A4@" ;
-        gracia:schemaTemplate "UserGroup-full-01.ttl" ] .
+        gracia:schemaTemplate "group-minimal-01.ttl" ] .
 
 <@G1@> a gracia:Record ;
     gracia:resource_uri <@G1U@> ;

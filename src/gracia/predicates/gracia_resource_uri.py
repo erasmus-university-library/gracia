@@ -1,13 +1,14 @@
 import colander
 
 from gracia import uri
-from gracia.predicates import HookContext, Predicate, predicate
+from gracia.predicates import HookContext, Predicate
 from gracia.store import literal
 
 
-@predicate(uri.RESOURCE_URI)
 class ResourceUriPredicate(Predicate):
     """`gracia:resource_uri`: the name a record is published under, its ARK if none."""
+
+    uri = uri.RESOURCE_URI
 
     def schema_node(self, record, request, schema_node=None):
         return colander.SchemaNode(

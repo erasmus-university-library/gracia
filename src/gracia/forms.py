@@ -12,11 +12,13 @@ import deform
 import deform.widget
 import peppercorn
 import pyoxigraph as ox
+from chameleon import PageTemplateFile
 from deform.template import ZPTRendererFactory, default_dir
 
-from gracia import dates, static
+from gracia import static
 from gracia.graph import Graph
 from gracia.uri import G_NS, PROPERTY_TEMPLATE, SH_NS, parse_record_uri
+from gracia.utils import assets, dates
 
 TEMPLATES = Path(__file__).parent / "assets" / "templates" / "deform"
 # Deform's own templates, with ours in front (so far the form with tabs; more are
@@ -1448,3 +1450,95 @@ def none_to_nulls(data):
     if isinstance(data, list):
         return [none_to_nulls(v) for v in data]
     return data
+
+
+def edit_address(request, repository, record: str, slug: str | None) -> str:
+    """Where the form of a record is, for a dialog (`embed`): none, when the person may
+    not edit records of its type."""
+    parsed = parse_record_uri(record)
+    if parsed is None:
+        return ""
+    try:
+        node = repository[parsed[0]]
+    except KeyError:
+        return ""
+    if not request.has_permission("edit", node):
+        return ""
+    return request.resource_url(
+        node, slug or str(parsed[1]), "edit", query={"embed": "1"}
+    )
+
+
+# what a shape says of its properties (dash): the role a property has in a page of a
+# record (`property_roles`) and the class it is the unique value for
+ROLE_NAMES = {
+    DASH + "LabelRole": "label",
+    DASH + "KeyInfoRole": "key_info",
+    DASH + "DescriptionRole": "description",
+}
+UNIQUE_VALUE_FOR_CLASS = DASH + "uniqueValueForClass"
+
+
+def property_paths(shapes: Graph, shape, above: tuple = ()) -> set[str]:
+    found: set[str] = set()
+    for path, prop in properties(shapes, shape):
+        found.add(path)
+        nested = nested_shape(shapes, prop)
+        if nested is not None and nested not in (*above, shape):  # a shape that
+            found |= property_paths(shapes, nested, (*above, shape))  # refers to itself
+    return found
+
+
+def property_names(shapes: Graph, shape) -> dict[str, str]:
+    found: dict[str, str] = {}
+
+    def walk(node, above: tuple) -> None:
+        for path, prop in properties(shapes, node):
+            title = property_title(shapes, prop, path)
+            found.setdefault(path, local_name(path) if title == path else title)
+            nested = nested_shape(shapes, prop)
+            if nested is not None and nested not in (*above, node):
+                walk(nested, (*above, node))
+
+    walk(shape, ())
+    return found
+
+
+def property_roles(
+    shapes: Graph, shape, class_uri: str | None = None
+) -> list[tuple[str, str, int]]:
+    found: list[tuple[str, str, int]] = []
+
+    def walk(node, above: tuple) -> None:
+        for path, prop in properties(shapes, node):
+            place = len(found)
+            for role in shapes.objects(prop, PROPERTY_ROLE.value):
+                if isinstance(role, ox.NamedNode) and role.value in ROLE_NAMES:
+                    found.append((ROLE_NAMES[role.value], path, place))
+            if class_uri is not None:
+                for target in shapes.objects(prop, UNIQUE_VALUE_FOR_CLASS):
+                    if isinstance(target, ox.NamedNode) and target.value == class_uri:
+                        found.append(("unique", path, place))
+            nested = nested_shape(shapes, prop)
+            if nested is not None and nested not in (*above, node):
+                walk(nested, (*above, node))
+
+    walk(shape, ())
+    return found
+
+
+_TEMPLATES: dict[str, PageTemplateFile] = {}
+
+
+def template(spec: str) -> PageTemplateFile:
+    """A Chameleon template of gracia (an asset spec), read once."""
+    path = str(assets.resolve(spec))
+    if path not in _TEMPLATES:
+        _TEMPLATES[path] = PageTemplateFile(path)
+    return _TEMPLATES[path]
+
+
+def fragment(request, spec: str, **values) -> str:
+    """The HTML of a template, a piece of a page (a form, a pane) for a stylesheet to
+    place."""
+    return template(spec)(request=request, **values)

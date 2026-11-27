@@ -1,12 +1,13 @@
 from gracia import uri
 from gracia.forms import ReadOnlyWidget
-from gracia.predicates import HookContext, Predicate, predicate
+from gracia.predicates import HookContext, Predicate
 from gracia.store import literal
 
 
-@predicate(uri.LABEL)
 class LabelPredicate(Predicate):
     """`gracia:label`: a short text for a record, made from its label values on save."""
+
+    uri = uri.LABEL
 
     def schema_node(self, record, request, schema_node=None):
         if schema_node is None:

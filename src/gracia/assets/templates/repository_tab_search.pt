@@ -69,7 +69,7 @@
   </form>
 
   <div tal:condition="can_list and rebuild" id="search-job-dialog"
-       tal:define="panel_list_url string:${list_url}; panel_watch string:; panel_compact string:true;
+       tal:define="panel load: job_panel.pt; panel_list_url string:${list_url}; panel_watch string:; panel_compact string:true;
                    panel_filter string:job=rebuild_search"
        metal:use-macro="panel.macros['panel']"></div>
 </div>

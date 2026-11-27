@@ -12,7 +12,7 @@
   <input type="hidden" name="res_type" value="${res_type}" />
   <div class="alert alert-danger d-none mt-2" id="validate-problem" role="alert"></div>
   <div tal:condition="can_list"
-       tal:define="panel_list_url string:${list_url}; panel_watch string:; panel_compact string:true;
+       tal:define="panel load: job_panel.pt; panel_list_url string:${list_url}; panel_watch string:; panel_compact string:true;
                panel_filter string:job=validate&subject=${res_type}"
        metal:use-macro="panel.macros['panel']"></div>
 </div>

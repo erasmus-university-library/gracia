@@ -4,10 +4,10 @@ import re
 
 import colander
 import pyoxigraph as ox
-from harness import ConfiguredCase
+from harness import BUNDLED, ConfiguredCase
 from test_records import graph
 
-from gracia import forms, types
+from gracia import forms
 
 SCHEMA = "https://schema.org/"
 AUTH = {"Authorization": "Basic " + base64.b64encode(b"admin:correct horse").decode()}
@@ -29,7 +29,7 @@ class PersonBagTest(ConfiguredCase):
         self.application.create_repository(
             "test_repo",
             admin=("admin", "correct horse"),
-            content_types=[types.available()["person"]],
+            content_types=[BUNDLED["person"]],
         )
         self.web = self.client()
 
@@ -66,7 +66,7 @@ class PersonBagTest(ConfiguredCase):
         )
 
     def stored(self, with_language: bool = False) -> list:
-        record = self.application["test_repo"].types["person"]["1"]
+        record = self.application["test_repo"].types["person"].find_record("1")
         found = record.graph.objects(record.resource, SCHEMA + "alternateName")
         if with_language:
             return sorted((o.value, o.language or "") for o in found)

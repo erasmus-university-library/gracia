@@ -11,10 +11,10 @@ from pyramid.renderers import render_to_response
 from pyramid.security import NO_PERMISSION_REQUIRED
 from test_manage import ADMIN, ManageCase
 
+from gracia import templates
 from gracia.main import make_config
-from gracia.resources import Repository
+from gracia.types.repository import Repository
 from gracia.utils import assets, xslt
-from gracia.views import xslt as views_xslt
 
 RDF = "{http://www.w3.org/1999/02/22-rdf-syntax-ns#}RDF"
 RDFXML = '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"/>'
@@ -228,16 +228,16 @@ class RendererCase(ManageCase):
         self.addCleanup(self.forget)
 
     def forget(self):
-        for path in list(views_xslt._STYLESHEETS):
+        for path in list(templates._STYLESHEETS):
             if path.startswith(str(self.directory)):
-                views_xslt._STYLESHEETS.pop(path)[1].close()
+                templates._STYLESHEETS.pop(path)[1].close()
 
     def render(self, values, path=None, reload=False, permissive=True, **params):
         """What a view gets from `render_to_response`: the response."""
         config = testing.setUp(settings={"pyramid.reload_templates": reload})
         self.addCleanup(testing.tearDown)
         config.testing_securitypolicy(userid="ada", permissive=permissive)
-        config.add_renderer(".xslt", views_xslt.XsltRenderer)
+        config.add_renderer(".xslt", templates.XsltRenderer)
         request = testing.DummyRequest(params=params, path="/work/3")
         request.context = Node("work", Node(None), uri="rec:type:7")
         return render_to_response(str(path or self.path), values, request=request)
@@ -423,9 +423,9 @@ class XsltRendererTest(RendererCase):
     ):
         for reload, expected in ((False, "Hi"), (True, "Bye")):
             self.assertEqual(self.render({}, reload=reload).text, "Hi")
-            first = views_xslt._STYLESHEETS[str(self.path)][1]
+            first = templates._STYLESHEETS[str(self.path)][1]
             self.render({}, reload=reload)
-            self.assertIs(views_xslt._STYLESHEETS[str(self.path)][1], first)  # once
+            self.assertIs(templates._STYLESHEETS[str(self.path)][1], first)  # once
             self.path.write_text(self.path.read_text().replace("Hi", "Bye"))
             later = self.path.stat().st_mtime_ns + 10**9  # a change that shows
             os.utime(self.path, ns=(later, later))
@@ -437,10 +437,10 @@ class XsltRendererTest(RendererCase):
         path = self.directory / "noisy.xslt"
         path.write_text(MESSAGES)
         noisy = patch.object(
-            views_xslt.XsltRenderer,
+            templates.XsltRenderer,
             "_stylesheet",
             autospec=True,
-            side_effect=self.logging_stylesheet(views_xslt.XsltRenderer._stylesheet),
+            side_effect=self.logging_stylesheet(templates.XsltRenderer._stylesheet),
         )
         with noisy:
             page = self.render({}, path, debug="x").text
@@ -544,7 +544,7 @@ class RequestXmlTest(unittest.TestCase):
         request = self.request(work, page="2")
         uris = ["rec:work:41", "rec:work:42"]
         paging = {"page": 2, "pages": 3, "total": 45, "size": 20}
-        text = views_xslt.request_xml(
+        text = templates.XsltRenderer.request_xml(
             request, "<?xml version='1.0'?><rdf:RDF xmlns:rdf='urn:x'/>", uris, paging
         )
         document = ET.fromstring(text)  # well-formed: the declaration is not repeated
@@ -559,13 +559,13 @@ class RequestXmlTest(unittest.TestCase):
         self.assertEqual(document.get("user"), "ada")
         self.assertEqual(document.findall("permissions/permission"), [])
         self.assertIsNone(document.find("csrf-token"))  # only when it is asked for
-        plain = ET.fromstring(views_xslt.request_xml(request))
+        plain = ET.fromstring(templates.XsltRenderer.request_xml(request))
         self.assertIsNone(plain.find("records"))  # no list, no paging: no element
 
     def test_fragments_are_html_that_lxml_makes_into_markup(self):
         request = self.request(Node("work", Node(None)))
         document = ET.fromstring(
-            views_xslt.request_xml(
+            templates.XsltRenderer.request_xml(
                 request, fragments={"form": FORM, "text": "a & b <i>c</i>"}
             )
         )  # well-formed whatever the HTML was
@@ -589,7 +589,7 @@ class RequestXmlTest(unittest.TestCase):
             "empty": [],
         }
         request = self.request(Node("work", Node(None)))
-        document = ET.fromstring(views_xslt.request_xml(request, data=data))
+        document = ET.fromstring(templates.XsltRenderer.request_xml(request, data=data))
         revisions = document.findall("data/revisions/item")
         self.assertEqual([found(r, "txn").text for r in revisions], ["3", "2"])
         self.assertEqual(found(revisions[0], "current").text, "true")
@@ -600,42 +600,46 @@ class RequestXmlTest(unittest.TestCase):
         )
         self.assertEqual(len(found(document, "data/empty")), 0)
         with self.assertRaisesRegex(ValueError, "cannot be the name of an element"):
-            views_xslt.request_xml(request, data={"200": "ok"})
+            templates.XsltRenderer.request_xml(request, data={"200": "ok"})
         with self.assertRaisesRegex(TypeError, "the value x of the page is a set"):
-            views_xslt.request_xml(request, data={"x": {1}})
+            templates.XsltRenderer.request_xml(request, data={"x": {1}})
 
     def test_the_view_has_its_name_and_the_values_it_gives_its_page(self):
         request = self.request(Node("work", Node(None)))
         request.view_name = "edit"
         values = {"heading": 'A "title" & <more>', "count": 3, "draft": False}
-        document = ET.fromstring(views_xslt.request_xml(request, view_params=values))
+        document = ET.fromstring(
+            templates.XsltRenderer.request_xml(request, view_params=values)
+        )
         view = found(document, "view")
         self.assertEqual(view.get("name"), "edit")
         self.assertEqual(
             [(p.get("name"), p.text) for p in view.findall("param")],
             [("heading", 'A "title" & <more>'), ("count", "3"), ("draft", "false")],
         )
-        plain = ET.fromstring(views_xslt.request_xml(self.request(Node("x"))))
+        plain = ET.fromstring(
+            templates.XsltRenderer.request_xml(self.request(Node("x")))
+        )
         self.assertEqual(found(plain, "view").get("name"), "")  # always there
 
     def test_the_accept_header_is_in_the_document_when_there_is_one(self):
         request = self.request(Node("work", Node(None)))
         request.headers["Accept"] = 'text/html, application/xml;q=0.9, "x"&<y>'
-        document = ET.fromstring(views_xslt.request_xml(request))
+        document = ET.fromstring(templates.XsltRenderer.request_xml(request))
         header = found(document, "headers/header")
         self.assertEqual(header.get("name"), "accept")
         self.assertEqual(header.text, request.headers["Accept"])
 
     def test_the_permissions_of_the_user_on_the_context_are_listed(self):
         request = self.request(Node("work", Node(None)), permissive=True)
-        document = ET.fromstring(views_xslt.request_xml(request))
+        document = ET.fromstring(templates.XsltRenderer.request_xml(request))
         listed = [p.text for p in document.findall("permissions/permission")]
-        self.assertEqual(listed, list(views_xslt.PERMISSIONS))
+        self.assertEqual(listed, list(templates.PERMISSIONS))
 
     def test_what_is_in_a_name_cannot_break_the_document(self):
         odd = Node('a"b<c&d', Node(None))
         request = self.request(odd, q='<&">')
-        document = ET.fromstring(views_xslt.request_xml(request))
+        document = ET.fromstring(templates.XsltRenderer.request_xml(request))
         self.assertEqual(found(document, "context").get("name"), 'a"b<c&d')
         self.assertEqual(found(document, "query/param").text, '<&">')
 

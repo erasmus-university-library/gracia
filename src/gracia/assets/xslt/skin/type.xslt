@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- The page of the records of a type (views/type.py `type_page`): a page of them, the label
+<!-- The page of the records of a type (types/type.py `TypeView.index`): a page of them, the label
      of each with a link to it, and the pages under them. Page 1 is the newest records; the
      pages go back in time. It fills in the layout (layout.xslt), which comes before it.
      What it is given: the heading and the two totals as values of the view, the records of

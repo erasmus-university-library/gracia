@@ -51,8 +51,8 @@ class PageTest(JobsViewCase):
         select = must_search(r'<select name="schemaTemplate".*?</select>', page, re.S)[
             0
         ]
-        self.assertRegex(select, r'<option selected value="Person-full-01.ttl">')
-        self.assertIn('value="Person-strict-01.ttl"', select)
+        self.assertRegex(select, r'<option selected value="person-unittest-01.ttl">')
+        self.assertIn('value="person-strict-01.ttl"', select)
         self.assertRegex(self.form(), r'<input type="text" name="slug"')
         self.assertRegex(
             page, r'<input[^>]*name="label"[^>]*readonly'
@@ -222,7 +222,7 @@ class JobsTabTest(JobsViewCase):
         validate = must_search(r'<form id="type-job-validate".*?</form>', pane, re.S)[0]
         self.assertIn('data-start-fields="res_type,schema"', validate)
         self.assertIn(
-            '<option value="Person-strict-01.ttl">', validate
+            '<option value="person-strict-01.ttl">', validate
         )  # the files of the type
         export = must_search(r'<form id="type-job-export".*?</form>', pane, re.S)[0]
         self.assertIn('data-start-fields="res_type"', export)
@@ -257,17 +257,17 @@ class SaveTest(JobsViewCase):
         return node["person"].schema
 
     def test_saving_changes_the_file_the_pages_of_the_type_follow(self):
-        self.assertEqual(self.current(), "Person-full-01.ttl")
-        got = self.save("Person-strict-01.ttl")
+        self.assertEqual(self.current(), "person-unittest-01.ttl")
+        got = self.save("person-strict-01.ttl")
         self.assertEqual(got.status_int, 302)
         self.assertTrue(
             got.headers["Location"].endswith("/test_repo/person/manage?tab=settings")
         )
-        self.assertEqual(self.current(), "Person-strict-01.ttl")
+        self.assertEqual(self.current(), "person-strict-01.ttl")
         again = self.web.get(
             got.headers["Location"], headers=ADMIN
         )  # the tab is in focus again
-        self.assertRegex(again.text, r'<option selected value="Person-strict-01.ttl">')
+        self.assertRegex(again.text, r'<option selected value="person-strict-01.ttl">')
         self.assertRegex(again.text, r'<div class="tab-pane active" id="tab-settings"')
         self.assertRegex(
             again.text, r'<div class="alert alert-success[^"]*"[^>]*>\s*Saved\.'
@@ -275,7 +275,7 @@ class SaveTest(JobsViewCase):
         self.assertNotIn(">Saved.<", self.web.get(URL, headers=ADMIN).text)  # said once
 
     def test_the_rest_of_the_type_is_left_as_it_was(self):
-        self.save("Person-strict-01.ttl")
+        self.save("person-strict-01.ttl")
         node = self.application["test_repo"]
         self.addCleanup(node.close)
         res_type = node["person"]
@@ -286,22 +286,22 @@ class SaveTest(JobsViewCase):
         self.assertTrue(res_type.assets)
 
     def test_a_file_that_is_not_one_of_the_types_is_refused_and_nothing_changes(self):
-        got = self.save("Nobody-full-01.ttl", force=True)
+        got = self.save("nobody-full-01.ttl", force=True)
         self.assertEqual(got.status_int, 200)
         self.assertRegex(
             got.text, r'<div class="tab-pane active" id="tab-settings"'
         )  # same tab
-        self.assertEqual(self.current(), "Person-full-01.ttl")
+        self.assertEqual(self.current(), "person-unittest-01.ttl")
 
     def test_only_a_manager_saves_and_only_from_this_site(self):
-        self.assertEqual(self.save("Person-strict-01.ttl", headers={}).status_int, 400)
+        self.assertEqual(self.save("person-strict-01.ttl", headers={}).status_int, 400)
         self.assertEqual(
             self.save(
-                "Person-strict-01.ttl", headers={"Origin": "http://evil.example"}
+                "person-strict-01.ttl", headers={"Origin": "http://evil.example"}
             ).status_int,
             400,
         )
-        self.assertEqual(self.current(), "Person-full-01.ttl")
+        self.assertEqual(self.current(), "person-unittest-01.ttl")
         got = self.web.post(
             URL + "?tab=settings",
             {"save": "save"},
@@ -315,18 +315,18 @@ class ValidateBeforeSavingTest(JobsViewCase):
     def test_validating_a_file_runs_the_job_and_does_not_change_the_type(self):
         # what the button posts: the fields of the manage form, to the jobs start
         # address
-        got = self.start("admin", res_type="person", schema="Person-strict-01.ttl")
+        got = self.start("admin", res_type="person", schema="person-strict-01.ttl")
         self.assertEqual(got.status_int, 200, got.text)
         job = self.job(got.json["id"])
         self.assertEqual(
             (job["job"], job["subject"], job["created_by"]),
             ("validate", "person", "user:admin"),
         )
-        self.assertEqual(job["stages"][1]["params"]["schema"], "Person-strict-01.ttl")
+        self.assertEqual(job["stages"][1]["params"]["schema"], "person-strict-01.ttl")
         node = self.application["test_repo"]
         self.addCleanup(node.close)
         self.assertEqual(
-            node["person"].schema, "Person-full-01.ttl"
+            node["person"].schema, "person-unittest-01.ttl"
         )  # nothing was saved
 
     def test_the_panel_of_the_page_lists_the_validations_of_this_type_only(self):
@@ -432,7 +432,7 @@ class TabsTest(JobsViewCase):
             good.headers["Location"].endswith("/test_repo/person/manage?tab=notes")
         )
         self.assertEqual(
-            self.current_schema(), "Person-full-01.ttl"
+            self.current_schema(), "person-unittest-01.ttl"
         )  # the other form was not posted
 
     def test_the_tab_that_is_asked_for_is_the_one_shown(self):

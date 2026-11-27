@@ -1,5 +1,4 @@
 import contextlib
-import importlib
 import os
 import secrets
 from pathlib import Path
@@ -7,25 +6,32 @@ from pathlib import Path
 from pyramid.config import Configurator
 from pyramid.events import ApplicationCreated, NewResponse
 from pyramid.registry import Registry
+from pyramid.security import NO_PERMISSION_REQUIRED
 from pyramid.session import SignedCookieSessionFactory
 
-from gracia import config as gracia_config
 from gracia import (
     extensions,
+    interfaces,
     predicates,
+    scan,
     static,
-    traversal,
-    types,
+    templates,
 )
-from gracia.actions import BATCH, BATCH_BYTES, POLL, Worker, lock_dir_for
-from gracia.application import Application
 from gracia.cache import Cache
+from gracia.change_events import (
+    BATCH,
+    BATCH_BYTES,
+    POLL,
+    ChangeEventsWorker,
+    lock_dir_for,
+)
 from gracia.database import Database
 from gracia.jobs import job as jobs_job
 from gracia.jobs.stage import load_modules
 from gracia.security import UsersPolicy
-from gracia.views import deform as views_deform
-from gracia.views import xslt as views_xslt
+from gracia.types import type as type_module
+from gracia.types.application import Application
+from gracia.utils import config as gracia_config
 
 
 def init(
@@ -105,14 +111,14 @@ def includeme(config: Configurator) -> None:
         "gracia.index_dir"
     ):  # the search index follows what the worker hands over
         from gracia import search
-        from gracia.actions import RecordsChanged
+        from gracia.change_events import RecordsChanged
 
         application.indexes = search.Indexes(settings["gracia.index_dir"])
         config.add_subscriber(search.on_records_changed, RecordsChanged)
 
     if str(settings.get("gracia.worker", "")).lower() in ("1", "true", "yes", "on"):
-        # spawn the worker thread, that watches the actions queue
-        worker = Worker(
+        # spawn the worker thread, that watches the change events
+        worker = ChangeEventsWorker(
             application,
             config.registry,
             lock_dir=lock_dir_for(settings),
@@ -159,51 +165,50 @@ def includeme(config: Configurator) -> None:
     config.include(
         "gracia.api"
     )  # the add_api_operation directive and what the API offers
-    config.add_directive("add_record_class", types.add_record_class)
-    config.add_directive("add_gracia_type", types.add_gracia_type)
+    config.add_directive("add_record_class", type_module.add_record_class)
+    config.add_directive("add_gracia_type", type_module.add_gracia_type)
+    config.add_directive("add_gracia_type_node", type_module.add_gracia_type_node)
     config.add_directive("add_gracia_library", static.add_library)
-    config.add_directive("add_gracia_deform_view", views_deform.add_gracia_deform_view)
+    config.add_directive("add_gracia_deform_view", templates.DeformViews.register)
     config.add_directive("add_gracia_predicate", predicates.add_gracia_predicate)
     config.add_directive("add_gracia_extension", extensions.add_gracia_extension)
-    config.add_directive("add_gracia_traversable", traversal.add_gracia_traversable)
+    config.add_directive("add_gracia_traversable", interfaces.add_gracia_traversable)
     config.add_view_predicate("enabled_extension", extensions.ExtensionPredicate)
     # what is below a repository besides its types (`jobs`, `deform`, `rec:`): the
     # nodes that say so with `@traversable`
-    config.scan("gracia.resources")
-    config.add_renderer(views_deform.RENDERER, views_deform.DeformViewRenderer)
-    config.add_renderer(".xslt", views_xslt.XsltRenderer)  # a stylesheet makes the view
+    config.scan("gracia.jobs.nodes")
+    config.scan("gracia.jobs.views")
+    config.add_renderer(templates.DeformViewRenderer.name, templates.DeformViewRenderer)
+    config.add_view(
+        templates.DeformViews.serve,
+        context=templates.DeformView,
+        request_method="GET",
+        renderer=templates.DeformViewRenderer.name,
+        permission=NO_PERMISSION_REQUIRED,  # asked of the node the view was declared for
+    )
+    config.add_renderer(".xslt", templates.XsltRenderer)  # a stylesheet makes the view
     config.add_directive("add_gracia_job", jobs_job.add_gracia_job)
-    # a request that does not say what it wants gets data; a browser (it asks for
-    # text/html
-    # first) gets records
-    config.add_accept_view_order("application/json", weighs_more_than="text/html")
-    config.add_view_predicate("type_class", types.TypeClassPredicate)
+    # a request that does not say what it wants (no Accept header, or */*) gets the html
+    # view; the other content types (application/json, application/rdf+xml) are views
+    # registered for them with `accept=`
+    config.add_accept_view_order("text/html", weighs_more_than="application/json")
+    config.add_accept_view_order("application/rdf+xml", weighs_less_than="text/html")
+    config.add_view_predicate("type_class", type_module.TypeClassPredicate)
     config.include(
         "gracia.static"
     )  # the scripts and styles: served below /_static/, in the head
     load_modules(settings)  # the stages a job can run: Luigi tasks, found by Luigi
     for target in jobs_job.scan_targets(settings):  # the jobs a person can start: IJob
         config.scan(target)
-    extra = types.listed(settings, "gracia.types")
-    for (
-        system
-    ) in types.SYSTEM_TYPES:  # what the application knows of its types: IGraciaType
-        config.add_gracia_type(system, system=True)
-    for content_type in types.available(extra).values():
-        config.add_gracia_type(content_type)
-    for package in types.packages(
-        settings
-    ):  # the system types and every content type there is
-        if hasattr(importlib.import_module(package), "includeme"):
-            config.include(package)  # it registers its record class and views
-    config.scan(
-        "gracia.predicates"
-    )  # the code behind gracia: predicates (the core ones)
-    targets = extensions.scan_targets(settings)
-    for target in targets:  # the extensions and what they add with decorators
-        config.scan(target)
-    extensions.include_modules(config, targets)  # and with an includeme(config)
-    config.scan("gracia.views")  # the views register themselves with @view_config
+    # the types, the predicates and the extensions: the classes that implement IRecord,
+    # IPredicate and IExtension in gracia and in the packages that are entry points or
+    # are listed in the settings (`scan.HANDLERS`); and what the same modules register
+    # with @view_config
+    places = scan.targets(settings)
+    scan.scan(config, places)
+    for place in places:
+        config.scan(place)
+    config.scan("gracia.templates")  # the traversable nodes of what is declared there
 
 
 def make_config(settings: dict | None = None) -> Configurator:

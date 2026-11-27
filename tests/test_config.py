@@ -2,7 +2,7 @@ from pathlib import Path
 
 from base import DbTestCase
 
-from gracia import config
+from gracia.utils import config
 
 INI = """[app:main]
 gracia.db = quack:localhost:9494   # clients

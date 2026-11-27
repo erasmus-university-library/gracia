@@ -157,7 +157,7 @@ class ClosedShapeTest(SourceCase):
         ]
 
     def use_the_closed_profile(self):
-        (Path(self.person_assets) / "shacl" / "Person-closed-01.ttl").write_text(CLOSED)
+        (Path(self.person_assets) / "shacl" / "person-closed-01.ttl").write_text(CLOSED)
         with self.application.new_store("test_repo") as store:
             data = store.get("rec:type:5")
             old = next(q for q in data if q.predicate.value.endswith("/schemaTemplate"))
@@ -166,7 +166,7 @@ class ClosedShapeTest(SourceCase):
                 ox.Quad(
                     old.subject,
                     old.predicate,
-                    ox.Literal("Person-closed-01.ttl"),
+                    ox.Literal("person-closed-01.ttl"),
                     old.graph_name,
                 )
             )
@@ -310,7 +310,7 @@ class JsonLdTest(SourceCase):
         self.addCleanup(config.end)
         node = self.application["test_repo"]
         self.addCleanup(node.close)
-        return node["person"]["1"]
+        return node["person"].find_record("1")
 
 
 class HighlightTest(SourceCase):

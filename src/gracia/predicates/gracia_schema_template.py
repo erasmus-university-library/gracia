@@ -3,9 +3,9 @@ import deform
 import deform.widget
 
 from gracia import uri
-from gracia.predicates import Predicate, predicate
+from gracia.forms import fragment
+from gracia.predicates import Predicate
 from gracia.utils import assets
-from gracia.views import fragment
 
 
 class SchemaWidget(deform.widget.SelectWidget):
@@ -30,11 +30,14 @@ class SchemaWidget(deform.widget.SelectWidget):
         )
 
 
-@predicate(uri.SCHEMA_TEMPLATE)
 class SchemaTemplatePredicate(Predicate):
+    uri = uri.SCHEMA_TEMPLATE
+
     def schema_node(self, record, request, schema_node=None):
         prefix = record.content_value(uri.ASSETS)
-        files = assets.schemas_of(prefix) if prefix else []
+        files = (
+            assets.schemas_of(prefix, record.content_value(uri.SLUG)) if prefix else []
+        )
         if schema_node is None or not files:
             return schema_node
         current = record.content_value(uri.SCHEMA_TEMPLATE)

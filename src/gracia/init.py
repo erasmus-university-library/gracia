@@ -17,15 +17,15 @@ TYPES_AT_START = (
     ("User", "user", uri.USER_CLASS),
     ("UserGroup", "group", uri.GROUP_CLASS),
 )
-# shacl/, view.xsl and the code of a type that comes with gracia
-TYPE_ASSETS = "gracia.types:{slug}/"
+# shacl/, xslt/doc/ and xslt/view/: the files of the types that come with gracia
+TYPE_ASSETS = "gracia:assets/"
 GROUPS_AT_START = ("admin", "editor", "manager")
 
 _TYPE_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9]{0,62}$")
 
 
-_SCHEMA = re.compile(r"^[A-Za-z][A-Za-z0-9]*-[a-z][a-z0-9_]*-[0-9]{2,}\.ttl$")
-_DOC = re.compile(r"^doc-[a-z][a-z0-9_]*-[0-9]{2,}\.xsl$")
+_SCHEMA = re.compile(r"^[a-z][a-z0-9]*-[a-z][a-z0-9_]*-[0-9]{2,}\.ttl$")
+_DOC = re.compile(r"^[a-z][a-z0-9]*-[a-z][a-z0-9_]*-[0-9]{2,}\.xsl$")
 _VIEW = re.compile(r"^[a-z][a-z0-9]*-[a-z][a-z0-9_]*-[0-9]{2,}\.xslt$")
 _ASSETS = re.compile(r"^[A-Za-z0-9_.:/-]+/?$")
 
@@ -92,7 +92,11 @@ def type_turtle(record: str, content_type, resource_uri: str = "") -> str:
         ("class", content_type.class_uri, _CLASS_URI),
         ("schema", content_type.schema, _SCHEMA),
         ("assets", content_type.assets, _ASSETS),
-        ("doc template", getattr(content_type, "doc", None) or "doc-none-01.xsl", _DOC),
+        (
+            "doc template",
+            getattr(content_type, "doc", None) or "none-none-01.xsl",
+            _DOC,
+        ),
         ("view", getattr(content_type, "view", None) or "none-none-01.xslt", _VIEW),
     ):
         if not isinstance(text, str) or not pattern.match(text):
@@ -150,10 +154,10 @@ def initial_dataset(
         ),
         "@REPO@": repository_record,
         "@TITLE@": repo_id,  # an id is lowercase letters, digits and _ only
-        "@A1@": TYPE_ASSETS.format(slug=TYPES_AT_START[0][1]),
-        "@A2@": TYPE_ASSETS.format(slug=TYPES_AT_START[1][1]),
-        "@A3@": TYPE_ASSETS.format(slug=TYPES_AT_START[2][1]),
-        "@A4@": TYPE_ASSETS.format(slug=TYPES_AT_START[3][1]),
+        "@A1@": TYPE_ASSETS,
+        "@A2@": TYPE_ASSETS,
+        "@A3@": TYPE_ASSETS,
+        "@A4@": TYPE_ASSETS,
         "@K1@": type_records[0],
         "@K2@": type_records[1],
         "@K3@": type_records[2],

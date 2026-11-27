@@ -2,8 +2,8 @@ import colander
 import deform
 import deform.widget
 
-from gracia import citations
-from gracia.extensions import Extension, extension
+from gracia.extensions import Extension
+from gracia.utils import citations
 
 STYLES = citations.style_names()
 
@@ -23,8 +23,8 @@ class CitationSettings(colander.MappingSchema):
     )
 
 
-@extension("citations")
 class CitationsExtension(Extension):
+    name = "citations"
     title = "Citations"
     description = (
         "Renders the CSL JSON of a doc (`csl`) in a citation style when the doc is "

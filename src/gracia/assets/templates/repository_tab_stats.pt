@@ -1,5 +1,5 @@
 <!-- The Stats tab of the manage page of a repository: two fieldsets, the caches (what is kept for this repository)
-     and the pending actions (what waits for the worker that follows the writes). The types have their own tab
+     and the pending change events (what waits for the worker that follows the writes). The types have their own tab
      and the search indexes theirs. A button of each starts the job that does the work (the panel of the Jobs
      tab, which is on the page, follows it). The numbers are those of the moment the page was made. -->
 <div>
@@ -52,34 +52,34 @@
     </form>
   </fieldset>
 
-  <fieldset class="mb-4" id="stats-actions">
-    <legend class="h5">Pending actions</legend>
+  <fieldset class="mb-4" id="stats-change-events">
+    <legend class="h5">Pending change events</legend>
     <dl class="row mb-2">
       <dt class="col-sm-4">Worker</dt>
-      <dd class="col-sm-8" id="stats-worker" data-state="${actions['worker']['state']}">
-        <span class="badge ${'text-bg-success' if actions['worker']['ok'] else 'text-bg-secondary'} me-1">${actions['worker']['state']}</span>
-        ${actions['worker']['text']}</dd>
+      <dd class="col-sm-8" id="stats-worker" data-state="${change_events['worker']['state']}">
+        <span class="badge ${'text-bg-success' if change_events['worker']['ok'] else 'text-bg-secondary'} me-1">${change_events['worker']['state']}</span>
+        ${change_events['worker']['text']}</dd>
       <dt class="col-sm-4">Waiting</dt>
-      <dd class="col-sm-8" id="stats-pending">${'{:,}'.format(actions['records'])}
-        ${'record' if actions['records'] == 1 else 'records'}
-        <span class="text-muted" tal:condition="actions['rows']">
-          (${'{:,}'.format(actions['rows'])} ${'row' if actions['rows'] == 1 else 'rows'}:
-          ${actions['by_action']}; ${actions['size']} of sources)</span></dd>
-      <dt class="col-sm-4" tal:condition="actions['since']">Oldest</dt>
-      <dd class="col-sm-8" tal:condition="actions['since']">${actions['since']}
-        <span class="text-muted">(transaction ${actions['oldest']} of ${actions['last']})</span></dd>
+      <dd class="col-sm-8" id="stats-pending">${'{:,}'.format(change_events['records'])}
+        ${'record' if change_events['records'] == 1 else 'records'}
+        <span class="text-muted" tal:condition="change_events['rows']">
+          (${'{:,}'.format(change_events['rows'])} ${'row' if change_events['rows'] == 1 else 'rows'}:
+          ${change_events['by_kind']}; ${change_events['size']} of sources)</span></dd>
+      <dt class="col-sm-4" tal:condition="change_events['since']">Oldest</dt>
+      <dd class="col-sm-8" tal:condition="change_events['since']">${change_events['since']}
+        <span class="text-muted">(transaction ${change_events['oldest']} of ${change_events['last']})</span></dd>
     </dl>
-    <form id="stats-job-process_actions" tal:condition="'process_actions' in buttons" class="mb-0">
+    <form id="stats-job-process_change_events" tal:condition="'process_change_events' in buttons" class="mb-0">
       <button type="button" class="btn btn-outline-primary btn-sm" data-start-fields=""
-              data-start-job="${buttons['process_actions']['url']}"
-              data-start-error="#stats-jobs-problem">${buttons['process_actions']['title']}</button>
+              data-start-job="${buttons['process_change_events']['url']}"
+              data-start-error="#stats-jobs-problem">${buttons['process_change_events']['title']}</button>
       <span class="small text-muted ms-2">hands what waits to what follows the data</span>
     </form>
   </fieldset>
 
   <!-- the dialog that follows a job started from this tab (no table: the Jobs tab has that) -->
   <div tal:condition="can_list" id="stats-job-dialog"
-       tal:define="panel_list_url string:${list_url}; panel_watch string:; panel_compact string:true;
-                   panel_filter string:job=update_cache,process_actions"
+       tal:define="panel load: job_panel.pt; panel_list_url string:${list_url}; panel_watch string:; panel_compact string:true;
+                   panel_filter string:job=update_cache,process_change_events"
        metal:use-macro="panel.macros['panel']"></div>
 </div>

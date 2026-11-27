@@ -6,11 +6,11 @@ import pyoxigraph as ox
 import tantivy
 from pyramid.registry import Registry
 from support import must_search
-from test_actions import BatchCase
+from test_change_events import BatchCase
 from test_manage import ADMIN, ManageCase
 
 from gracia import search
-from gracia.actions import Change, RecordsChanged, process_pending
+from gracia.change_events import ChangeEvent, RecordsChanged, process_pending
 from gracia.graph import serialize_bytes
 from gracia.search import (
     RECORDS,
@@ -79,9 +79,9 @@ class SearchCase(BatchCase):
     def count(self, definition: IndexDefinition = RECORDS) -> int:
         return self.indexes.stats("main")[0]["documents"]
 
-    def docs_of(self, *numbers: int) -> tuple[list[Change], dict[str, dict]]:
+    def docs_of(self, *numbers: int) -> tuple[list[ChangeEvent], dict[str, dict]]:
         changes = [
-            Change(
+            ChangeEvent(
                 self.store.record_id_of(f"rec:person:{n}"),
                 f"rec:person:{n}",
                 "insert",
@@ -620,20 +620,14 @@ class SearchPageTest(ManageCase):
             expect_errors=True,
         )
 
-    def test_a_browser_gets_a_page_with_a_search_box_and_a_program_still_gets_json(
-        self,
-    ):
+    def test_a_browser_gets_a_page_with_a_search_box_and_a_program_asks_for_json(self):
         page = self.page()
         self.assertEqual((page.status_int, page.content_type), (200, "text/html"))
         self.assertRegex(page.text, r'<input type="search" name="q"')
         self.assertNotIn('id="search-hits"', page.text)
-        self.assertEqual(
-            self.client().get("/archive/").json["id"], "archive"
-        )  # no Accept: JSON
-        self.assertEqual(
-            self.client().get("/archive/", headers={"Accept": "*/*"}).json["id"],
-            "archive",
-        )
+        for headers in ({}, {"Accept": "*/*"}):  # nothing asked for: the page
+            got = self.client().get("/archive/", headers=headers)
+            self.assertEqual(got.content_type, "text/html", headers)
         self.assertEqual(
             self.client()
             .get("/archive/", headers={"Accept": "application/json"})
@@ -666,7 +660,9 @@ class SearchPageTest(ManageCase):
             "grace-hopper"
         ]  # the node: its name is what the address ends in
         self.assertEqual(record.__name__, "grace-hopper")
-        self.assertEqual(self.application["archive"]["person"]["1"].__name__, "1")
+        self.assertEqual(
+            self.application["archive"]["person"].find_record("1").__name__, "1"
+        )
         for url in ("person/grace-hopper", "person/4"):  # both ways reach the record
             self.assertNotEqual(
                 self.client()

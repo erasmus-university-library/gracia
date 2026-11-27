@@ -649,7 +649,7 @@ class GraphStoreTest(CacheCase):
 
 class SizesTest(CacheCase):
     def test_the_sizes_are_the_defaults_and_what_the_config_sets(self):
-        from gracia import config
+        from gracia.utils import config
 
         self.assertEqual(config.parse_size("256M"), 256 * 1024**2)
         self.assertEqual(config.parse_size("1g"), 1024**3)

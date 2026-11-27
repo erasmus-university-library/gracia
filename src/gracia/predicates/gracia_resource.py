@@ -1,12 +1,13 @@
 import colander
 
 from gracia import uri
-from gracia.predicates import Predicate, predicate
+from gracia.predicates import Predicate
 
 
-@predicate(uri.RESOURCE)
 class ResourcePredicate(Predicate):
     """`gracia:resource`: the content of a record, a blank node of its type's class."""
+
+    uri = uri.RESOURCE
 
     def schema_node(self, record, request, schema_node=None):
         content = schema_node or colander.SchemaNode(

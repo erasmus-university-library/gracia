@@ -676,7 +676,7 @@ class ExportValidateTest(JobsCase):
         self.assertIn("MinCount", samples[0]["message"])
 
     def test_a_candidate_schema_shows_what_it_would_do_before_the_type_switches(self):
-        job_id, code = self.validate("Person-strict-01.ttl")
+        job_id, code = self.validate("person-strict-01.ttl")
         self.assertEqual(code, runner.EXIT_DONE, self.job(job_id)["error_msg"])
         bad = {
             r["id"].rsplit(":", 1)[1]
@@ -690,19 +690,19 @@ class ExportValidateTest(JobsCase):
             "test_repo"
         ]  # the type itself is still on its own schema
         self.addCleanup(node.close)
-        self.assertEqual(node["person"].schema, "Person-full-01.ttl")
+        self.assertEqual(node["person"].schema, "person-unittest-01.ttl")
 
     def test_the_job_checks_against_a_copy_of_the_schema_made_when_it_started(self):
-        job_id, _ = self.validate("Person-strict-01.ttl")
-        d = self.jobs_dir / job_id / "schema" / "person" / "Person-strict-01.ttl"
+        job_id, _ = self.validate("person-strict-01.ttl")
+        d = self.jobs_dir / job_id / "schema" / "person" / "person-strict-01.ttl"
         from jobs_support import SCHEMAS
 
         self.assertEqual(
-            (d / "schema.ttl").read_text(), SCHEMAS["Person-strict-01.ttl"]
+            (d / "schema.ttl").read_text(), SCHEMAS["person-strict-01.ttl"]
         )
         info = json.loads((d / "info.json").read_text())
         self.assertEqual(
-            (info["type"], info["schema"]), ("Person", "Person-strict-01.ttl")
+            (info["type"], info["schema"]), ("Person", "person-strict-01.ttl")
         )
         self.assertTrue(info["checksum"].startswith("md5:"))
 
@@ -713,7 +713,7 @@ class ExportValidateTest(JobsCase):
                 self.jobs_dir / job_id / "schema" / "person" / "default" / "info.json"
             ).read_text()
         )
-        self.assertEqual(info["schema"], "Person-full-01.ttl")
+        self.assertEqual(info["schema"], "person-unittest-01.ttl")
 
     def test_a_number_without_a_record_is_just_not_there(self):
         with self.application.new_store("test_repo") as store:
@@ -731,23 +731,23 @@ class ExportValidateTest(JobsCase):
         self.assertIsNone(self.job(job_id)["download_file"])
 
     def test_what_cannot_be_validated_fails_the_job_in_words(self):
-        (self.tmp / "person" / "shacl" / "Person-odd-01.ttl").write_text(
+        (self.tmp / "person" / "shacl" / "person-odd-01.ttl").write_text(
             "@prefix sh: <http://www.w3.org/ns/shacl#> .\n"
             "<urn:t:Odd> a sh:NodeShape ; sh:targetClass <urn:t:SomethingElse> ."
         )
         for params, message in (
             ({"res_type": "nobody"}, "no type 'nobody'"),
             (
-                {"res_type": "person", "schema": "Person-full-09.ttl"},
-                "no schema file Person-full-09.ttl",
+                {"res_type": "person", "schema": "person-full-09.ttl"},
+                "no schema file person-full-09.ttl",
             ),
             (
-                {"res_type": "person", "schema": "Work-full-01.ttl"},
-                "not a schema file of Person",
+                {"res_type": "person", "schema": "work-full-01.ttl"},
+                "not a schema file of person",
             ),
             (
-                {"res_type": "person", "schema": "Person-odd-01.ttl"},
-                "cannot use Person-odd-01.ttl",
+                {"res_type": "person", "schema": "person-odd-01.ttl"},
+                "cannot use person-odd-01.ttl",
             ),
         ):
             with self.subTest(params=params):

@@ -198,13 +198,18 @@ class WidgetsTest(JobsCase):
     def test_a_page_with_a_form_that_has_widgets_gets_their_scripts(self):
         from test_jobs_view import People
 
-        from gracia.views import render_form
+        from gracia import static
+        from gracia.templates import XsltRenderer
 
         seen = {}
 
         def view(request):
-            seen["response"] = render_form(
-                request, "T", "t", "<p>x</p>", widgets=self.form()
+            static.need_form(self.form())
+            seen["response"] = XsltRenderer.render_page(
+                request,
+                "gracia:assets/xslt/skin/form.xslt",
+                fragments={"form": "<p>x</p>"},
+                heading="T",
             )
             return seen["response"]
 

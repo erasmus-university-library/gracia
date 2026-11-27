@@ -1,12 +1,13 @@
 import colander
 
 from gracia import uri
-from gracia.predicates import Predicate, predicate
+from gracia.predicates import Predicate
 from gracia.predicates.gracia_modified_at import LocalTimeWidget
 
 
-@predicate(uri.CREATED_AT)
 class CreatedAtPredicate(Predicate):
+    uri = uri.CREATED_AT
+
     def schema_node(self, record, request, schema_node=None):
         if schema_node is None:
             return schema_node

@@ -22,7 +22,7 @@ class SeriesCase(DatesCase):
         return form.submit("save", headers=POSTING, expect_errors=True)
 
     def series(self, number=1):
-        return self.application["test_repo"].types["series"][str(number)]
+        return self.application["test_repo"].types["series"].find_record(str(number))
 
     def types_of(self, number=1):
         found = self.series(number)

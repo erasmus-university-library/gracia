@@ -12,16 +12,17 @@ from gracia.predicates import (
     gracia_label,
     gracia_resource_uri,
     gracia_schema_template,
-    predicate,
 )
+from gracia.types import type as record_module
 from gracia.utils import assets
 
 FOAF = "http://xmlns.com/foaf/0.1/"
 SH = "http://www.w3.org/ns/shacl#"
 
 
-@predicate(FOAF + "mbox")
 class MboxPredicate(Predicate):
+    uri = FOAF + "mbox"
+
     def schema_node(self, record, request, schema_node=None):
         schema_node.description = "in lower case"  # ty: ignore[invalid-assignment]
         return schema_node
@@ -134,7 +135,7 @@ class RecordShapeTest(PredicateCase):
         self.assertEqual([c.value for c in classes], [FOAF + "Person"])
 
     def test_the_fields_follow_sh_order_with_the_content_on_a_tab_of_its_own(self):
-        record = self.repo()["person"]["1"]
+        record = self.repo()["person"].find_record("1")
         self.assertEqual(
             [c.name for c in record.edit_schema().children],
             [
@@ -153,7 +154,7 @@ class RecordShapeTest(PredicateCase):
         )  # the content is a tab, loose fields another
 
     def test_every_node_knows_the_property_it_is_for(self):
-        record = self.repo()["person"]["1"]
+        record = self.repo()["person"].find_record("1")
         schema = record.edit_schema()
         self.assertEqual(
             [c.predicate for c in schema.children],
@@ -208,10 +209,9 @@ class ResourceUriTest(PredicateCase):
         )
 
     def test_the_core_and_the_extension_have_no_code_for_it(self):
-        from gracia import resources
         from gracia.extensions import ark
 
-        self.assertFalse(hasattr(resources.Record, "default_resource_uri"))
+        self.assertFalse(hasattr(record_module.Record, "default_resource_uri"))
         self.assertFalse(hasattr(ark, "ResourceUriPredicate"))
 
 
@@ -221,7 +221,7 @@ class SchemaTest(PredicateCase):
         select = must_search(r'<select name="schema".*?</select>', page, re.S)[0]
         self.assertEqual(
             re.findall(r'<option[^>]*value="([^"]+)"', select),
-            ["Person-full-01.ttl", "Person-minimal-01.ttl"],
+            ["person-minimal-01.ttl", "person-unittest-01.ttl"],
         )
 
     def test_the_other_fields_of_the_type_record_stay_text_fields(self):
@@ -300,7 +300,7 @@ class BatchHookTest(PredicateCase):
 
 class SaveTest(PredicateCase):
     def test_saving_a_record_runs_the_hooks_whoever_saves_it(self):
-        record = self.repo()["person"]["1"]
+        record = self.repo()["person"].find_record("1")
         record.save()
         self.assertIn((uri.LABEL, "Ada"), self.values("rec:person:1"))
         self.assertIn(

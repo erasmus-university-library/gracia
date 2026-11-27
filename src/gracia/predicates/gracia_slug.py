@@ -5,7 +5,7 @@ import deform
 import deform.widget
 
 from gracia import uri
-from gracia.predicates import HookContext, Predicate, predicate
+from gracia.predicates import HookContext, Predicate
 from gracia.store import literal
 
 RESERVED = (
@@ -38,9 +38,10 @@ class SlugWidget(deform.widget.TextInputWidget):
         )
 
 
-@predicate(uri.SLUG)
 class SlugPredicate(Predicate):
     """`gracia:slug`: the name of a record in the address of its type, made on save."""
+
+    uri = uri.SLUG
 
     def schema_node(self, record, request, schema_node=None):
         if schema_node is None or getattr(schema_node, "depth", 0) != 0:

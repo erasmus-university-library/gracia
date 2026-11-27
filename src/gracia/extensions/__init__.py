@@ -1,11 +1,8 @@
-import importlib
 import json
 import logging
-import pkgutil
 
 import colander
 import pyoxigraph as ox
-import venusian
 from pyramid.threadlocal import get_current_request
 from zope.interface import implementer
 
@@ -14,8 +11,6 @@ from gracia.forms import Form, none_to_nulls, nulls_to_none, to_json
 from gracia.interfaces import IExtension, IRepository
 
 log = logging.getLogger("gracia.extensions")
-ENTRY_POINT_GROUP = "gracia.extensions"
-BUILTIN_PACKAGES = ["gracia.extensions"]
 
 
 class ExtensionError(ValueError):
@@ -211,22 +206,14 @@ def settings_form(extension: Extension, request, **options) -> Form:
 # -------------------------------------------------------------------------------
 
 
-def extension(name: str):
-
-    def decorate(cls):
-        def callback(scanner, _name, _obj):
-            scanner.config.add_gracia_extension(name, cls)
-
-        venusian.attach(cls, callback, category="pyramid")
-        return cls
-
-    return decorate
-
-
-def add_gracia_extension(config, name: str, cls: type) -> None:
+def add_gracia_extension(config, cls: type[Extension]) -> None:
+    """The directive of the scan for a class that implements `IExtension`: one that has
+    no `name` is not an extension (the base class)."""
+    name = cls.name
+    if not name:
+        return
 
     def register():
-        cls.name = name  # ty: ignore[missing-attribute]
         config.registry.registerAdapter(cls, (IRepository,), IExtension, name=name)
 
     config.action(("gracia extension", name), register)
@@ -249,36 +236,6 @@ class ExtensionPredicate:
             return repository.extension(self.name).enabled
         except KeyError:
             return False
-
-
-def include_modules(config, targets: list[str]) -> None:
-    for target in targets:
-        package = importlib.import_module(target)
-        names = [target]
-        if hasattr(package, "__path__"):
-            names += [
-                m.name for m in pkgutil.walk_packages(package.__path__, target + ".")
-            ]
-        for name in names:
-            module = importlib.import_module(name)
-            if "includeme" in vars(module):
-                config.include(module)
-
-
-def scan_targets(settings: dict) -> list[str]:
-    from importlib.metadata import entry_points
-
-    found = list(BUILTIN_PACKAGES)
-    found += [
-        entry.value.split(":")[0] for entry in entry_points(group=ENTRY_POINT_GROUP)
-    ]
-    found += settings.get("gracia.extensions", "").split()
-    unique = list(dict.fromkeys(found))
-    return [
-        name
-        for name in unique
-        if not any(name.startswith(other + ".") for other in unique if other != name)
-    ]
 
 
 def read_extension_states(graph, repo_uri: str) -> dict[str, tuple[bool | None, dict]]:

@@ -59,5 +59,7 @@ class AbsoluteUrlsTest(WebCase):
         )
 
     def test_the_addresses_in_the_json_are_absolute(self):
-        document = self.web.get("/test_repo/api", headers={"X-User": "admin"}).json
+        document = self.web.get(
+            "/test_repo/api", headers={"X-User": "admin", "Accept": "application/json"}
+        ).json
         self.assertEqual(document["servers"], [{"url": "http://localhost/test_repo"}])

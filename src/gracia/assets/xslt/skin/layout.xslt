@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- The page around the pages of the site, as templates/layout.pt was. It is the first of two
-     stylesheets that views/xslt.py `page` puts together: the stylesheet of the page comes
+     stylesheets that templates.py `page` puts together: the stylesheet of the page comes
      after it and fills in what the page has of its own, by templates for the request in the
      modes "title", "header", "content" and "footer", as a template fills the slots of the
      layout. Here are what a page has when it does not say: the title is the heading, the
@@ -10,7 +10,7 @@
 
   <!-- Saxon writes all of the response, and the page is in it as elements: the writer is the
        one of HTML5 (no doctype, the root is the response: the renderer adds it), and the
-       renderer cuts the headers and the body out of the text (views/xslt.py parse_response) -->
+       renderer cuts the headers and the body out of the text (templates.py parse_response) -->
   <xsl:output method="html" html-version="5" encoding="UTF-8" indent="yes"
               include-content-type="no"/>
 

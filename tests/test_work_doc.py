@@ -9,10 +9,9 @@ from typing import ClassVar
 import csl_schema
 import pyoxigraph as ox
 import tantivy
-from harness import ConfiguredCase
+from harness import BUNDLED, ConfiguredCase
 
-from gracia import types
-from gracia.actions import Change
+from gracia.change_events import ChangeEvent
 from gracia.search import RECORDS, Field, Indexes, check_document
 from gracia.utils import assets
 
@@ -144,7 +143,7 @@ class WorkDocCase(ConfiguredCase):
         self.application.create_repository(
             "lib",
             admin=("admin", "correct horse battery"),
-            content_types=[types.available()[k] for k in kinds],
+            content_types=[BUNDLED[k] for k in kinds],
         )
         self.put(BASE, ARTICLE, THESIS, BOOK, NEWS, BARE)
 
@@ -471,7 +470,9 @@ class SchemaAndIndexTest(WorkDocCase):
         definition = self.definition()
         indexes = Indexes(Path(tmp))
         docs = {self.doc(n)["record"]: self.doc(n) for n in numbers}
-        changes = [Change(d["record_id"], uri, "insert") for uri, d in docs.items()]
+        changes = [
+            ChangeEvent(d["record_id"], uri, "insert") for uri, d in docs.items()
+        ]
         indexes.update("lib", definition, changes, docs)
         index = tantivy.Index.open(str(indexes.path("lib", definition)))
         index.reload()
@@ -509,12 +510,14 @@ class SchemaAndIndexTest(WorkDocCase):
 
 class TypeTest(WorkDocCase):
     def test_the_type_names_the_stylesheet(self):
-        self.assertEqual(types.available()["work"].doc, "doc-schemaorg-01.xsl")
+        self.assertEqual(BUNDLED["work"].doc, "work-schemaorg-01.xsl")
 
     def test_a_repository_that_has_the_type_already_can_choose_it_in_its_settings(self):
-        self.assertEqual(assets.docs_of("gracia.types:work/"), ["doc-schemaorg-01.xsl"])
+        self.assertEqual(
+            assets.docs_of("gracia:assets/", "work"), ["work-schemaorg-01.xsl"]
+        )
 
     def test_the_type_record_of_a_new_repository_names_it(self):
         repository = self.application["lib"]
         self.addCleanup(repository.close)
-        self.assertEqual(repository.types["work"].doc_template, "doc-schemaorg-01.xsl")
+        self.assertEqual(repository.types["work"].doc_template, "work-schemaorg-01.xsl")

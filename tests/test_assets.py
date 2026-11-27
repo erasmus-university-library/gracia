@@ -46,32 +46,32 @@ class JoinTest(unittest.TestCase):
 class SchemaNameTest(unittest.TestCase):
     def test_a_schema_file_of_the_type(self):
         for name in (
-            "Person-full-03.ttl",
-            "Person-minimal-01.ttl",
-            "Person-short_form-120.ttl",
+            "person-full-03.ttl",
+            "person-minimal-01.ttl",
+            "person-short_form-120.ttl",
         ):
             self.assertEqual(
-                assets.schema_spec("gracia.types:person/", name, "Person"),
-                f"gracia.types:person/shacl/{name}",
+                assets.schema_spec("gracia:assets/", name, "person"),
+                f"gracia:assets/shacl/{name}",
             )
 
     def test_anything_else_is_refused(self):
         for name in (
             None,
             "",
-            "Person-full-3.ttl",  # the revision has two digits at least
-            "Person-Full-03.ttl",  # a profile is lower case
+            "person-full-3.ttl",  # the revision has two digits at least
+            "person-Full-03.ttl",  # a profile is lower case
             "Person-full.ttl",
             "Person.ttl",
-            "person-full-03.ttl",  # not the name of this type
-            "Work-full-03.ttl",  # the file of another type
+            "Person-full-03.ttl",  # a type is lower case
+            "work-full-03.ttl",  # the file of another type
             "Person-full-03.xsl",
-            "../Person-full-03.ttl",
-            "shacl/Person-full-03.ttl",
-            "Person-full-03.ttl/../x",
+            "../person-full-03.ttl",
+            "shacl/person-full-03.ttl",
+            "person-full-03.ttl/../x",
         ):
             with self.assertRaises(ValueError, msg=name):
-                assets.schema_spec("gracia.types:person/", name, "Person")
+                assets.schema_spec("gracia:assets/", name, "person")
 
 
 class ShapeLoadingTest(unittest.TestCase):
@@ -81,13 +81,13 @@ class ShapeLoadingTest(unittest.TestCase):
         self.dir = Path(self._tmp.name)
         (self.dir / "shacl").mkdir()
 
-    def write(self, name="Thing-full-01.ttl", label="First"):
+    def write(self, name="thing-full-01.ttl", label="First"):
         path = self.dir / "shacl" / name
         path.write_text(SHAPE.replace("@NAME@", label))
         return path
 
-    def shape(self, schema="Thing-full-01.ttl", class_uri=THING):
-        return assets.shape(f"{self.dir}/", schema, class_uri, "Thing")
+    def shape(self, schema="thing-full-01.ttl", class_uri=THING):
+        return assets.shape(f"{self.dir}/", schema, class_uri, "thing")
 
     def test_the_shape_of_a_class_is_found_by_its_target_class(self):
         self.write()
@@ -102,15 +102,17 @@ class ShapeLoadingTest(unittest.TestCase):
             ("user", "User", uri.USER_CLASS),
             ("group", "UserGroup", uri.GROUP_CLASS),
         ):
-            prefix = init.TYPE_ASSETS.format(slug=slug)
             self.assertIsNotNone(
-                assets.shape(prefix, f"{name}-full-01.ttl", class_uri, name), slug
+                assets.shape(
+                    init.TYPE_ASSETS, f"{slug}-minimal-01.ttl", class_uri, slug
+                ),
+                slug,
             )
 
     def test_a_missing_or_wrong_shape_is_none_not_an_error(self):
-        self.assertIsNone(assets.shape(None, "Thing-full-01.ttl", THING, "Thing"))
+        self.assertIsNone(assets.shape(None, "thing-full-01.ttl", THING, "thing"))
         self.assertIsNone(
-            assets.shape(f"{self.dir}/", None, THING, "Thing")
+            assets.shape(f"{self.dir}/", None, THING, "thing")
         )  # no schema named
         self.assertIsNone(
             self.shape()
@@ -120,14 +122,14 @@ class ShapeLoadingTest(unittest.TestCase):
             self.assertIsNone(self.shape(class_uri="http://example.org/Other"))
         with self.assertLogs("gracia.utils.assets", "WARNING"):
             self.assertIsNone(
-                self.shape(schema="Other-full-01.ttl")
+                self.shape(schema="other-full-01.ttl")
             )  # another type's name
         self.write().write_text("this is not turtle")
         with self.assertLogs("gracia.utils.assets", "WARNING"):
             self.assertIsNone(self.shape())
         with self.assertLogs("gracia.utils.assets", "WARNING"):
             self.assertIsNone(
-                assets.shape("no.such.package:x/", "Thing-full-01.ttl", THING, "Thing")
+                assets.shape("no.such.package:x/", "thing-full-01.ttl", THING, "thing")
             )
 
     def test_a_changed_file_is_read_again_and_an_unchanged_one_is_not_parsed_twice(
@@ -157,53 +159,53 @@ class ProfilesTest(unittest.TestCase):
         self.dir = Path(self._tmp.name)
         (self.dir / "shacl").mkdir()
         for name, label in (
-            ("Thing-full-01.ttl", "Full, first revision"),
-            ("Thing-full-02.ttl", "Full, second revision"),
-            ("Thing-minimal-01.ttl", "Minimal"),
+            ("thing-full-01.ttl", "Full, first revision"),
+            ("thing-full-02.ttl", "Full, second revision"),
+            ("thing-minimal-01.ttl", "Minimal"),
         ):
             (self.dir / "shacl" / name).write_text(SHAPE.replace("@NAME@", label))
 
     def label(self, schema):
-        data, _ = assets.shape(f"{self.dir}/", schema, THING, "Thing")
+        data, _ = assets.shape(f"{self.dir}/", schema, THING, "thing")
         return next(q.object.value for q in data if q.predicate.value.endswith("#name"))
 
     def test_the_schema_a_type_names_is_the_one_it_uses(self):
-        self.assertEqual(self.label("Thing-full-01.ttl"), "Full, first revision")
-        self.assertEqual(self.label("Thing-full-02.ttl"), "Full, second revision")
-        self.assertEqual(self.label("Thing-minimal-01.ttl"), "Minimal")
+        self.assertEqual(self.label("thing-full-01.ttl"), "Full, first revision")
+        self.assertEqual(self.label("thing-full-02.ttl"), "Full, second revision")
+        self.assertEqual(self.label("thing-minimal-01.ttl"), "Minimal")
 
     def test_switching_schema_changes_the_version_of_the_type(self):
         prefix = f"{self.dir}/"
         versions = {
-            name: assets.version(prefix, name, "Thing")
+            name: assets.version(prefix, name, "thing")
             for name in (
-                "Thing-full-01.ttl",
-                "Thing-full-02.ttl",
-                "Thing-minimal-01.ttl",
+                "thing-full-01.ttl",
+                "thing-full-02.ttl",
+                "thing-minimal-01.ttl",
             )
         }
         self.assertEqual(len(set(versions.values())), 3)
         # the others files of the directory do not count: only the one the type is on
-        (self.dir / "shacl" / "Thing-full-03.ttl").write_text(
+        (self.dir / "shacl" / "thing-full-03.ttl").write_text(
             SHAPE.replace("@NAME@", "New")
         )
         self.assertEqual(
-            assets.version(prefix, "Thing-full-01.ttl", "Thing"),
-            versions["Thing-full-01.ttl"],
+            assets.version(prefix, "thing-full-01.ttl", "thing"),
+            versions["thing-full-01.ttl"],
         )
         self.assertNotEqual(
-            assets.version(prefix, "Thing-full-03.ttl", "Thing"),
-            versions["Thing-full-01.ttl"],
+            assets.version(prefix, "thing-full-03.ttl", "thing"),
+            versions["thing-full-01.ttl"],
         )
 
     def test_a_schema_that_does_not_exist_leaves_only_the_stylesheet(self):
         prefix = f"{self.dir}/"
-        self.assertEqual(assets.version(prefix, "Thing-full-09.ttl", "Thing"), "")
+        self.assertEqual(assets.version(prefix, "thing-full-09.ttl", "thing"), "")
         (self.dir / "view.xsl").write_text("view")
-        only_view = assets.version(prefix, "Thing-full-09.ttl", "Thing")
+        only_view = assets.version(prefix, "thing-full-09.ttl", "thing")
         self.assertNotEqual(only_view, "")
         self.assertEqual(
-            assets.version(prefix, "Other-full-01.ttl", "Thing"), only_view
+            assets.version(prefix, "other-full-01.ttl", "thing"), only_view
         )  # invalid
 
 
@@ -215,7 +217,7 @@ class OverrideTest(unittest.TestCase):
         for package in ("base_types", "custom_types"):
             (root / package / "thing" / "shacl").mkdir(parents=True)
             (root / package / "__init__.py").touch()
-        schema = "shacl/Thing-full-01.ttl"
+        schema = "shacl/thing-full-01.ttl"
         (root / "base_types/thing" / schema).write_text(SHAPE.replace("@NAME@", "Base"))
         (root / "base_types/thing/view.xsl").write_text("base view")
         (root / "custom_types/thing" / schema).write_text(
@@ -228,7 +230,7 @@ class OverrideTest(unittest.TestCase):
         )
 
     def label(self):
-        data, _ = assets.shape("base_types:thing/", "Thing-full-01.ttl", THING, "Thing")
+        data, _ = assets.shape("base_types:thing/", "thing-full-01.ttl", THING, "thing")
         return next(q.object.value for q in data if q.predicate.value.endswith("#name"))
 
     def test_the_original_without_an_override(self):
@@ -291,11 +293,11 @@ class InfoTest(unittest.TestCase):
         self.assertEqual(second.size, 4)
 
     def test_a_directory_has_one_version_that_follows_every_file(self):
-        prefix, schema = f"{self.dir}/", "Thing-full-01.ttl"
+        prefix, schema = f"{self.dir}/", "thing-full-01.ttl"
         (self.dir / "shacl").mkdir()
 
         def version():
-            return assets.version(prefix, schema, "Thing")
+            return assets.version(prefix, schema, "thing")
 
         self.assertEqual(assets.version(None), "")
         self.assertEqual(version(), "")  # no files
@@ -352,7 +354,7 @@ class TypeVersionTest(WebCase):
         self.addCleanup(node.close)
         self.assertEqual(
             node["user"].assets_version,
-            assets.version("gracia.types:user/", "User-full-01.ttl", "User"),
+            assets.version("gracia:assets/", "user-minimal-01.ttl", "user"),
         )
         self.assertNotEqual(node["user"].assets_version, node["group"].assets_version)
         self.assertEqual(len(node["user"].assets_version), 32)
@@ -366,10 +368,10 @@ class ListCommandTest(DbTestCase):
         lines = out.strip().splitlines()
         self.assertEqual(len(lines), 4)  # the four system types: the same files, once
         for spec in (
-            "gracia.types:user/shacl/User-full-01.ttl",
-            "gracia.types:group/shacl/UserGroup-full-01.ttl",
-            "gracia.types:type/shacl/Type-full-01.ttl",
-            "gracia.types:repository/shacl/Repository-full-01.ttl",
+            "gracia:assets/shacl/user-minimal-01.ttl",
+            "gracia:assets/shacl/group-minimal-01.ttl",
+            "gracia:assets/shacl/type-minimal-01.ttl",
+            "gracia:assets/shacl/repository-minimal-01.ttl",
         ):
             line = next(entry for entry in lines if entry.endswith(spec))
             self.assertRegex(line, r"^md5:[0-9a-f]{32}  +\d+  text/turtle +")

@@ -1,8 +1,8 @@
-from gracia.extensions import Extension, extension
+from gracia.extensions import Extension
 
 
-@extension("incl")
 class Incl(Extension):
+    name = "incl"
     title = "Incl"
     description = "Registers a child of the repository in its includeme."
 

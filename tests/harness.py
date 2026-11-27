@@ -6,11 +6,16 @@ from pyramid import testing
 from pyramid.registry import Registry
 from webtest import TestApp
 
-from gracia.actions import Worker
-from gracia.application import Application
+from gracia.change_events import ChangeEventsWorker
 from gracia.main import init, make_config, opened, shutdown
 from gracia.store import Store
-from gracia.types import ContentType
+from gracia.types.application import Application
+from gracia.types.collection import CollectionRecord
+from gracia.types.organization import OrganizationRecord
+from gracia.types.person import PersonRecord
+from gracia.types.series import SeriesRecord
+from gracia.types.type import ContentType
+from gracia.types.work import WorkRecord
 
 __all__ = [
     "FOAF_PERSON",
@@ -22,14 +27,22 @@ __all__ = [
 ]
 
 
+BUNDLED = {  # the types of gracia that are on schema.org, by slug
+    cls.content_type.slug: cls.content_type
+    for cls in (
+        PersonRecord,
+        OrganizationRecord,
+        SeriesRecord,
+        CollectionRecord,
+        WorkRecord,
+    )
+}
 FOAF_PERSON = ContentType(
-    package="gracia.types.person",
     name="Person",
     slug="person",
     class_uri="http://xmlns.com/foaf/0.1/Person",
-    schema="Person-minimal-01.ttl",
-    assets="gracia.types:person/",
-    doc="doc-full-01.xsl",
+    schema="person-minimal-01.ttl",
+    doc="person-schemaorg-01.xsl",
 )  # the person of the foaf profiles: the tests of the forms and the hooks use it
 
 
@@ -67,10 +80,10 @@ def graph_of(application, repo: str, record_id: int | None) -> str:
         return store.get_multi([record_id], compound_records=True, format="rdfxml")
 
 
-def stopped_worker(application) -> Worker:
+def stopped_worker(application) -> ChangeEventsWorker:
     """A worker that is not running, set on the cache before the reads that ask it to
-    make records again (`Worker.rework`): a test makes it work with `worker.turn()`."""
-    worker = Worker(application, application.registry)
+    make records again (`ChangeEventsWorker.rework`): a test makes it work with `worker.turn()`."""
+    worker = ChangeEventsWorker(application, application.registry)
     worker.stop()
     application.cache.worker = worker
     return worker

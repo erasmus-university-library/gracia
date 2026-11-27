@@ -3,9 +3,9 @@ import re
 
 import colander
 import pyoxigraph as ox
-from harness import ConfiguredCase
+from harness import BUNDLED, ConfiguredCase
 
-from gracia import forms, types
+from gracia import forms
 
 SCHEMA = "https://schema.org/"
 AUTH = {"Authorization": "Basic " + base64.b64encode(b"admin:correct horse").decode()}
@@ -18,7 +18,7 @@ class LanguageWidgetTest(ConfiguredCase):
         self.application.create_repository(
             "test_repo",
             admin=("admin", "correct horse"),
-            content_types=[types.available()["person"]],
+            content_types=[BUNDLED["person"]],
         )
         self.web = self.client()
 
@@ -41,7 +41,7 @@ class LanguageWidgetTest(ConfiguredCase):
         return self.web.post(path, params=out, headers=AUTH, expect_errors=True)
 
     def description(self):
-        record = self.application["test_repo"].types["person"]["1"]
+        record = self.application["test_repo"].types["person"].find_record("1")
         return record.graph.value(record.resource, SCHEMA + "description")
 
     def test_the_description_has_a_text_a_language_and_a_menu_of_languages(self):
@@ -109,7 +109,7 @@ class NoBrowserValidationTest(ConfiguredCase):
         self.application.create_repository(
             "test_repo",
             admin=("admin", "correct horse"),
-            content_types=[types.available()["person"]],
+            content_types=[BUNDLED["person"]],
         )
         page = self.client().get(ADD, headers=AUTH).text
         self.assertRegex(page, r"<form[^>]*novalidate")

@@ -5,14 +5,14 @@ import pyoxigraph as ox
 from harness import etag_of, graph_of, open_application
 from jobs_support import JobsCase, person
 
-from gracia.actions import RecordsChanged, process_pending
-from gracia.application import Application
+from gracia.change_events import RecordsChanged, process_pending
 from gracia.graph import rdfxml
 from gracia.jobs import context, runner
 from gracia.jobs.repository_jobs import ProcessActionsJob, UpdateCacheJob
 from gracia.jobs.stage import read_graphs
 from gracia.jobs.type_jobs import ExportJob
 from gracia.store import fetch_one
+from gracia.types.application import Application
 
 LINKED = """
 @prefix gracia: <https://gracia.pub/ns/> . @prefix foaf: <http://xmlns.com/foaf/0.1/> .
@@ -166,7 +166,7 @@ class ExportQueueTest(GraphJobsCase):
         count, bound, items = self.items()
         waiting = fetch_one(
             self.store.con.execute(
-                "SELECT count(DISTINCT record_id) FROM actions_queue"
+                "SELECT count(DISTINCT record_id) FROM change_events"
             )
         )[0]
         self.assertEqual(
@@ -176,7 +176,7 @@ class ExportQueueTest(GraphJobsCase):
         record_id = self.store.record_id_of("rec:person:14")
         etag = etag_of(self.application, "test_repo", record_id)
         self.assertEqual(
-            (items["rec:person:14"]["etag"], items["rec:person:14"]["action"]),
+            (items["rec:person:14"]["etag"], items["rec:person:14"]["kind"]),
             (etag, "insert"),
         )
         self.assertIn(
@@ -188,17 +188,17 @@ class ExportQueueTest(GraphJobsCase):
         _, _, items = self.items()
         gone = items["rec:person:14"]
         self.assertEqual(
-            (gone["etag"], gone["action"], gone["source"].strip()),
+            (gone["etag"], gone["kind"], gone["source"].strip()),
             ("delete", "delete", ""),
         )
 
     def test_nothing_is_exported_when_nothing_waits_and_the_rows_are_not_touched(self):
         _, _, items = self.items()
-        pending = self.store.pending_actions()
+        pending = self.store.pending_change_events()
         self.assertEqual(
-            self.store.pending_actions(), pending
+            self.store.pending_change_events(), pending
         )  # exporting takes nothing off
-        self.store.actions_done(
+        self.store.change_events_done(
             [self.store.record_id_of(u) for u in items], self.store.last_transaction()
         )
         count, files, _ = self.store.export_queue(self.tmp / "empty", 32_000_000)
@@ -297,17 +297,17 @@ class ProcessActionsJobTest(GraphJobsCase):
             "<http://xmlns.com/foaf/0.1/> "
             ".\n" + "\n".join(person(n) for n in range(100, 250))
         )
-        rows = self.store.pending_actions()[0]
+        rows = self.store.pending_change_events()[0]
         self.assertGreater(rows, 100)  # more than one batch
         job_id = self.make(*ProcessActionsJob().spec("test_repo", {})["stages"])
         self.assertEqual(
             self.run_job(job_id), runner.EXIT_DONE, self.job(job_id)["error_msg"]
         )
-        stage = self.stage(job_id, "ProcessActions")
+        stage = self.stage(job_id, "ProcessChangeEvents")
         self.assertEqual(
             stage["batches"]["total"], 1
         )  # a file of 32 MB of graphs, however many records
-        self.assertEqual(self.store.pending_actions(), (0, None))
+        self.assertEqual(self.store.pending_change_events(), (0, None))
         records = fetch_one(self.store.con.execute("SELECT count(*) FROM records"))[0]
         self.assertEqual(
             {c.record for e in events for c in e.changes}
@@ -334,7 +334,7 @@ class ProcessActionsJobTest(GraphJobsCase):
     def test_it_is_a_job_of_the_repository_for_the_administrators(self):
         spec = ProcessActionsJob().spec("test_repo", {})
         self.assertEqual(
-            [st["stage"] for st in spec["stages"]], ["Export", "ProcessActions"]
+            [st["stage"] for st in spec["stages"]], ["Export", "ProcessChangeEvents"]
         )
         self.assertTrue(spec["stages"][0]["params"]["queued"])
         self.assertEqual(ProcessActionsJob.groups, ())
@@ -351,7 +351,7 @@ class ProcessActionsJobTest(GraphJobsCase):
             ".\n" + person(500)
         )
         self.assertEqual(
-            self.store.pending_actions()[0], 1
+            self.store.pending_change_events()[0], 1
         )  # written after: the next run's
         self.assertFalse(
             any(c.record == "rec:person:500" for e in events for c in e.changes)
@@ -365,7 +365,7 @@ class ProcessActionsJobTest(GraphJobsCase):
         self.assertEqual(
             self.run_job(job_id), runner.EXIT_DONE, self.job(job_id)["error_msg"]
         )
-        actions = {c.record: c.action for e in events for c in e.changes}
+        actions = {c.record: c.kind for e in events for c in e.changes}
         self.assertEqual(actions["rec:person:13"], "update")
         self.assertIn(
             actions["rec:person:14"], ("insert", "update")

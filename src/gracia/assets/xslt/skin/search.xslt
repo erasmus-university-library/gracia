@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- The page of a repository for a browser: a search box and what the search index finds. A first
-     look, kept small on purpose (views/repository.py, `search_page`). -->
+     look, kept small on purpose (`RepositoryView.index` in `types/repository.py`). -->
 <xsl:stylesheet version="3.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
     xmlns:xs="http://www.w3.org/2001/XMLSchema" exclude-result-prefixes="#all">
 

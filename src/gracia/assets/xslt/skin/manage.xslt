@@ -5,7 +5,7 @@
     xmlns:xs="http://www.w3.org/2001/XMLSchema" exclude-result-prefixes="#all">
 
   <xsl:template match="/request" mode="content">
-    <!-- a tab is a named form (gracia.views.tabs); its pane is what the tab renders -->
+    <!-- a tab is a named form (`Manage` in types/type.py); its pane is what the tab renders -->
     <ul class="nav nav-tabs" role="tablist">
       <xsl:for-each select="data/panes/item">
         <li class="nav-item" role="presentation">

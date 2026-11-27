@@ -1,12 +1,10 @@
 from pyramid.httpexceptions import HTTPFound
 
-from gracia.resources import Type
-from gracia.views import flash
-from gracia.views.manage import TypeManage
+from gracia.types.type import MANAGE_TEMPLATE, Type, TypeView
 
 
-class NotesManage(TypeManage):
-    panes = (*TypeManage.panes, ("notes", "Notes"))
+class NotesManage(TypeView):
+    panes = (*TypeView.panes, ("notes", "Notes"))
 
     def pane_notes(self, state):
         errors = "".join(
@@ -26,11 +24,16 @@ class NotesManage(TypeManage):
         if not note:
             return {"errors": ["note: Required"], "note": note}
         level = {"warn": "warning", "bad": "danger", "fyi": "info"}.get(note, "success")
-        flash(self.request, f"Note kept: {note}", level)
+        self.request.session.flash(f"Note kept: {note}", queue=level)
         return HTTPFound(self.action("notes"))
 
 
 def add_notes(config) -> None:
     config.add_view(
-        NotesManage, attr="manage", context=Type, name="manage", permission="manage"
+        NotesManage,
+        attr="manage",
+        context=Type,
+        name="manage",
+        permission="manage",
+        renderer=MANAGE_TEMPLATE,
     )

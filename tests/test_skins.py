@@ -7,10 +7,10 @@ from pathlib import Path
 from test_html_pages import PagesCase, person
 
 from gracia.graph import Graph
-from gracia.resources import Repository
+from gracia.templates import HELPERS
+from gracia.types.repository import SKIN_SPECS, Repository
+from gracia.types.type import HIDDEN
 from gracia.utils import xslt
-from gracia.views.type import page_rdfxml
-from gracia.views.xslt import HELPERS
 
 XSL = 'xmlns:xsl="http://www.w3.org/1999/XSL/Transform"'
 # a layout of a repository that is not the one of gracia: it only says the title
@@ -200,9 +200,7 @@ class SkinTest(PagesCase):
     def test_what_a_repository_has_of_its_own_is_what_its_pages_are_made_of(self):
         repository = self.repository()
         for kind in ("layout", "type", "record"):  # without any, the ones of gracia
-            self.assertEqual(
-                repository.stylesheet(kind), f"gracia:assets/xslt/skin/{kind}.xslt"
-            )
+            self.assertEqual(repository.stylesheet(kind), SKIN_SPECS[kind])
         layout = self.stylesheet("layout.xslt", LAYOUT)
         repository.set_settings({"layout_template": layout})
         self.assertEqual(repository.stylesheet("layout"), layout)
@@ -232,16 +230,14 @@ class SkinTest(PagesCase):
         layout = self.stylesheet("layout.xslt", LAYOUT)
         repository.set_settings({"layout_template": layout})
         Path(layout).unlink()  # it was there when it was set, or was set by the form
-        with self.assertLogs("gracia.resources", "WARNING") as logged:
+        with self.assertLogs("gracia.types.repository", "WARNING") as logged:
             text = self.get("/test_repo/person/", self.admin).text
         self.assertIn("<title>Person</title>", text)  # gracia's is used, the site is up
         self.assertIn("layout stylesheet", logged.output[0])
 
     def test_the_helpers_jump_from_a_record_to_its_resource_and_its_properties(self):
         graph = Graph.parse(GRAPH, "turtle")
-        document = (
-            f"<request><body>{page_rdfxml(graph).split('?>', 1)[1]}</body></request>"
-        )
+        document = f"<request><body>{graph.rdfxml(without=HIDDEN).split('?>', 1)[1]}</body></request>"
         sheet = (
             f'<xsl:stylesheet version="3.0" {XSL}>'
             f'<xsl:import href="{HELPERS.as_uri()}"/>'

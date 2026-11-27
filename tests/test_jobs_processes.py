@@ -497,7 +497,7 @@ class CommandsTest(ProcessCase):
     def test_validate_makes_a_job_and_runs_it(self):
         code, out, err = self.cli(
             "jobs", "validate", "--repo", "test_repo", "--type", "person",
-            "--schema", "Person-strict-01.ttl", "--batch-size", "5",
+            "--schema", "person-strict-01.ttl", "--batch-size", "5",
         )  # fmt: skip
         self.assertEqual(code, 0, err)
         job_id = out.strip().splitlines()[0]

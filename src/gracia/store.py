@@ -456,10 +456,10 @@ class Store:
             # is to them.
             # A
             # record that is there is new when it was not alive before this transaction
-            f"DELETE FROM actions_queue WHERE transaction_id = {number} AND record_id "
+            f"DELETE FROM change_events WHERE transaction_id = {number} AND record_id "
             "IN "
             f"({changed})",
-            f"INSERT INTO actions_queue SELECT {number}, c.record_id, "
+            f"INSERT INTO change_events SELECT {number}, c.record_id, "
             "CASE WHEN r.record_id IS NULL THEN 'delete' WHEN p.alive THEN 'update' "
             "ELSE 'insert' "
             "END "
@@ -813,12 +813,12 @@ class Store:
 
     def _queue_ref_updates(self, transaction: int, marker: int) -> None:
         self.con.execute(
-            f"""INSERT INTO actions_queue
+            f"""INSERT INTO change_events
                 SELECT {int(transaction)}, id, 'ref_update' FROM (
                     SELECT record_id AS id FROM etags_todo
                     UNION SELECT record_id FROM etags_holders WHERE delta <> 0 AND NOT
                       bad)
-                WHERE id NOT IN (SELECT record_id FROM actions_queue WHERE
+                WHERE id NOT IN (SELECT record_id FROM change_events WHERE
                   transaction_id > {int(marker)})"""
         )
 
@@ -992,7 +992,7 @@ class Store:
             self._rebuild_etags()
             # the pages that are not what they were are changes to the followers
             self.con.execute(
-                f"""INSERT INTO actions_queue
+                f"""INSERT INTO change_events
                     SELECT {self.last_transaction()}, a.record_id, 'ref_update' FROM
                       etags a
                     LEFT JOIN etags_before b ON b.record_uri = a.record_uri
@@ -1161,10 +1161,10 @@ class Store:
             if record_id in etags
         }
 
-    # ---- the queue of what the followers have to do (records.sql, gracia.actions)
+    # ---- the queue of what the followers have to do (records.sql, gracia.change_events)
     # ---------------
 
-    def take_actions(
+    def take_change_events(
         self, limit: int = 100, max_bytes: int | None = None
     ) -> tuple[list[tuple[int, str, str]], int]:
         self.con.begin()
@@ -1172,7 +1172,7 @@ class Store:
             bound = self.last_transaction()
             oldest = self.con.execute(
                 f"SELECT q.record_id, coalesce(e.closure_bytes, 0) FROM "
-                f"(SELECT record_id FROM actions_queue WHERE transaction_id <= {bound} "
+                f"(SELECT record_id FROM change_events WHERE transaction_id <= {bound} "
                 f"ORDER BY transaction_id, record_id LIMIT {int(limit)}) q "
                 f"LEFT JOIN etags e ON e.record_id = q.record_id"
             ).fetchall()
@@ -1193,8 +1193,8 @@ class Store:
             listed = ", ".join(map(str, ids))
             newest = dict(
                 self.con.execute(
-                    "SELECT record_id, arg_max(action, transaction_id) FROM "
-                    "actions_queue "
+                    "SELECT record_id, arg_max(kind, transaction_id) FROM "
+                    "change_events "
                     f"WHERE record_id IN ({listed}) AND transaction_id <= {bound} "
                     "GROUP BY "
                     "record_id"
@@ -1211,11 +1211,11 @@ class Store:
             self.con.commit()
         return [(i, uris[i], newest[i]) for i in ids], bound
 
-    def actions_done(self, record_ids, bound: int) -> None:
+    def change_events_done(self, record_ids, bound: int) -> None:
         listed = ", ".join(str(int(i)) for i in dict.fromkeys(record_ids))
         if listed:
             self.con.execute(
-                f"DELETE FROM actions_queue WHERE record_id IN ({listed}) AND "
+                f"DELETE FROM change_events WHERE record_id IN ({listed}) AND "
                 "transaction_id <= "
                 f"{int(bound)}"
             )
@@ -1227,9 +1227,9 @@ class Store:
             )
         )
         transaction = self.last_transaction()
-        before = fetch_one(self.con.execute("SELECT count(*) FROM actions_queue"))[0]
+        before = fetch_one(self.con.execute("SELECT count(*) FROM change_events"))[0]
         self.con.execute(
-            f"""INSERT INTO actions_queue
+            f"""INSERT INTO change_events
                 WITH written AS (
                     SELECT record_id, arg_max(is_deleted, txn_id) AS gone FROM history
                     WHERE txn_id > {int(bound)} GROUP BY record_id)
@@ -1242,7 +1242,7 @@ class Store:
             [since, since],
         )
         return (
-            fetch_one(self.con.execute("SELECT count(*) FROM actions_queue"))[0]
+            fetch_one(self.con.execute("SELECT count(*) FROM change_events"))[0]
             - before
         )
 
@@ -1250,16 +1250,16 @@ class Store:
         records, size = fetch_one(
             self.con.execute(
                 "SELECT count(*), coalesce(sum(e.closure_bytes), 0) FROM "
-                "(SELECT DISTINCT record_id FROM actions_queue) q LEFT JOIN etags e ON "
+                "(SELECT DISTINCT record_id FROM change_events) q LEFT JOIN etags e ON "
                 "e.record_id "
                 "= q.record_id"
             )
         )
         return records, int(size)
 
-    def pending_actions(self) -> tuple[int, int | None]:
+    def pending_change_events(self) -> tuple[int, int | None]:
         count, oldest = fetch_one(
-            self.con.execute("SELECT count(*), min(transaction_id) FROM actions_queue")
+            self.con.execute("SELECT count(*), min(transaction_id) FROM change_events")
         )
         return count, oldest
 
@@ -1829,11 +1829,11 @@ class Store:
         return {"pages": pages, "bytes": int(size), "modified": modified}
 
     def pending_summary(self) -> dict:
-        rows, oldest = self.pending_actions()
+        rows, oldest = self.pending_change_events()
         records, size = self.pending_size()
-        actions = dict(
+        change_events = dict(
             self.con.execute(
-                "SELECT action, count(*) FROM actions_queue GROUP BY action"
+                "SELECT kind, count(*) FROM change_events GROUP BY kind"
             ).fetchall()
         )
         since = None
@@ -1847,7 +1847,7 @@ class Store:
             "rows": rows,
             "records": records,
             "bytes": size,
-            "actions": actions,
+            "change_events": change_events,
             "oldest": oldest,
             "since": since,
             "last": self.last_transaction(),
@@ -2140,14 +2140,14 @@ class Store:
         self.catch_up_etags()
         bound = self.last_transaction()
         select = (
-            f"WITH q AS (SELECT record_id, arg_max(action, transaction_id) AS action, "
-            "max(transaction_id) AS txn FROM actions_queue WHERE transaction_id <= "
+            f"WITH q AS (SELECT record_id, arg_max(kind, transaction_id) AS kind, "
+            "max(transaction_id) AS txn FROM change_events WHERE transaction_id <= "
             f"{bound} GROUP "
             "BY record_id) "
-            "SELECT '# ' || CASE WHEN g.record_id IS NULL OR q.action = 'delete' THEN "
+            "SELECT '# ' || CASE WHEN g.record_id IS NULL OR q.kind = 'delete' THEN "
             "'delete' "
-            "ELSE printf('%016x', g.etag) END || ' ' || q.action || chr(10) || "
-            "CASE WHEN g.record_id IS NULL OR q.action = 'delete' "
+            "ELSE printf('%016x', g.etag) END || ' ' || q.kind || chr(10) || "
+            "CASE WHEN g.record_id IS NULL OR q.kind = 'delete' "
             "THEN encode_ntriples_uri(record_uri(q.record_id)) || ' "
             "{' || chr(10) || '}' ELSE "
             "g.graph END "
@@ -2233,7 +2233,7 @@ class Store:
         A compound record is the record and every record it is made of. The graph cache
         keeps it under the etag of the record, so what the cache has is always the
         current one. One that it lacks is read from the database, and the worker of the
-        cache is asked to make it (`Worker.rework`). `ignore_cache` reads and writes
+        cache is asked to make it (`ChangeEventsWorker.rework`). `ignore_cache` reads and writes
         neither the graph cache nor the etags of it (for tests)."""
         ids = []
         seen = set()

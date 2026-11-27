@@ -2,9 +2,7 @@ import base64
 import re
 
 from bs4 import BeautifulSoup, Tag
-from harness import ConfiguredCase
-
-from gracia import types
+from harness import BUNDLED, ConfiguredCase
 
 AUTH = {"Authorization": "Basic " + base64.b64encode(b"admin:correct horse").decode()}
 ADD = "/test_repo/person/add"
@@ -26,7 +24,7 @@ class AriaTest(ConfiguredCase):
         self.application.create_repository(
             "test_repo",
             admin=("admin", "correct horse"),
-            content_types=[types.available()["person"]],
+            content_types=[BUNDLED["person"]],
         )
         self.web = self.client()
 

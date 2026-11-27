@@ -3,9 +3,9 @@ import tempfile
 import unittest
 
 import pyoxigraph as ox
-from harness import ConfiguredCase, open_application
+from harness import BUNDLED, ConfiguredCase, open_application
 
-from gracia import forms, hints, types
+from gracia import forms
 from gracia.graph import Graph
 from gracia.utils import assets
 
@@ -21,7 +21,7 @@ SCHEMAORG = {
 
 class TypesTest(unittest.TestCase):
     def test_the_schemaorg_types_are_registered(self):
-        found = types.available()
+        found = BUNDLED
         for slug, class_uri in SCHEMAORG.items():
             with self.subTest(slug=slug):
                 self.assertEqual(found[slug].class_uri, class_uri)
@@ -30,10 +30,10 @@ class TypesTest(unittest.TestCase):
     def test_each_has_a_shape_for_its_class_in_its_shacl_directory(self):
         for slug, class_uri in SCHEMAORG.items():
             with self.subTest(slug=slug):
-                content_type = types.available()[slug]
+                content_type = BUNDLED[slug]
                 path = assets.resolve(
                     assets.schema_spec(
-                        content_type.assets, content_type.schema, content_type.name
+                        content_type.assets, content_type.schema, content_type.slug
                     )
                 )
                 assets.load_shape(path, class_uri)  # a ValueError when there is none
@@ -42,13 +42,13 @@ class TypesTest(unittest.TestCase):
         shapes = {
             **{
                 slug: (
-                    f"gracia.types:{slug}/shacl/{slug.capitalize()}-schemaorg-01.ttl",
+                    f"gracia:assets/shacl/{slug}-schemaorg-01.ttl",
                     uri,
                 )
                 for slug, uri in SCHEMAORG.items()
             },
             "person": (
-                "gracia.types:person/shacl/Person-schemaorg-01.ttl",
+                "gracia:assets/shacl/person-schemaorg-01.ttl",
                 "https://schema.org/Person",
             ),
         }
@@ -57,7 +57,7 @@ class TypesTest(unittest.TestCase):
                 data, node = assets.load_shape(assets.resolve(spec), class_uri)
                 labels = [
                     (role, path)
-                    for role, path, _place in hints.property_roles(
+                    for role, path, _place in forms.property_roles(
                         data, node, class_uri
                     )
                     if role == "label"
@@ -72,7 +72,7 @@ class TypesTest(unittest.TestCase):
             "person": "https://schema.org/Person",
         }.items():
             with self.subTest(slug=slug):
-                spec = f"gracia.types:{slug}/shacl/{slug.capitalize()}-schemaorg-01.ttl"
+                spec = f"gracia:assets/shacl/{slug}-schemaorg-01.ttl"
                 data, _node = assets.load_shape(assets.resolve(spec), class_uri)
                 shapes = [
                     q.subject
@@ -99,7 +99,7 @@ class TypesTest(unittest.TestCase):
             "person": "https://schema.org/Person",
         }.items():
             with self.subTest(slug=slug):
-                spec = f"gracia.types:{slug}/shacl/{slug.capitalize()}-schemaorg-01.ttl"
+                spec = f"gracia:assets/shacl/{slug}-schemaorg-01.ttl"
                 data, node = assets.load_shape(assets.resolve(spec), class_uri)
                 for shape in [
                     q.subject
@@ -148,7 +148,7 @@ class RecursiveShapesTest(ConfiguredCase):
     def test_types_whose_shapes_refer_to_themselves_can_be_added_and_used(self):
         # an organization has a parent organization, a collection a parent collection
         self.application.create_repository(
-            "test_repo", content_types=[types.available()[slug] for slug in SCHEMAORG]
+            "test_repo", content_types=[BUNDLED[slug] for slug in SCHEMAORG]
         )
         repository = self.application["test_repo"]
         for slug in SCHEMAORG:
@@ -163,13 +163,11 @@ class RecursiveShapesTest(ConfiguredCase):
 
     def test_the_paths_and_names_of_a_shape_that_refers_to_itself_end(self):
         data, node = assets.load_shape(
-            assets.resolve(
-                "gracia.types:organization/shacl/Organization-schemaorg-01.ttl"
-            ),
+            assets.resolve("gracia:assets/shacl/organization-schemaorg-01.ttl"),
             SCHEMAORG["organization"],
         )
-        self.assertIn(SCHEMA + "parentOrganization", hints.paths(data, node))
-        self.assertIn(SCHEMA + "name", hints.names(data, node))
+        self.assertIn(SCHEMA + "parentOrganization", forms.property_paths(data, node))
+        self.assertIn(SCHEMA + "name", forms.property_names(data, node))
 
     def put(self, text: str):
         record_graph = Graph(
@@ -187,7 +185,7 @@ class RecursiveShapesTest(ConfiguredCase):
 
     def test_a_parent_is_a_link_or_a_node_written_in_the_record(self):
         self.application.create_repository(
-            "test_repo", content_types=[types.available()[slug] for slug in SCHEMAORG]
+            "test_repo", content_types=[BUNDLED[slug] for slug in SCHEMAORG]
         )
         self.config.commit()
         self.put(PARENTS)
@@ -200,8 +198,10 @@ class RecursiveShapesTest(ConfiguredCase):
             ("collection", "2"),
         ):
             with self.subTest(record=f"{slug}:{number}"):
-                self.assertEqual(repository.types[slug][number].validate(), [])
-        self.assertTrue(repository.types["organization"]["4"].validate())
+                self.assertEqual(
+                    repository.types[slug].find_record(number).validate(), []
+                )
+        self.assertTrue(repository.types["organization"].find_record("4").validate())
 
 
 class TwoApplicationsTest(unittest.TestCase):

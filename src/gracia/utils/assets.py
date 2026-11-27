@@ -23,23 +23,23 @@ SH_TARGET_CLASS = "http://www.w3.org/ns/shacl#targetClass"
 # directory shows
 # only the files of the override): its stylesheet, and the schema its data names
 # (`gracia:schemaTemplate`)
-# in the directory `shacl/`, as <Type>-<profile>-<revision>.ttl: Person-full-03.ttl,
-# Person-minimal-01.ttl. A new revision is a new file, and switching to it is a change
+# in the directory `shacl/`, as <type>-<profile>-<revision>.ttl: person-full-03.ttl,
+# person-minimal-01.ttl. A new revision is a new file, and switching to it is a change
 # of data.
 VIEW = "view.xsl"
 SCHEMA_DIR = "shacl/"
-SCHEMA_NAME = re.compile(r"^([A-Za-z][A-Za-z0-9]*)-([a-z][a-z0-9_]*)-([0-9]{2,})\.ttl$")
+SCHEMA_NAME = re.compile(r"^([a-z][a-z0-9]*)-([a-z][a-z0-9_]*)-([0-9]{2,})\.ttl$")
 # the stylesheets that make the doc of a record (`gracia:docTemplate`) are in `doc/`, as
-# doc-<profile>-<revision>.xsl; the one of the type `type`, `doc-base-01.xsl`, is what
+# doc-<profile>-<revision>.xsl; the one of the type `type`, `record-base-01.xsl`, is what
 # the others
 # import
-DOC_DIR = "doc/"
-DOC_NAME = re.compile(r"^doc-([a-z][a-z0-9_]*)-([0-9]{2,})\.xsl$")
-DOC_BASE = "type:type/" + DOC_DIR + "doc-base-01.xsl"
+DOC_DIR = "xslt/doc/"
+DOC_NAME = re.compile(r"^([a-z][a-z0-9]*)-([a-z][a-z0-9_]*)-([0-9]{2,})\.xsl$")
+DOC_BASE = "type:type/" + DOC_DIR + "record-base-01.xsl"
 # the stylesheets that make the page of a record of a type (`gracia:viewTemplate`) are in
 # `view/`, as <type>-<profile>-<revision>.xslt; the one with the profile `base` is what
 # the others import, and is not one to choose
-VIEW_DIR = "view/"
+VIEW_DIR = "xslt/view/"
 VIEW_NAME = re.compile(r"^([a-z][a-z0-9]*)-([a-z][a-z0-9_]*)-([0-9]{2,})\.xslt$")
 MEDIA_TYPES = {
     ".ttl": "text/turtle",
@@ -67,22 +67,29 @@ def join(prefix: str, name: str) -> str:
     return prefix + name
 
 
-def schema_spec(prefix: str, schema: str | None, res_type: str) -> str:
+def schema_spec(prefix: str, schema: str | None, slug: str) -> str:
     found = SCHEMA_NAME.match(schema or "")
-    if not found or found[1] != res_type:
+    if not found or found[1] != slug:
         raise ValueError(
-            f"not a schema file of {res_type}: {schema!r} (expected "
-            f"{res_type}-<profile>-<revision>.ttl)"
+            f"not a schema file of {slug}: {schema!r} (expected "
+            f"{slug}-<profile>-<revision>.ttl)"
         )
     return join(prefix, SCHEMA_DIR + schema)  # ty: ignore[unsupported-operator]
 
 
-def doc_href(slug: str, name: str) -> str:
-    if not DOC_NAME.match(name or ""):
+def doc_name(slug: str, name: str) -> str:
+    """The name of a doc stylesheet of the type `slug`, or a ValueError."""
+    found = DOC_NAME.match(name or "")
+    if not found or found[1] != slug:
         raise ValueError(
-            f"not a doc stylesheet: {name!r} (expected doc-<profile>-<revision>.xsl)"
+            f"not a doc stylesheet of {slug}: {name!r} "
+            f"(expected {slug}-<profile>-<revision>.xsl)"
         )
-    return f"type:{slug}/{DOC_DIR}{name}"
+    return name
+
+
+def doc_href(slug: str, name: str) -> str:
+    return f"type:{slug}/{DOC_DIR}{doc_name(slug, name)}"
 
 
 def resolve(spec: str) -> Path:
@@ -258,7 +265,7 @@ def files_of(
     return found
 
 
-def schemas_of(prefix: str) -> list[str]:
+def schemas_of(prefix: str, slug: str | None = None) -> list[str]:
     try:
         asset = AssetResolver().resolve(join(prefix, SCHEMA_DIR.rstrip("/")))
         if not asset.isdir():
@@ -266,7 +273,12 @@ def schemas_of(prefix: str) -> list[str]:
         names = asset.listdir()
     except (ImportError, KeyError):
         return []
-    return sorted(n for n in names if SCHEMA_NAME.match(n))
+    found = []
+    for name in sorted(names):
+        match = SCHEMA_NAME.match(name)
+        if match and slug in (None, match[1]):
+            found.append(name)
+    return found
 
 
 def view_spec(prefix: str, name: str) -> str:
@@ -279,7 +291,7 @@ def view_spec(prefix: str, name: str) -> str:
     return join(prefix, VIEW_DIR + name)
 
 
-def views_of(prefix: str) -> list[str]:
+def views_of(prefix: str, slug: str | None = None) -> list[str]:
     try:
         asset = AssetResolver().resolve(join(prefix, VIEW_DIR.rstrip("/")))
         if not asset.isdir():
@@ -290,12 +302,12 @@ def views_of(prefix: str) -> list[str]:
     found = []
     for name in sorted(names):
         match = VIEW_NAME.match(name)
-        if match and match[2] != "base":
+        if match and match[2] != "base" and slug in (None, match[1]):
             found.append(name)
     return found
 
 
-def docs_of(prefix: str) -> list[str]:
+def docs_of(prefix: str, slug: str | None = None) -> list[str]:
     try:
         asset = AssetResolver().resolve(join(prefix, DOC_DIR.rstrip("/")))
         if not asset.isdir():
@@ -303,7 +315,12 @@ def docs_of(prefix: str) -> list[str]:
         names = asset.listdir()
     except (ImportError, KeyError):
         return []
-    return sorted(n for n in names if DOC_NAME.match(n))
+    found = []
+    for name in sorted(names):
+        match = DOC_NAME.match(name)
+        if match and match[2] != "base" and slug in (None, match[1]):
+            found.append(name)
+    return found
 
 
 def version(

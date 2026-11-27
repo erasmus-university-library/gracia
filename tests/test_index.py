@@ -7,7 +7,7 @@ import pyoxigraph as ox
 from support import must_search
 from test_edit import EditCase
 
-from gracia.views.index import etag_of
+from gracia.utils.etags import etag_of
 
 PEOPLE = """
 @prefix gracia: <https://gracia.pub/ns/> . @prefix foaf: <http://xmlns.com/foaf/0.1/> .
@@ -103,7 +103,9 @@ class DependenciesTest(IndexCase):
 class IndexViewTest(IndexCase):
     def index(self, path="/test_repo/person/1", **headers):
         return self.client().get(
-            path, headers={**self.admin, **headers}, expect_errors=True
+            path,
+            headers={**self.admin, "Accept": "application/rdf+xml", **headers},
+            expect_errors=True,
         )
 
     def test_it_is_rdfxml_of_the_record_and_the_records_it_is_made_of(self):
@@ -158,7 +160,7 @@ class IndexViewTest(IndexCase):
 
     def test_the_etag_follows_the_schema_files_of_the_types_on_the_page(self):
         first = self.index("/test_repo/person/2").headers["ETag"]
-        schema = Path(self.person_assets) / "shacl" / "Person-full-01.ttl"
+        schema = Path(self.person_assets) / "shacl" / "person-unittest-01.ttl"
         schema.write_text(schema.read_text() + "\n# a change\n")
         self.assertNotEqual(self.index("/test_repo/person/2").headers["ETag"], first)
         self.assertEqual(self.index("/test_repo/person/2").status_int, 200)
