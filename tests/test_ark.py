@@ -11,7 +11,7 @@ from gracia.utils.validate import validate_ark
 
 
 class ModelTest(unittest.TestCase):
-    def test_the_ark_of_a_record_is_made_from_its_type_and_number_and_the_settings_are_letters_and_digits(  # noqa: E501
+    def test_the_ark_of_a_record_is_made_from_its_type_and_number_and_the_settings_are_letters_and_digits(
         self,
     ):
         self.assertEqual(
@@ -55,7 +55,7 @@ class RepositoryTest(WebCase):
             ).fetchall()
         return dict(rows)
 
-    def test_a_new_repository_has_the_test_authority_and_ir_and_the_system_records_get_their_arks_and_the_types_their_classes(  # noqa: E501
+    def test_a_new_repository_has_the_test_authority_and_ir_and_the_system_records_get_their_arks_and_the_types_their_classes(
         self,
     ):
         self.application.create_repository("test_repo", admin=ADMIN)
@@ -78,7 +78,7 @@ class RepositoryTest(WebCase):
             },
         )
 
-    def test_a_repository_can_be_made_with_its_own_authority_wrong_settings_make_nothing_and_a_type_added_later_is_its_class(  # noqa: E501
+    def test_a_repository_can_be_made_with_its_own_authority_wrong_settings_make_nothing_and_a_type_added_later_is_its_class(
         self,
     ):
         with self.assertRaises(ValueError):

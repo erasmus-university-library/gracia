@@ -256,7 +256,7 @@ class SqlTest(unittest.TestCase):
 
 
 class FoafPersonTest(FormCase):
-    types = (FOAF_PERSON,)  # noqa: RUF012
+    types = (FOAF_PERSON,)
 
     def test_the_name_field_is_not_required_and_has_its_template_for_the_browser(self):
         page = self.page("/test_repo/person/add")
@@ -478,7 +478,10 @@ class FewStatementsTest(FormCase):
     def test_only_the_hooks_of_the_types_in_the_batch_are_run(self):
         store = open_store()
         self.addCleanup(store.close)
-        mark = lambda slug: f"CREATE TABLE ran_{slug} AS SELECT 1 AS one"  # noqa: E731
+
+        def mark(slug):
+            return f"CREATE TABLE ran_{slug} AS SELECT 1 AS one"
+
         store.configure(
             lambda: [
                 fake_type([mark("person")], slug="person", number=5),

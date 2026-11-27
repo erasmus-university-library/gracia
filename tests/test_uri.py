@@ -18,8 +18,7 @@ class NSTest(unittest.TestCase):
         self.assertEqual(ns.title, "http://example.org/ns/title")
         self.assertEqual(ns["class"], "http://example.org/ns/class")
 
-        with self.assertRaises(AttributeError):
-            NS("x:").__deepcopy__  # noqa: B018
+        self.assertFalse(hasattr(NS("x:"), "__deepcopy__"))  # a copy asks for it
 
 
 class UriModuleTest(unittest.TestCase):

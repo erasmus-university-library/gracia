@@ -13,7 +13,8 @@ from gracia.utils import assets
 
 class SchemaOrgPreset(MinimalPreset):
     """A repository of schema.org content: persons, organizations, series, collections
-    and works, each on its schema.org shape (`assets/shacl/<type>-schemaorg-01.ttl`), the
+    and works, each on its schema.org shape (`assets/shacl/<type>-schemaorg-01.ttl`),
+    the
     docs of the persons and the works (`assets/xslt/doc/`), the page of a work
     (`assets/xslt/view/work-schemaorg-01.xslt`, in the place of the page every record
     has), the settings of a repository in the Netherlands and the citations of the works

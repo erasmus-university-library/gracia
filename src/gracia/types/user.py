@@ -1,3 +1,5 @@
+from typing import ClassVar
+
 import colander
 import deform
 import deform.widget
@@ -19,7 +21,11 @@ class UserRecord(Record):
         system=True,
     )
     # managers may see and change users, nobody else but the administrators
-    acl = [ADMINS, (Allow, "group:manager", ["view", "super_edit"]), DENY_ALL]  # noqa: RUF012
+    acl: ClassVar[list] = [
+        ADMINS,
+        (Allow, "group:manager", ["view", "super_edit"]),
+        DENY_ALL,
+    ]
     private = True
     edit_permission = add_permission = "super_edit"
     supplies = frozenset({uri.CREDENTIALS})  # the hash is made from the password

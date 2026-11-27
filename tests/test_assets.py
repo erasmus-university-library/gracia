@@ -96,7 +96,7 @@ class ShapeLoadingTest(unittest.TestCase):
         self.assertEqual(node, ox.NamedNode("urn:test:Shape"))
         self.assertGreater(len(data), 0)
 
-        for slug, name, class_uri in (
+        for slug, _name, class_uri in (
             ("repository", "Repository", uri.REPOSITORY_CLASS),
             ("type", "Type", uri.TYPE_CLASS),
             ("user", "User", uri.USER_CLASS),

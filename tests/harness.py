@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from typing import ClassVar
 
 import duckdb
 from pyramid import testing
@@ -24,6 +25,7 @@ from gracia.types.work import WorkRecord
 __all__ = [
     "FOAF_PERSON",
     "ConfiguredCase",
+    "declared",
     "fake_type",
     "open_application",
     "open_store",
@@ -31,8 +33,15 @@ __all__ = [
 ]
 
 
+def declared(record_class) -> ContentType:
+    """What a class of records declares of its type (a class that declares none is a bug of
+    the test)."""
+    assert record_class.content_type is not None
+    return record_class.content_type
+
+
 BUNDLED = {  # the types of gracia that are on schema.org, by slug
-    cls.content_type.slug: cls.content_type
+    declared(cls).slug: declared(cls)
     for cls in (
         PersonRecord,
         OrganizationRecord,
@@ -151,7 +160,7 @@ def open_application(
 
 class ConfiguredCase(unittest.TestCase):
     #: the settings the configuration is made with, besides the application
-    settings: dict = {}  # noqa: RUF012
+    settings: ClassVar[dict] = {}
 
     def setUp(self):
         self.application = open_application(self)

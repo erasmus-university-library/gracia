@@ -56,7 +56,7 @@ class HistoryCase(SourceCase):
 
 
 class EditPageTest(HistoryCase):
-    def test_it_says_when_the_record_was_last_changed_above_the_buttons_and_the_source_page_has_them_too(  # noqa: E501
+    def test_it_says_when_the_record_was_last_changed_above_the_buttons_and_the_source_page_has_them_too(
         self,
     ):
         page = self.get("/test_repo/person/1/edit").text
@@ -87,7 +87,7 @@ class EditPageTest(HistoryCase):
 
 
 class HistoryPageTest(HistoryCase):
-    def test_the_versions_newest_first_the_current_one_marked_and_restore_for_the_others(  # noqa: E501
+    def test_the_versions_newest_first_the_current_one_marked_and_restore_for_the_others(
         self,
     ):
         self.rename("Ada King")
@@ -118,7 +118,7 @@ class HistoryPageTest(HistoryCase):
             'data-editor="turtle"', page
         )  # the editor of the edit page, read only
 
-    def test_a_version_is_its_text_and_what_it_changed_since_the_one_before_and_who_may_see_it(  # noqa: E501
+    def test_a_version_is_its_text_and_what_it_changed_since_the_one_before_and_who_may_see_it(
         self,
     ):
         self.rename("Ada King")
@@ -188,7 +188,7 @@ class RestoreTest(HistoryCase):
             'foaf:name "Ada King"', self.version(versions[1][0])["source"]
         )  # kept
 
-    def test_it_has_to_come_from_this_site_and_from_someone_who_may_edit_and_be_a_version_of_a_record_that_is_there(  # noqa: E501
+    def test_it_has_to_come_from_this_site_and_from_someone_who_may_edit_and_be_a_version_of_a_record_that_is_there(
         self,
     ):
         first = self.versions()[0][0]

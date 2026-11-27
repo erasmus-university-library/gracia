@@ -144,7 +144,7 @@ class SpawnTest(ProcessCase):
         )  # the job process and its workers write one log
         self.assertEqual(sorted(self.started()), [str(n) for n in range(8)])
 
-    def test_a_started_job_leads_its_own_session_reports_progress_and_cannot_be_started_twice(  # noqa: E501
+    def test_a_started_job_leads_its_own_session_reports_progress_and_cannot_be_started_twice(
         self,
     ):
         job_id = self.make(self.held(n_items=4, size=1))

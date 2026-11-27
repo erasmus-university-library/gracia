@@ -344,7 +344,7 @@ class TimeOnlyGoesUpTest(EtagCase):
         self.store.rebuild_etags()
         self.assertEqual(self.last("rec:work:1"), kept)
 
-    def test_a_page_that_loses_the_latest_record_by_its_resource_uri_gets_the_time_of_the_write(  # noqa: E501
+    def test_a_page_that_loses_the_latest_record_by_its_resource_uri_gets_the_time_of_the_write(
         self,
     ):
         before = self.last("rec:work:1")
@@ -373,7 +373,7 @@ class TimeOnlyGoesUpTest(EtagCase):
 
 
 class WhenTheyAreMadeTest(EtagCase):
-    def test_a_record_of_a_type_without_a_number_cannot_be_stored_until_the_type_has_one(  # noqa: E501
+    def test_a_record_of_a_type_without_a_number_cannot_be_stored_until_the_type_has_one(
         self,
     ):
         fresh = open_store(self.tmp / "other.db")

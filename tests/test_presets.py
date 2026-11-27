@@ -6,6 +6,7 @@ from test_manage import ManageCase
 
 from gracia import presets
 from gracia.main import make_config
+from gracia.presets.unittest import UnitTestPreset
 
 
 class PresetTest(ManageCase):
@@ -41,7 +42,7 @@ class PresetTest(ManageCase):
         self.application.create_repository("tested", preset="unittest")
         node = self.repository("tested")
         self.assertEqual(list(node.types), ["repository", "type", "user", "group"])
-        self.assertEqual(node.login(*presets.find("unittest").admin_account), {"admin"})
+        self.assertEqual(node.login(*UnitTestPreset.admin_account), {"admin"})
 
     def test_a_preset_can_be_run_again_and_creating_it_again_changes_nothing(self):
         self.assertTrue(self.application.create_repository("lib", preset="minimal"))

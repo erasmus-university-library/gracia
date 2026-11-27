@@ -59,7 +59,8 @@ class GraphStore:
         raise ValueError(f"{len(entries)} graphs do not fit the graph cache")
 
     def repo_stats(self, repo: str, limit: int = STATS_LIMIT) -> dict:
-        """What is kept of a repository: `entries`, and `bytes` (the keys and values; the
+        """What is kept of a repository: `entries`, and `bytes` (the keys and values;
+        the
         file is shared). Counted no further than `limit` entries (`capped`)."""
         prefix = repo.encode() + b"\0"
         found = size = 0
@@ -87,7 +88,8 @@ class GraphStore:
 
 
 # The most each LMDB file can hold (`gracia.cache.<name>_size` in the config); a file
-# only grows as far as it is filled, and a cache that is full is emptied and starts again.
+# only grows as far as it is filled, and a cache that is full is emptied and starts
+# again.
 # An etag takes about 100 bytes, a slug about 80
 ETAG_CACHE_BYTES = 256 * 1024**2
 SLUG_CACHE_BYTES = 64 * 1024**2
@@ -110,7 +112,8 @@ def delete_range_batched(
 ) -> int:
     """Deletes the keys in [start_key, end_key] ([start_key, end_key) if not
     `inclusive_end`) in write transactions of at most `batch_size` keys, so that readers
-    and writers of other keys are never held up for long. Returns how many were deleted."""
+    and writers of other keys are never held up for long. Returns how many were
+    deleted."""
     total = 0
     seek = start_key
     while True:
@@ -246,7 +249,7 @@ class EtagStore(StampedStore):
         keys = [record_id.to_bytes(4, "big") for record_id in record_ids]
         kept = self.get_bytes(repo, last_modified_at, keys)
         found: dict[int, str | None] = {}
-        for record_id, key in zip(record_ids, keys):
+        for record_id, key in zip(record_ids, keys, strict=True):
             if key in kept:
                 found[record_id] = kept[key].decode() or None  # empty: not there
         return found
@@ -297,7 +300,8 @@ class SlugStore(StampedStore):
 
 
 class ReferencingStore(StampedStore):
-    """The listings of `Store.referencing_records`: `md5 of the arguments -> record ids`,
+    """The listings of `Store.referencing_records`: `md5 of the arguments -> record
+    ids`,
     and the totals of them: `md5 of the arguments that count -> an integer`."""
 
     def __init__(
@@ -522,7 +526,8 @@ class Cache:
         self._graphs: GraphStore | None = None  # opened by the first use
         self._docs: DocStore | None = None  # likewise
         self._stamped: dict[str, StampedStore] = {}  # the ones that are open, by name
-        # what follows the writes (`gracia.change_events.ChangeEventsWorker`): kept running by `check`
+        # what follows the writes (`gracia.change_events.ChangeEventsWorker`): kept
+        # running by `check`
         self.worker = None
 
     @property
@@ -540,7 +545,8 @@ class Cache:
         return self._docs
 
     def stamped(self, name: str) -> StampedStore:
-        """The stamped cache `name` (`etags`, `slugs` or `referencing`), opened the first
+        """The stamped cache `name` (`etags`, `slugs` or `referencing`), opened the
+        first
         time it is asked for (a process can open an LMDB directory once, so the stores
         that are never asked for are not opened). What an earlier run left of the
         repositories is old, and is deleted."""
@@ -645,7 +651,8 @@ class Cache:
 
     def repo_stats(self, repo: str) -> dict:
         """What each cache keeps of a repository, and the time of the repository that
-        the stamped caches are of: `{"modified_at": the time or None, "caches": [{"name",
+        the stamped caches are of: `{"modified_at": the time or None, "caches":
+        [{"name",
         "entries", "stale", "bytes", "capped"} ...]}`. The graph and doc caches have no
         times (an entry is used when its etag is the current one: `stale` is 0), and are
         None without a cache directory. The worker is not started by it (`check` does):

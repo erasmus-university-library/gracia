@@ -11,7 +11,7 @@ from unittest import mock
 
 import pyoxigraph as ox
 from base import DbTestCase
-from harness import opened
+from harness import declared, opened
 from pyramid.exceptions import ConfigurationConflictError
 from test_web import WebCase
 
@@ -137,7 +137,7 @@ class DeclarationTest(WebCase):
             type_module.check_declaration(cls, missing)
         self.assertIn("not a file of it", str(caught.exception))
         # the types of gracia have their files in the assets of gracia
-        self.assertEqual(UserRecord.content_type.assets, type_module.BUNDLED_ASSETS)
+        self.assertEqual(declared(UserRecord).assets, type_module.BUNDLED_ASSETS)
 
     def test_what_is_wrong_with_a_declaration_is_said_and_nothing_can_break_the_turtle(
         self,
@@ -175,8 +175,10 @@ class DeclarationTest(WebCase):
         config = make_config({**self.settings, "gracia.types": package})
         config.add_gracia_type(Another)  # nothing: the type is declared by its parent
         config.commit()
-        self.assertIsNot(config.registry.queryUtility(IRecordType, "widget"), Another)
-        self.assertIsNotNone(config.registry.queryUtility(IRecordType, "widget"))
+        registry = config.registry
+        assert registry is not None
+        self.assertIsNot(registry.queryUtility(IRecordType, "widget"), Another)
+        self.assertIsNotNone(registry.queryUtility(IRecordType, "widget"))
 
 
 class ScanTest(WebCase):
@@ -361,7 +363,7 @@ class RepositoryTest(WebCase):
             web.get("/test_repo/manage", headers=basic(*ADMIN)).status_int, 200
         )
 
-    def test_the_content_type_works_in_the_web_application_without_a_line_of_code_for_it(  # noqa: E501
+    def test_the_content_type_works_in_the_web_application_without_a_line_of_code_for_it(
         self,
     ):
         self.application.create_repository(
@@ -547,7 +549,7 @@ class CommandsTest(DbTestCase):
         self.assertEqual(self.run_cli("-r", "nowhere", "types", "list")[0], 1)
         self.assertEqual(self.run_cli("-r", "nowhere", "types", "add", "widget")[0], 1)
 
-    def test_add_puts_content_types_in_a_repository_that_exists_and_says_when_it_is_there(  # noqa: E501
+    def test_add_puts_content_types_in_a_repository_that_exists_and_says_when_it_is_there(
         self,
     ):
         self.config(**{"gracia.types": f"{self.package} {self.other}"})
@@ -577,7 +579,7 @@ class CommandsTest(DbTestCase):
         )
         self.config(**{"gracia.types": f"{package} {self.other}"})
         self.create("test_repo")
-        code, out, err = self.run_cli(
+        code, _out, err = self.run_cli(
             "-r", "test_repo", "types", "add", "widget", "gadget"
         )
         self.assertEqual(code, 0, err)
@@ -598,7 +600,7 @@ class CommandsTest(DbTestCase):
             self.assertEqual(code, 1, given)
             self.assertIn("--doc", err, given)
         self.assertNotIn("widget", self.listed("test_repo2"))
-        code, out, err = self.run_cli(
+        code, _out, err = self.run_cli(
             "-r", "test_repo2", "types", "add", "widget",
             "--doc", "widget=widget-other-01.xsl",
         )  # fmt: skip
@@ -626,7 +628,7 @@ class CommandsTest(DbTestCase):
             )
             self.assertEqual(code, 1, given)
             self.assertIn("--view", err, given)
-        code, out, err = self.run_cli(
+        code, _out, err = self.run_cli(
             "-r", "test_repo", "types", "add", "widget",
             "--view", "widget=widget-alt-01.xslt",
         )  # fmt: skip

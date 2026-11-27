@@ -83,7 +83,8 @@ TIMEZONE = (
 LOCALE = (
     G_NS.locale
 )  # repository -> the locale dates are shown and typed in (nl-NL); none: ISO 8601
-LAYOUT_TEMPLATE = G_NS.layoutTemplate  # repository -> the stylesheet of the page around every page (an asset spec or a path)
+# repository -> the stylesheet of the page around every page (an asset spec or a path)
+LAYOUT_TEMPLATE = G_NS.layoutTemplate
 TYPE_TEMPLATE = (
     G_NS.typeTemplate
 )  # repository -> the stylesheet of the page of the records of a type

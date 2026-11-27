@@ -1,3 +1,5 @@
+from typing import ClassVar
+
 from pyramid.authorization import DENY_ALL
 
 from gracia import uri
@@ -13,7 +15,7 @@ class UserGroupRecord(Record):
         schema="group-minimal-01.ttl",
         system=True,
     )
-    acl = [ADMINS, DENY_ALL]  # noqa: RUF012
+    acl: ClassVar[list] = [ADMINS, DENY_ALL]
     private = True
     edit_permission = add_permission = "manage"
 

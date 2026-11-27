@@ -48,16 +48,16 @@ duckdb.connect = _connect_with_few_threads  # ty: ignore[invalid-assignment]
 # makes a
 # second
 # repository, gets the real thing.
-import atexit  # noqa: E402
-import contextlib  # noqa: E402
-import shutil  # noqa: E402
-import tempfile  # noqa: E402
-from pathlib import Path  # noqa: E402
+import atexit
+import contextlib
+import shutil
+import tempfile
+from pathlib import Path
 
-from gracia import uri as _uri  # noqa: E402
-from gracia.database import Database  # noqa: E402
-from gracia.main import init, shutdown  # noqa: E402
-from gracia.types.application import Application  # noqa: E402
+from gracia import uri as _uri
+from gracia.database import Database
+from gracia.main import init, shutdown
+from gracia.types.application import Application
 
 _TEMPLATES = Path(tempfile.mkdtemp(prefix="gracia_test_repositories_"))
 atexit.register(shutil.rmtree, _TEMPLATES, ignore_errors=True)
@@ -187,7 +187,7 @@ Database.__init__, Database.close, Application.create_repository = (
 # them from the stored string, so the tests hash with the cheapest cost and what is
 # verified is
 # unchanged.
-from gracia.utils import passwords  # noqa: E402
+from gracia.utils import passwords
 
 passwords.N = 2**4  # ty: ignore[invalid-assignment]
 
@@ -209,7 +209,7 @@ passwords.N = 2**4  # ty: ignore[invalid-assignment]
 # and up: 1 to
 # 4 are the types a repository starts with), except the types that are not there on
 # purpose.
-from gracia.store import Store, literal  # noqa: E402
+from gracia.store import Store, literal
 
 NO_NUMBER = {"nothing", "ghost", "nobody"}
 _real_configured = Store._configured

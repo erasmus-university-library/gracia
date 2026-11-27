@@ -44,7 +44,7 @@ class NestedFormTest(FormCase):
         found = []
         for node in record.graph.objects(record.resource, EX + "place"):
             said = {
-                q.predicate.value: q.object.value  # ty: ignore[missing-union-attribute]
+                q.predicate.value: q.object.value
                 for q in record.graph.dataset.quads_for_subject(node)
             }
             found.append(

@@ -104,7 +104,7 @@ class WrittenTest(QueueCase):
             [(last + 1, "rec:org:21", "update"), (last + 1, "rec:person:21", "update")],
         )
 
-    def test_a_write_outside_the_store_is_queued_by_the_triggers_and_a_rebuild_queues_the_pages_that_are_not_what_they_were(  # noqa: E501
+    def test_a_write_outside_the_store_is_queued_by_the_triggers_and_a_rebuild_queues_the_pages_that_are_not_what_they_were(
         self,
     ):
         self.put(record("rec:org:1"), record("rec:work:1", refs=["rec:org:1"]))
@@ -236,7 +236,7 @@ class SizeTest(QueueCase):
         )
         self.assertEqual(self.store.pending_size(), (0, 0))
 
-    def test_the_size_of_a_page_follows_what_it_is_made_of_also_when_the_etags_are_moved_not_walked(  # noqa: E501
+    def test_the_size_of_a_page_follows_what_it_is_made_of_also_when_the_etags_are_moved_not_walked(
         self,
     ):
         old = store_module.ETAGS_DELTA_ABOVE
@@ -348,7 +348,7 @@ class BatchTest(BatchCase):
         worker.turn()
         self.assertEqual(len(self.events), 2)
 
-    def test_the_graph_cache_is_made_by_the_batch_and_the_graph_of_a_gone_record_forgotten(  # noqa: E501
+    def test_the_graph_cache_is_made_by_the_batch_and_the_graph_of_a_gone_record_forgotten(
         self,
     ):
         self.put(record("rec:org:1"), record("rec:work:1", refs=["rec:org:1"]))
@@ -510,7 +510,7 @@ class ManualTest(BatchCase):
 
 
 class FanOutTest(BatchCase):
-    def test_a_change_with_many_dependents_is_a_few_events_of_a_hundred_and_one_statement(  # noqa: E501
+    def test_a_change_with_many_dependents_is_a_few_events_of_a_hundred_and_one_statement(
         self,
     ):
         self.put(
@@ -749,7 +749,7 @@ class LineTest(BatchCase):
 
 
 class WiringTest(BatchCase):
-    def test_the_setting_starts_a_worker_with_the_application_and_the_subscribers_hear_it(  # noqa: E501
+    def test_the_setting_starts_a_worker_with_the_application_and_the_subscribers_hear_it(
         self,
     ):
         from gracia.main import make_config

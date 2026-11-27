@@ -1,5 +1,6 @@
 """Presets: what a new repository is configured with, as classes. `create_repository`
-takes the name of one (`minimal`, `schemaorg`, ...) and runs it once, in the setup of the
+takes the name of one (`minimal`, `schemaorg`, ...) and runs it once, in the setup of
+the
 repository: `Preset(repository, admin=..., ark=..., content_types=...).apply()`.
 
 A preset is idempotent: run again on a repository that it has run on, it changes nothing

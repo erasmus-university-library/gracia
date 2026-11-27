@@ -92,7 +92,7 @@ class ProfilesTest(unittest.TestCase):
             with self.subTest(bad=bad):
                 self.assertFalse(conforms("unittest", **GOOD, **bad))
 
-    def test_the_edit_form_has_the_fields_that_are_one_plain_string_in_the_order_of_the_shape(  # noqa: E501
+    def test_the_edit_form_has_the_fields_that_are_one_plain_string_in_the_order_of_the_shape(
         self,
     ):
         path = assets.resolve(f"{SHAPES}person-unittest-01.ttl")

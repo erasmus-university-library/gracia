@@ -62,7 +62,7 @@ class TypeIndexTest(PagesCase):
             response.text,
         )
 
-    def test_it_is_page_one_with_the_newest_records_the_last_page_the_oldest_and_a_page_that_is_not_there_is_not_found(  # noqa: E501
+    def test_it_is_page_one_with_the_newest_records_the_last_page_the_oldest_and_a_page_that_is_not_there_is_not_found(
         self,
     ):
         got = self.get("/test_repo/person/", self.admin)
@@ -115,7 +115,7 @@ class TypeIndexTest(PagesCase):
             r'page-item active">\s*<a class="page-link" href="[^"]*\?page=5">5<',
         )
 
-    def test_a_record_that_is_not_published_is_for_those_who_may_edit_and_labels_are_text_and_add_is_for_those_who_may_add(  # noqa: E501
+    def test_a_record_that_is_not_published_is_for_those_who_may_edit_and_labels_are_text_and_add_is_for_those_who_may_add(
         self,
     ):
         self.add(person(100, "Hidden Hannah", published=False))
@@ -135,7 +135,7 @@ class TypeIndexTest(PagesCase):
         self.assertIn("/test_repo/person/add", text)
         self.assertNotIn("/test_repo/person/add", public.text)
 
-    def test_the_page_comes_from_etags_when_there_are_some_and_from_records_when_not_the_same_either_way(  # noqa: E501
+    def test_the_page_comes_from_etags_when_there_are_some_and_from_records_when_not_the_same_either_way(
         self,
     ):
         before = self.labels(
@@ -191,7 +191,7 @@ class RecordPageTest(PagesCase):
         )  # a type with no key information has no table
         self.assertNotIn('class="lead"', got.text)
 
-    def test_the_key_information_is_a_table_under_the_names_of_the_shape_with_links_a_text_description_and_no_row_for_what_is_missing(  # noqa: E501
+    def test_the_key_information_is_a_table_under_the_names_of_the_shape_with_links_a_text_description_and_no_row_for_what_is_missing(
         self,
     ):
         text = self.page().text
@@ -219,7 +219,7 @@ class RecordPageTest(PagesCase):
             len(re.findall(r'<th scope="row"', self.page(roles=roles).text)), 3
         )
 
-    def test_edit_is_a_link_for_those_who_may_edit_and_the_credentials_of_a_user_are_not_a_row(  # noqa: E501
+    def test_edit_is_a_link_for_those_who_may_edit_and_the_credentials_of_a_user_are_not_a_row(
         self,
     ):
         self.assertIn("/test_repo/person/2/edit", self.page().text)
@@ -246,7 +246,7 @@ class RecordPageTest(PagesCase):
 
 
 class NamesTest(PagesCase):
-    def test_what_a_shape_calls_a_property_and_the_last_part_of_the_uri_when_it_has_no_name(  # noqa: E501
+    def test_what_a_shape_calls_a_property_and_the_last_part_of_the_uri_when_it_has_no_name(
         self,
     ):
         shapes = Graph.parse(

@@ -478,9 +478,9 @@ class IncludemeTest(WebCase):
         # (its includeme)
         self.application.create_repository("test_repo")
         for named in (False, True):
-            settings = dict(self.settings)
+            settings = {**self.settings}
             if named:
-                settings["gracia.extensions"] = "ext_with_include"
+                settings = {**settings, "gracia.extensions": "ext_with_include"}
             config = make_config(settings)
             config.commit()
             config.begin()

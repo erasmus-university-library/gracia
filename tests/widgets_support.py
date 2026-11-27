@@ -134,7 +134,7 @@ FOAF_PERSON_CLASS = FOAF_PERSON.class_uri
 class FormCase(WebCase):
     """A repository `test_repo` of the types in `types`, and a client that is the admin."""
 
-    types = (GADGET,)  # noqa: RUF012
+    types = (GADGET,)
 
     def setUp(self):
         super().setUp()

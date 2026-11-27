@@ -1,6 +1,5 @@
 import re
 
-from jobs_support import JobsCase  # noqa: F401 - shares the set-up of the jobs tests
 from support import must_search
 from test_jobs_view import ORIGIN, JobsViewCase, as_user
 from type_tabs_support import add_notes
@@ -436,7 +435,7 @@ class TabsTest(JobsViewCase):
         self.assertRegex(page, r'<div class="tab-pane active" id="tab-notes"')
         self.assertRegex(page, r'<div class="tab-pane" id="tab-settings"')
 
-    def test_a_post_goes_to_the_tab_it_names_and_a_form_that_was_not_right_comes_back_in_it(  # noqa: E501
+    def test_a_post_goes_to_the_tab_it_names_and_a_form_that_was_not_right_comes_back_in_it(
         self,
     ):
         web = self.web_with_notes()

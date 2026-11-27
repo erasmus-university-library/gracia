@@ -186,7 +186,7 @@ class MergeDeleteTest(DbTestCase):
             store.con.execute(
                 f"ALTER TABLE {store.staging} DROP COLUMN o_dt"
             )  # makes the INSERT fail
-            with self.assertRaises(Exception):  # noqa: B017 - a DuckDB binder error
+            with self.assertRaises(duckdb.Error):
                 store.load()
             self.assertEqual(
                 fetch_one(store.con.execute("SELECT count(*) FROM triples"))[0], before

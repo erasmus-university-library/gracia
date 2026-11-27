@@ -66,8 +66,8 @@ class WorkCitationTest(WorkViewCase):
         self.addCleanup(node.close)
         node.extension("citations").enable()
         found = re.search(r'<param name="citation">(.*?)</param>', self.values(), re.S)
-        self.assertIsNotNone(found)
-        self.assertTrue(found.group(1))  # ty: ignore[possibly-unbound-attribute]
+        assert found is not None
+        self.assertTrue(found.group(1))
 
 
 class PersonDocTest(ManageCase):

@@ -3,7 +3,8 @@ from gracia.presets import Preset
 
 
 class MinimalPreset(Preset):
-    """The repository with the types a repository starts with (the repository, the types,
+    """The repository with the types a repository starts with (the repository, the
+    types,
     the users and the groups) and its admin user, and the content types it is given."""
 
     name = "minimal"

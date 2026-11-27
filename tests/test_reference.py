@@ -29,7 +29,7 @@ ROSTER_ADD = "/test_repo/roster/add"
 
 
 class ReferenceCase(ListCase):
-    types = (ROSTER, FOAF_PERSON, ORG)  # noqa: RUF012
+    types = (ROSTER, FOAF_PERSON, ORG)
 
     def setUp(self):
         super().setUp()
@@ -129,35 +129,39 @@ class LookupViewTest(ReferenceCase):
         self.assertEqual((found["type"], found["record"]), ("org", "rec:org:1"))
         self.assertEqual(response.headers["Cache-Control"], "private")
 
-    def page(self, **params):
+    def lookup_page(self, **params):
         query = [("q", ""), ("type", PERSON), *params.items()]
         response = self.web.get("/test_repo/lookup", params=query, headers=ADMIN)
         self.assertEqual(response.status_int, 200, response.text)
         return response.json
 
     def test_a_page_has_the_size_asked_for_and_says_where_it_is(self):
-        first = self.page(size=1)
+        first = self.lookup_page(size=1)
         self.assertEqual([i["label"] for i in first["items"]], ["Ada Byron"])
         self.assertEqual(
             (first["page"], first["pages"], first["size"], first["total"]), (1, 2, 1, 2)
         )
-        second = self.page(size=1, page=2)
+        second = self.lookup_page(size=1, page=2)
         self.assertEqual([i["label"] for i in second["items"]], ["Ada Lovelace"])
         self.assertEqual((second["page"], second["pages"]), (2, 2))
         self.assertFalse(second["truncated"])
         # a page that is not there is the last and a wrong number the first
-        self.assertEqual(self.page(size=1, page=9)["page"], 2)
-        self.assertEqual(self.page(size=1, page=0)["page"], 1)
-        self.assertEqual(self.page(size=1, page="two")["page"], 1)
-        self.assertEqual(self.page(size="many")["size"], 10)  # the usual
-        self.assertEqual(self.page(size=500)["size"], 50)  # and no more than that
-        everything = self.page()  # everything on one page is one page
+        self.assertEqual(self.lookup_page(size=1, page=9)["page"], 2)
+        self.assertEqual(self.lookup_page(size=1, page=0)["page"], 1)
+        self.assertEqual(self.lookup_page(size=1, page="two")["page"], 1)
+        self.assertEqual(self.lookup_page(size="many")["size"], 10)  # the usual
+        self.assertEqual(
+            self.lookup_page(size=500)["size"], 50
+        )  # and no more than that
+        everything = self.lookup_page()  # everything on one page is one page
         self.assertEqual((everything["page"], everything["pages"]), (1, 1))
         self.assertEqual(everything["total"], 2)
         # what may not be seen is not counted, so the pages are full
-        self.assertEqual(self.page(size=2)["total"], len(self.page(size=2)["items"]))
+        self.assertEqual(
+            self.lookup_page(size=2)["total"], len(self.lookup_page(size=2)["items"])
+        )
         with patch("gracia.search.LOOKUP_CAP", 1):  # of a great many only the first
-            found = self.page()
+            found = self.lookup_page()
         self.assertTrue(found["truncated"])
         self.assertEqual(found["total"], 1)
 

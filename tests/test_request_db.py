@@ -23,7 +23,7 @@ class RequestDbTest(ConfiguredCase):
         )
         return self.client()
 
-    def test_the_root_of_a_request_is_an_application_and_the_store_is_scoped_to_the_cursor_of_the_request(  # noqa: E501
+    def test_the_root_of_a_request_is_an_application_and_the_store_is_scoped_to_the_cursor_of_the_request(
         self,
     ):
         def view(request):
@@ -43,7 +43,7 @@ class RequestDbTest(ConfiguredCase):
         self.assertIs(root.cache, self.application.cache)
         self.assertIs(self.seen["store"].con, self.seen["db"])
 
-    def test_the_cursor_is_closed_when_the_request_ends_and_closing_the_node_leaves_it_open(  # noqa: E501
+    def test_the_cursor_is_closed_when_the_request_ends_and_closing_the_node_leaves_it_open(
         self,
     ):
         def view(request):

@@ -52,7 +52,7 @@ class PermissionsCase(EditCase):
 
 
 class EditorsTest(PermissionsCase):
-    def test_editors_edit_and_add_ordinary_records_and_cannot_touch_users_or_groups_and_admins_can_do_all_of_it(  # noqa: E501
+    def test_editors_edit_and_add_ordinary_records_and_cannot_touch_users_or_groups_and_admins_can_do_all_of_it(
         self,
     ):
         for path in ("/test_repo/person/1/edit", "/test_repo/person/add"):
@@ -173,7 +173,7 @@ class NeverPublicTest(PermissionsCase):
         self.assertTrue(self.can("/test_repo/person"))  # stay public
         self.assertTrue(self.can("/test_repo/person/1"))
 
-    def test_the_type_records_that_describe_them_are_closed_too_and_the_type_list_does_not_name_them(  # noqa: E501
+    def test_the_type_records_that_describe_them_are_closed_too_and_the_type_list_does_not_name_them(
         self,
     ):
         for path in (
@@ -277,7 +277,7 @@ class TheClosedNodesDoNotAnswerForUnknownThingsTest(PermissionsCase):
                 self.assertEqual(answers[0], answers[1], (known, unknown, who))
                 self.assertEqual(answers[0], public, (known, who))
 
-    def test_for_those_who_may_see_them_unknown_is_still_404_and_public_things_are_404_for_everybody(  # noqa: E501
+    def test_for_those_who_may_see_them_unknown_is_still_404_and_public_things_are_404_for_everybody(
         self,
     ):
         self.assertEqual(self.status("/test_repo/user/99", "group:admin"), 404)

@@ -184,7 +184,8 @@ def includeme(config: Configurator) -> None:
         context=templates.DeformView,
         request_method="GET",
         renderer=templates.DeformViewRenderer.name,
-        permission=NO_PERMISSION_REQUIRED,  # asked of the node the view was declared for
+        # asked of the node the view was declared for
+        permission=NO_PERMISSION_REQUIRED,
     )
     config.add_renderer(".xslt", templates.XsltRenderer)  # a stylesheet makes the view
     config.add_directive("add_gracia_job", jobs_job.add_gracia_job)

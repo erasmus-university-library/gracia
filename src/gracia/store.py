@@ -203,7 +203,8 @@ ETAGS_CONTAINS_UP_TO = 4
 # ones point at is the same, their etag is moved by the change of the local hashes
 # instead
 ETAGS_DELTA_ABOVE = 200
-# the order `etags` is kept in: what `Store.referencing_records` reads, newest created first,
+# the order `etags` is kept in: what `Store.referencing_records` reads, newest created
+# first,
 # with no ORDER BY
 ETAGS_ORDER = "ORDER BY record_type, sort_key DESC, record_id"
 PAGE_SIZE = 20  # records on a page of a listing; the last page has up to twice as many
@@ -419,22 +420,26 @@ class Store:
             # flagged and its number as a slug of its own, so that its address is told
             # from one
             # that was never used
-            "INSERT INTO slugs (rec_type, slug, record_uri, is_deleted) SELECT DISTINCT regexp_extract(t.s, "
+            "INSERT INTO slugs (rec_type, slug, record_uri, is_deleted) SELECT "
+            "DISTINCT regexp_extract(t.s, "
             "'^rec:([a-z][a-z0-9-]*):', 1), "
             "t.lit, t.s, false FROM {table} t "
             "WHERE t.s IN ({subs}) AND len(t.loc) = 0 AND t.p = {slug_uri} AND t.lit "
             "IS NOT NULL "
             "AND NOT EXISTS (SELECT 1 FROM slugs g WHERE g.record_uri = t.s AND g.slug "
             "= t.lit)",
-            "UPDATE slugs SET is_deleted = false, modified_at = now() AT TIME ZONE 'UTC' "
+            "UPDATE slugs SET is_deleted = false, modified_at = now() AT TIME ZONE "
+            "'UTC' "
             "WHERE is_deleted "
             f"AND record_uri IN (SELECT record_uri(record_id) FROM {{rec}} WHERE "
             "record_id IN "
             f"({changed}))",
-            "UPDATE slugs SET is_deleted = true, modified_at = now() AT TIME ZONE 'UTC' "
+            "UPDATE slugs SET is_deleted = true, modified_at = now() AT TIME ZONE "
+            "'UTC' "
             "WHERE NOT is_deleted AND record_uri IN "
             "{gone}",
-            "INSERT INTO slugs (rec_type, slug, record_uri, is_deleted) SELECT regexp_extract(s, '^rec:([a-z][a-z0-9-]*):', 1), "
+            "INSERT INTO slugs (rec_type, slug, record_uri, is_deleted) SELECT "
+            "regexp_extract(s, '^rec:([a-z][a-z0-9-]*):', 1), "
             "regexp_extract(s, ':([0-9]+)$', 1), s, true FROM {gone} g(s) "
             "WHERE NOT EXISTS (SELECT 1 FROM slugs k WHERE k.record_uri = g.s "
             "AND k.slug = regexp_extract(g.s, ':([0-9]+)$', 1))",
@@ -1161,7 +1166,8 @@ class Store:
             if record_id in etags
         }
 
-    # ---- the queue of what the followers have to do (records.sql, gracia.change_events)
+    # ---- the queue of what the followers have to do (records.sql,
+    # gracia.change_events)
     # ---------------
 
     def take_change_events(
@@ -1333,7 +1339,8 @@ class Store:
         `include_deleted` (OAI-PMH) adds the records of the type that were deleted, so
         only a `record_type` can be given with it, and no `referenced_record_id` or
         `state` (`ValueError`): a record that is gone has no references and no state.
-        The page is then sorted on when the records were modified, or deleted (`etags` is
+        The page is then sorted on when the records were modified, or deleted (`etags`
+        is
         kept by when a record was created, so the two kinds have to be merged by a sort;
         without `include_deleted` there is none). The ids of the deleted have no etag:
         `etags` gives None for them.
@@ -1349,7 +1356,8 @@ class Store:
         )
         if deleted is not None:
             sql = (
-                f"SELECT record_id FROM (SELECT record_id, modified_at FROM etags WHERE "
+                f"SELECT record_id FROM (SELECT record_id, modified_at FROM etags "
+                f"WHERE "
                 f"{where} UNION ALL SELECT record_id(record_uri), modified_at FROM "
                 f"slugs WHERE {deleted}) ORDER BY modified_at DESC, record_id "
                 f"LIMIT {int(limit)} OFFSET {int(offset)}"
@@ -2233,7 +2241,8 @@ class Store:
         A compound record is the record and every record it is made of. The graph cache
         keeps it under the etag of the record, so what the cache has is always the
         current one. One that it lacks is read from the database, and the worker of the
-        cache is asked to make it (`ChangeEventsWorker.rework`). `ignore_cache` reads and writes
+        cache is asked to make it (`ChangeEventsWorker.rework`). `ignore_cache` reads
+        and writes
         neither the graph cache nor the etags of it (for tests)."""
         ids = []
         seen = set()
@@ -2267,14 +2276,14 @@ class Store:
                     xml_from_cache[record_id] = kept
                 else:
                     stale.append(record_id)
-            for etag, text in self.fetch_compound_graphs(stale).values():
+            for _etag, text in self.fetch_compound_graphs(stale).values():
                 ntriples_from_db.append(text)
             if stale and worker is not None:
                 # the worker makes their graphs for the cache (and their docs, and what
                 # follows), without this read waiting for it
                 worker.rework(self.repo, stale)
         elif compound_records:
-            for etag, text in self.fetch_compound_graphs(ids).values():
+            for _etag, text in self.fetch_compound_graphs(ids).values():
                 ntriples_from_db.append(text)
         elif ids:
             listed = ", ".join(str(record_id) for record_id in ids)

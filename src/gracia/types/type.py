@@ -1,11 +1,14 @@
-"""The type `type`, and the base classes of the records of every type. `Type` is the node
-of a type of a repository, below which its records are (`Record`, with the views of them,
+"""The type `type`, and the base classes of the records of every type. `Type` is the
+node
+of a type of a repository, below which its records are (`Record`, with the views of
+them,
 `RecordView`); `TypeRecord` is the record that describes a type. The node and the views
 of every other type start from these, in a module of their own (`types/person.py`). The
 default add and edit views are methods of
 `RecordView`, as are the pages of a record: `index` is the one of a browser, which gives
 the values of the stylesheet that makes the page (the stylesheet is the template of the
-view, and the repository may name another for the records of a type: `Repository.template`),
+view, and the repository may name another for the records of a type:
+`Repository.template`),
 `as_json` and `as_rdfxml`."""
 
 from __future__ import annotations
@@ -19,7 +22,7 @@ import secrets
 from dataclasses import dataclass
 from functools import cached_property
 from html import escape
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 import colander
 import deform
@@ -66,7 +69,7 @@ class RecordMoved(LookupError):
     """A record was asked for by an address that is not its own now (its number, when it
     has a slug; a slug it had before): it is at `record.__name__` below its type."""
 
-    def __init__(self, key: str, record: "Record"):
+    def __init__(self, key: str, record: Record):
         super().__init__(key)
         self.key, self.record = key, record
 
@@ -126,7 +129,7 @@ class Type(Node):
     another node subclasses this and names its slug (`slug = "person"` in `PersonType`);
     the scan registers it, and the repository makes that class for the type (`read`)."""
 
-    slug: str | None = None  # the slug of the type that a subclass is the node of
+    slug: str = ""  # the slug of the type that a subclass is the node of (none: any)
 
     def __init__(
         self, parent: Repository, record: str, name: str, slug: str, class_uri: str
@@ -153,7 +156,7 @@ class Type(Node):
         )
 
     @classmethod
-    def read(cls, repository: Repository, record: str, graph: Graph) -> "Type | None":
+    def read(cls, repository: Repository, record: str, graph: Graph) -> Type | None:
         resource = graph.value(_N(record), _N(uri.RESOURCE))
         if resource is None:
             return None
@@ -284,13 +287,13 @@ class Type(Node):
             )
         )
 
-    def blank_record(self) -> "Record":
+    def blank_record(self) -> Record:
         cls = record_class(self.registry, self.class_uri)
         record = cls(self.repository, None, None, Graph())  # ty: ignore[invalid-argument-type]
         record.__parent__ = self
         return record
 
-    def __getitem__(self, key: str) -> "Record":
+    def __getitem__(self, key: str) -> Record:
         """The traversal of an address: the record at the segment, if it is the current
         name of the record (its slug, or its number while it has none). The number of a
         record that has a slug now, and an old slug, are `RecordMoved`; to find a record
@@ -300,7 +303,7 @@ class Type(Node):
             raise RecordMoved(key, record)
         return record
 
-    def find_record(self, key: str) -> "Record":
+    def find_record(self, key: str) -> Record:
         """The record with the number or the slug (one it has now or had before); a
         KeyError when there is none, `RecordDeleted` when it was deleted."""
         if _NUMBER.match(key):
@@ -323,7 +326,7 @@ class Type(Node):
             raise KeyError(key)
         return record
 
-    def _record(self, number: str) -> "Record | None":
+    def _record(self, number: str) -> Record | None:
         record_uri = uri.record_uri(self.slug, int(number))
         graph = self.store.get(record_uri)
         if not len(graph):
@@ -337,12 +340,14 @@ class Type(Node):
 
 
 def type_class(registry, slug: str) -> type[Type] | None:
-    """The node of the type with the slug, if a subclass of `Type` was registered for it."""
+    """The node of the type with the slug, if a subclass of `Type` was registered for
+    it."""
     return registry.queryUtility(IType, slug)
 
 
 def record_class(registry, class_uri: str) -> type[Record]:
-    """The node of the records of a class: the one its type registered, else `Record`."""
+    """The node of the records of a class: the one its type registered, else
+    `Record`."""
     return registry.queryUtility(IRecordType, class_uri) or Record
 
 
@@ -362,7 +367,7 @@ class Record(Node):
     content_type: ContentType | None = None  # what a class that declares a type says
     # who may do what with the type (`Type.__acl__`), and whether the records of the
     # type are as private as that: a user is, the record of a type is not
-    acl: list = []  # noqa: RUF012
+    acl: ClassVar[list] = []
     private = False
     hidden = frozenset(
         {uri.CREDENTIALS}
@@ -403,7 +408,7 @@ class Record(Node):
         return []
 
     @property
-    def type(self) -> "Type":
+    def type(self) -> Type:
         parent = self.__parent__
         if isinstance(parent, Type):  # where traversal put it, or a blank record
             return parent
@@ -1070,7 +1075,8 @@ class RecordView:
         record_id = store.record_id_of(record.uri)
         cached = store.etags([record_id])[record_id] if record_id is not None else None
         if cached is not None:  # one row: no walk through the references
-            # the version of the schema of every type: a change of one is a change of all
+            # the version of the schema of every type: a change of one is a change of
+            # all
             # the pages (the types of the page are known when it is made)
             etag = etags.page_etag(
                 cached, self.shape_versions(record.repository.types.keys())
@@ -1823,7 +1829,7 @@ class TypeRecord(Record):
         system=True,
     )
     # the types define the repository: everybody may read them, only admins change them
-    acl = [ADMINS, (Allow, Everyone, "view"), DENY_ALL]  # noqa: RUF012
+    acl: ClassVar[list] = [ADMINS, (Allow, Everyone, "view"), DENY_ALL]
 
 
 class TypeRecordView(RecordView):
@@ -1910,7 +1916,8 @@ def add_record_class(config, class_uri: str, cls: type[Record]) -> None:
         taken = registry.queryUtility(IRecordType, class_uri)
         if taken is not None and taken is not cls:
             raise ConfigurationError(
-                f"{class_uri} is the class of {taken.__module__} and of {cls.__module__}"
+                f"{class_uri} is the class of {taken.__module__} and of "
+                f"{cls.__module__}"
             )
         registry.registerUtility(cls, IRecordType, name=class_uri)
         if declared is not None:

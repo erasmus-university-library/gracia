@@ -11,6 +11,7 @@ import logging
 import zoneinfo
 from functools import cached_property
 from pathlib import Path
+from typing import ClassVar
 
 import colander
 import deform
@@ -59,7 +60,8 @@ REPOSITORY_SETTINGS = {
     "record_template": uri.RECORD_TEMPLATE,
 }
 
-# the stylesheets of the pages, when the repository has none of its own: the setting that
+# the stylesheets of the pages, when the repository has none of its own: the setting
+# that
 # can name another, and the one that comes with gracia (`templates.py`)
 SKINS = {
     "layout": uri.LAYOUT_TEMPLATE,
@@ -162,7 +164,8 @@ class Repository:
 
     def set_settings(self, values: dict[str, str]) -> None:
         """Sets the settings of the repository (`REPOSITORY_SETTINGS`: the timezone and
-        the locale, and the stylesheets of the pages); an empty value clears one (UTC, ISO
+        the locale, and the stylesheets of the pages); an empty value clears one (UTC,
+        ISO
         8601, gracia's own). A value that is not valid is a ValueError."""
         for name, value in values.items():
             if name not in REPOSITORY_SETTINGS:
@@ -232,8 +235,10 @@ class Repository:
         return sorted(found)
 
     def add_type(self, content_type: ContentType) -> str | None:
-        """Adds a type to the repository (its type record, and its class to the list of types
-        of the repository), unless the repository has a type with its slug: the number of its
+        """Adds a type to the repository (its type record, and its class to the list of
+        types
+        of the repository), unless the repository has a type with its slug: the number
+        of its
         record, or None."""
         store, repo_id = self.store, self.__name__
         repo_uri = uri.repository_uri()
@@ -316,7 +321,8 @@ class Repository:
 
     def template(self, spec: str, context=None) -> str:
         """The stylesheet that makes a view for this repository: `spec` is the template
-        of the view (its renderer), and the repository can have another in its place. For
+        of the view (its renderer), and the repository can have another in its place.
+        For
         a page of gracia (the `layout`, the `type` and the `record` skins) it is the one
         the settings of the repository name, else, for a record, the view stylesheet its
         type was given (a preset does that: `work-schemaorg-01.xslt` for the works),
@@ -512,7 +518,8 @@ class RepositoryView:
                         "This index was made for other fields than the settings of the "
                         "repository "
                         "have, so it may"
-                        " lack what was changed since: the administrator makes it again "
+                        " lack what was changed since: the administrator makes it "
+                        "again "
                         "with Rebuild "
                         "search."
                     )
@@ -624,11 +631,15 @@ class RepositoryView:
         except ValueError:
             return default
 
-    # The typeahead of a reference (ReferenceWidget): the records whose label begins with
-    # the words typed (`q`; none: every record), of the resources of the rdf types in `type`
-    # (one parameter for each; none: any), as JSON, a page of `size` of them (`page`, from
+    # The typeahead of a reference (ReferenceWidget): the records whose label begins
+    # with
+    # the words typed (`q`; none: every record), of the resources of the rdf types in
+    # `type`
+    # (one parameter for each; none: any), as JSON, a page of `size` of them (`page`,
+    # from
     # 1). Only what the person may see is told. Of a great many records only the first
-    # LOOKUP_CAP, by label, can be paged through (`truncated`): more words narrow it down.
+    # LOOKUP_CAP, by label, can be paged through (`truncated`): more words narrow it
+    # down.
     @view_config(context=Repository, name="lookup", request_method="GET")
     def lookup(self):
         request, repository = self.request, self.context
@@ -803,7 +814,8 @@ class RepositoryManage(Manage):
                 {
                     "name": res_type.name if res_type else slug,
                     "slug": slug,
-                    # what the shape of the type says of itself (the schema file it is on)
+                    # what the shape of the type says of itself (the schema file it is
+                    # on)
                     "description": forms.shape_description(*shape) if shape else "",
                     "system": bool(
                         res_type and res_type.class_uri in uri.SYSTEM_CLASSES
@@ -1359,7 +1371,7 @@ class RepositoryRecord(Record):
         schema="repository-minimal-01.ttl",
         system=True,
     )
-    acl = [ADMINS, DENY_ALL]  # noqa: RUF012
+    acl: ClassVar[list] = [ADMINS, DENY_ALL]
     private = True
     edit_permission = add_permission = "manage"
 

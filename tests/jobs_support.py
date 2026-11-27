@@ -6,7 +6,6 @@ import unittest
 from pathlib import Path
 from typing import ClassVar
 
-import colander  # noqa: F401 - used by the data below
 import duckdb
 import luigi
 import pyoxigraph as ox

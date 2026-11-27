@@ -1,6 +1,8 @@
-"""Finding what the application is made of. The modules of the places it is looked in (the
+"""Finding what the application is made of. The modules of the places it is looked in
+(the
 packages of gracia, the entry points of the groups `gracia.content_types` and
-`gracia.extensions` and the settings `gracia.types` and `gracia.extensions`) are imported, and what a module defines that implements an interface that
+`gracia.extensions` and the settings `gracia.types` and `gracia.extensions`) are
+imported, and what a module defines that implements an interface that
 is in `HANDLERS` is given to the directive of that interface: stating that a class
 implements `IRecord` is all a type has to do to be found. A module that has an
 `includeme(config)` is included as well."""

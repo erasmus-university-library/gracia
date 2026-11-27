@@ -134,7 +134,11 @@ class ModifiedAtIsNeverGivenTest(TimesCase):
         ):
             self.import_person("Ada", given, number)
             self.assertLess(
-                abs((self.modified(number) - datetime.utcnow()).total_seconds()),  # ty: ignore[deprecated]
+                abs(
+                    (
+                        self.modified(number) - datetime.now(UTC).replace(tzinfo=None)
+                    ).total_seconds()
+                ),
                 60,
             )
             [(text, _)] = self.triples(f"rec:person:{number}", uri.MODIFIED_AT)
@@ -152,7 +156,9 @@ class ModifiedAtIsNeverGivenTest(TimesCase):
         self.import_person("Ada King", "2999-01-01T00:00:00.000000Z")  # a later one
         third = self.modified()
         self.assertGreater(third, second)
-        self.assertLess(abs((third - datetime.utcnow()).total_seconds()), 60)  # ty: ignore[deprecated]
+        self.assertLess(
+            abs((third - datetime.now(UTC).replace(tzinfo=None)).total_seconds()), 60
+        )
 
         self.import_person("Ada", "2001-01-01T00:00:00.000000Z")
         first = self.modified()
@@ -240,7 +246,7 @@ class RepositoryZoneTest(TimesCase):
         self.addCleanup(node.close)
         return node.timezone()
 
-    def test_the_zone_of_the_repository_is_utc_for_none_and_for_a_name_the_system_does_not_know(  # noqa: E501
+    def test_the_zone_of_the_repository_is_utc_for_none_and_for_a_name_the_system_does_not_know(
         self,
     ):
         self.assertIs(self.zone(), UTC)

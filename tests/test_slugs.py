@@ -152,7 +152,7 @@ class SlugSqlTest(unittest.TestCase):
                     {"rec:person:1": expected},
                 )
 
-    def test_a_record_keeps_what_it_has_and_can_take_an_old_one_again_and_a_batch_is_numbered_in_order(  # noqa: E501
+    def test_a_record_keeps_what_it_has_and_can_take_an_old_one_again_and_a_batch_is_numbered_in_order(
         self,
     ):
         self.taken(
@@ -244,7 +244,7 @@ class SlugRecordTest(SlugCase):
         second = self.add("Someone", slug="Jane  ROE!")
         self.assertEqual(self.slugs(f"rec:person:{second}")[0], "jane-roe-2")
 
-    def test_the_slug_stays_when_the_label_changes_and_the_address_by_slug_is_the_record(  # noqa: E501
+    def test_the_slug_stays_when_the_label_changes_and_the_address_by_slug_is_the_record(
         self,
     ):
         number = self.add("John Doe")
@@ -360,7 +360,7 @@ class SlugAddressTest(SlugCase):
         self.assertEqual(self.get("/test_repo/person/john-doe").status_int, 410)
         self.assertEqual(self.get("/test_repo/person/john-doe-2").status_int, 200)
 
-    def test_a_record_without_a_slug_is_at_its_number_and_the_names_of_the_views_are_not_records(  # noqa: E501
+    def test_a_record_without_a_slug_is_at_its_number_and_the_names_of_the_views_are_not_records(
         self,
     ):
         self.assertEqual(self.get("/test_repo/person/add").status_int, 200)

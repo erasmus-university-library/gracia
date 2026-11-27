@@ -74,7 +74,7 @@ class RegistryTest(PredicateCase):
         )  # nothing for it
         self.assertIsNone(predicates.find(self.config.registry, uri.NAME))
 
-    def test_the_application_can_replace_one_that_comes_with_gracia_but_two_for_one_property_are_a_conflict_at_commit(  # noqa: E501
+    def test_the_application_can_replace_one_that_comes_with_gracia_but_two_for_one_property_are_a_conflict_at_commit(
         self,
     ):
         class Mine(Predicate):
@@ -101,7 +101,7 @@ class RegistryTest(PredicateCase):
 
 
 class RecordShapeTest(PredicateCase):
-    def test_the_shape_of_a_record_embeds_the_shape_of_its_content_on_gracia_resource_and_a_type_without_a_shape_has_the_record_shape(  # noqa: E501
+    def test_the_shape_of_a_record_embeds_the_shape_of_its_content_on_gracia_resource_and_a_type_without_a_shape_has_the_record_shape(
         self,
     ):
         self.config.begin()
@@ -134,7 +134,7 @@ class RecordShapeTest(PredicateCase):
         ]
         self.assertEqual([c.value for c in classes], [FOAF + "Person"])
 
-    def test_the_fields_follow_sh_order_with_the_content_on_a_tab_of_its_own_and_every_node_knows_its_property(  # noqa: E501
+    def test_the_fields_follow_sh_order_with_the_content_on_a_tab_of_its_own_and_every_node_knows_its_property(
         self,
     ):
         record = self.repo()["person"].find_record("1")
@@ -177,7 +177,7 @@ class RecordShapeTest(PredicateCase):
 class PropertyCodeTest(PredicateCase):
     predicates = (MboxPredicate,)
 
-    def test_a_predicate_changes_the_field_the_shape_made_and_stores_the_value_itself_and_the_others_as_they_are(  # noqa: E501
+    def test_a_predicate_changes_the_field_the_shape_made_and_stores_the_value_itself_and_the_others_as_they_are(
         self,
     ):
         client = self.client(self.config)
@@ -265,7 +265,7 @@ class BatchHookTest(PredicateCase):
         )
         return ox.Dataset(ox.parse(text.encode(), format=ox.RdfFormat.TURTLE))
 
-    def test_every_record_of_the_batch_goes_through_the_sql_nothing_is_stored_and_again_gives_the_same_rows(  # noqa: E501
+    def test_every_record_of_the_batch_goes_through_the_sql_nothing_is_stored_and_again_gives_the_same_rows(
         self,
     ):
         node = self.repo()

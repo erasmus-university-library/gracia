@@ -654,7 +654,7 @@ class SearchPageTest(ManageCase):
         )  # and not for anyone else, though the index has them
         self.assertNotIn("rec:group", anyone)
 
-    def test_the_address_is_the_slug_of_the_record_when_it_has_one_and_its_number_when_not(  # noqa: E501
+    def test_the_address_is_the_slug_of_the_record_when_it_has_one_and_its_number_when_not(
         self,
     ):
         with self.application.new_store("archive") as store:

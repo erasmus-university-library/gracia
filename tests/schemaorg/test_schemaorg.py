@@ -106,7 +106,7 @@ PARENTS = """
   gracia:resource [ a schema:Collection ; schema:name "Theses 2026" ;
     schema:publisher <ark:/99999/ir/organization/1> ;
     schema:isPartOf <ark:/99999/ir/collection/1> ] .
-"""  # noqa: E501
+"""
 
 
 class RecursiveShapesTest(ConfiguredCase):

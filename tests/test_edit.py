@@ -145,7 +145,9 @@ class RegistryTest(EditCase):
     def record_class(self, slug):
         config = make_config(self.settings)
         config.commit()
-        return config.registry.queryUtility(IRecordType, slug)
+        registry = config.registry
+        assert registry is not None
+        return registry.queryUtility(IRecordType, slug)
 
     def context_class(self, path, settings=None):
         seen = []
@@ -159,7 +161,7 @@ class RegistryTest(EditCase):
         self.client(config).get(path + "/class", headers=self.admin)
         return seen[0]
 
-    def test_a_type_gets_the_class_registered_for_it_by_slug_or_by_a_package_else_record_and_a_view_for_the_class_overrides_the_generic_one(  # noqa: E501
+    def test_a_type_gets_the_class_registered_for_it_by_slug_or_by_a_package_else_record_and_a_view_for_the_class_overrides_the_generic_one(
         self,
     ):
         self.assertIs(
@@ -202,7 +204,7 @@ class RegistryTest(EditCase):
             self.client().get("/test_repo/person/1/edit", headers=self.admin).text,
         )
 
-    def test_a_class_can_be_registered_by_an_extension(  # noqa: E501
+    def test_a_class_can_be_registered_by_an_extension(
         self,
     ):
         class UserGroupRecord(Record):
@@ -318,7 +320,7 @@ class EditViewTest(EditCase):
             ("http://xmlns.com/foaf/0.1/name", "Ada"), self.values("rec:person:1")
         )
 
-    def test_the_resource_uri_is_the_ark_until_one_is_given_and_again_when_it_is_emptied(  # noqa: E501
+    def test_the_resource_uri_is_the_ark_until_one_is_given_and_again_when_it_is_emptied(
         self,
     ):
         # the record was stored before the resource uri was required: nothing is shown
@@ -394,7 +396,7 @@ class UserEditTest(EditCase):
             form[name] = text
         return form.submit("save", headers=self.admin)
 
-    def test_the_credentials_are_not_in_the_form_and_a_short_password_or_a_taken_id_is_refused(  # noqa: E501
+    def test_the_credentials_are_not_in_the_form_and_a_short_password_or_a_taken_id_is_refused(
         self,
     ):
         response = self.client().get("/test_repo/user/1/edit", headers=self.admin)
@@ -542,7 +544,7 @@ class AddViewTest(EditCase):
             "long enough pw", str(self.values(f"rec:user:{self.numbers('user')[-1]}"))
         )
 
-    def test_a_type_the_form_cannot_fill_in_is_refused_not_half_made_and_an_unknown_one_is_404(  # noqa: E501
+    def test_a_type_the_form_cannot_fill_in_is_refused_not_half_made_and_an_unknown_one_is_404(
         self,
     ):
         response = self.client().get(
@@ -581,7 +583,7 @@ class SwitchingSchemaTest(EditCase):
             "save", headers={**self.admin, "Origin": "http://localhost:80"}
         )
 
-    def test_the_type_starts_on_the_full_profile_and_switching_to_the_minimal_one_changes_the_forms_and_the_version(  # noqa: E501
+    def test_the_type_starts_on_the_full_profile_and_switching_to_the_minimal_one_changes_the_forms_and_the_version(
         self,
     ):
         self.assertEqual(self.fields(), {"name", "mbox"})

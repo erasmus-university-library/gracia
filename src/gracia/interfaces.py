@@ -14,7 +14,8 @@ if TYPE_CHECKING:
 
 class IRecordType(Interface):
     """What is registered for the class of the resources of a type (`gracia:class`): the
-    class of its records, a subclass of `Record` (the utility is that class, by the class
+    class of its records, a subclass of `Record` (the utility is that class, by the
+    class
     uri and by the slug of its type). A class that declares a type has a `content_type`
     (`ContentType`: the name, the slug, the schema, ...)."""
 
@@ -57,7 +58,8 @@ class IRepository(Interface):
 
 
 class IType(Interface):
-    """A type of a repository: the node that its records are below (`rec:<slug>:<n>`)."""
+    """A type of a repository: the node that its records are below
+    (`rec:<slug>:<n>`)."""
 
     slug = Attribute("the first path segment of its records")
     name = Attribute("the name of the type")

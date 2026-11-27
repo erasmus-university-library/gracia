@@ -127,7 +127,7 @@ class SkinTest(PagesCase):
         path.write_text(text)
         return str(path)
 
-    def test_the_type_and_the_record_are_in_the_layout_of_the_site_and_a_page_in_a_frame_has_no_header_and_no_footer(  # noqa: E501
+    def test_the_type_and_the_record_are_in_the_layout_of_the_site_and_a_page_in_a_frame_has_no_header_and_no_footer(
         self,
     ):
         for path, title in (
@@ -180,7 +180,7 @@ class SkinTest(PagesCase):
             self.assertRegex(text, r'<html lang="en">')
             self.assertGreater(len(text.splitlines()), 15, path)  # not one line
 
-    def test_the_manage_page_has_its_panes_as_fragments_and_the_debug_views_show_the_input_and_the_output(  # noqa: E501
+    def test_the_manage_page_has_its_panes_as_fragments_and_the_debug_views_show_the_input_and_the_output(
         self,
     ):
         text = self.get("/test_repo/manage?debug=input", self.admin).text
@@ -251,7 +251,7 @@ class SkinTest(PagesCase):
             "- http://r/person/1 http://x.org/|true|true",  # - : javascript: is no link
         )
 
-    def test_the_pages_say_what_they_are_made_of_to_who_manages_them_and_the_record_is_given_no_credentials(  # noqa: E501
+    def test_the_pages_say_what_they_are_made_of_to_who_manages_them_and_the_record_is_given_no_credentials(
         self,
     ):
         text = self.get("/test_repo/person/?debug=1", self.admin).text

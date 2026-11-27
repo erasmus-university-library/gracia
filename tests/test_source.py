@@ -40,7 +40,7 @@ class SourceCase(EditCase):
 
 
 class LinkTest(SourceCase):
-    def test_the_form_has_a_source_link_above_it_at_the_right_and_the_add_form_has_one_too_but_a_user_has_none(  # noqa: E501
+    def test_the_form_has_a_source_link_above_it_at_the_right_and_the_add_form_has_one_too_but_a_user_has_none(
         self,
     ):
         page = self.get("/test_repo/person/1/edit").text
@@ -81,7 +81,7 @@ class LinkTest(SourceCase):
 
 
 class FormatTest(SourceCase):
-    def test_turtle_is_the_default_and_the_list_has_the_other_serializations_which_show_the_same_data(  # noqa: E501
+    def test_turtle_is_the_default_and_the_list_has_the_other_serializations_which_show_the_same_data(
         self,
     ):
         page = self.get("/test_repo/person/1/edit?source=turtle").text
@@ -115,7 +115,7 @@ class FormatTest(SourceCase):
                 self.assertIn(mark, text)
                 self.assertIn("Ada", text)
 
-    def test_choosing_another_format_converts_the_text_and_keeps_what_was_typed_and_text_that_is_not_in_the_format_is_an_error(  # noqa: E501
+    def test_choosing_another_format_converts_the_text_and_keeps_what_was_typed_and_text_that_is_not_in_the_format_is_an_error(
         self,
     ):
         text = self.edited(**{'foaf:name "Ada"': 'foaf:name "Ada of Lovelace"'})
@@ -178,7 +178,7 @@ class ClosedShapeTest(SourceCase):
             )
             store.put_multi(data)
 
-    def test_a_property_of_the_record_that_the_record_shape_does_not_have_is_an_error_and_a_shape_that_is_not_closed_lets_other_properties_be(  # noqa: E501
+    def test_a_property_of_the_record_that_the_record_shape_does_not_have_is_an_error_and_a_shape_that_is_not_closed_lets_other_properties_be(
         self,
     ):
         text = self.edited() + '\n<rec:person:1> <https://gracia.pub/ns/lable> "x" .'
@@ -201,7 +201,7 @@ class ClosedShapeTest(SourceCase):
             self.post("/test_repo/person/1/edit", text).status_int, 302
         )  # the content shape is open
 
-    def test_a_property_of_the_content_that_a_closed_shape_does_not_have_is_an_error_and_what_it_describes_is_saved(  # noqa: E501
+    def test_a_property_of_the_content_that_a_closed_shape_does_not_have_is_an_error_and_what_it_describes_is_saved(
         self,
     ):
         self.use_the_closed_profile()
@@ -314,7 +314,7 @@ class HighlightTest(SourceCase):
 
 
 class SaveTest(SourceCase):
-    def test_saving_the_text_stores_the_record_like_the_form_does_in_the_format_it_was_shown_in(  # noqa: E501
+    def test_saving_the_text_stores_the_record_like_the_form_does_in_the_format_it_was_shown_in(
         self,
     ):
         text = self.edited(**{'foaf:name "Ada"': 'foaf:name "Ada Lovelace"'})
@@ -351,7 +351,7 @@ class SaveTest(SourceCase):
                 )
                 current = f"Ada in {fmt}"
 
-    def test_text_that_cannot_be_parsed_or_does_not_have_what_the_shape_requires_stores_nothing(  # noqa: E501
+    def test_text_that_cannot_be_parsed_or_does_not_have_what_the_shape_requires_stores_nothing(
         self,
     ):
         got = self.post("/test_repo/person/1/edit", "<rec:person:1> a gracia:Record .")
@@ -367,7 +367,7 @@ class SaveTest(SourceCase):
         self.assertIn("foaf:nick", self.text(got))  # what was typed stays
         self.assertIn((f"{FOAF}name", "Ada"), self.values("rec:person:1"))
 
-    def test_the_record_keeps_its_address_and_the_class_of_its_type_and_nothing_else_is_written(  # noqa: E501
+    def test_the_record_keeps_its_address_and_the_class_of_its_type_and_nothing_else_is_written(
         self,
     ):  # its type is in its address
         base = self.edited()
@@ -400,7 +400,7 @@ class SaveTest(SourceCase):
         ]
         self.assertNotIn(f"{FOAF}Prson", stored_types)  # nothing was stored
 
-    def test_a_record_without_a_resource_uri_gets_the_ark_before_it_is_checked_and_who_may_not_edit_may_not_use_the_source(  # noqa: E501
+    def test_a_record_without_a_resource_uri_gets_the_ark_before_it_is_checked_and_who_may_not_edit_may_not_use_the_source(
         self,
     ):
         text = self.edited()
@@ -421,7 +421,7 @@ class AddTest(SourceCase):
     def text_of_new(self):
         return self.text(self.get("/test_repo/person/add?source=turtle"))
 
-    def test_a_new_record_starts_from_what_every_record_has_under_a_placeholder_and_saving_makes_the_number(  # noqa: E501
+    def test_a_new_record_starts_from_what_every_record_has_under_a_placeholder_and_saving_makes_the_number(
         self,
     ):
         text = self.text_of_new()
@@ -448,7 +448,7 @@ class AddTest(SourceCase):
             f"ark:/99999/ir/person/{number}",
         )
 
-    def test_a_new_record_of_another_class_or_without_what_the_shape_requires_is_refused_and_does_not_use_up_a_number(  # noqa: E501
+    def test_a_new_record_of_another_class_or_without_what_the_shape_requires_is_refused_and_does_not_use_up_a_number(
         self,
     ):
         text = self.text_of_new().replace(

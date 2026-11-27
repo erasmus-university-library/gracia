@@ -19,7 +19,7 @@ SEQUENCE = "/test_repo/roster/sequence"
 
 
 class ListCase(FormCase):
-    types = (ROSTER, FOAF_PERSON)  # noqa: RUF012
+    types = (ROSTER, FOAF_PERSON)
 
     def post_members(self, members, path=ADD, **values):
         return self.post(path, rows={"members": members}, **values)

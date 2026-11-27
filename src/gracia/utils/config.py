@@ -57,7 +57,8 @@ def parse_size(text: str) -> int:
 
 
 def cache_sizes(settings: dict) -> dict[str, int]:
-    """The sizes the config sets (`gracia.cache.<name>_size`); the rest is the default."""
+    """The sizes the config sets (`gracia.cache.<name>_size`); the rest is the
+    default."""
     sizes = {}
     for name in CACHE_SIZES:
         key = f"gracia.cache.{name}_size"

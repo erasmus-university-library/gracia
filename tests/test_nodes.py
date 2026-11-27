@@ -19,7 +19,7 @@ class RepositoryOfNodeTest(EditCase):
 
         return make_config(self.settings)
 
-    def test_every_node_reaches_the_same_repository_the_application_has_none_and_the_request_gets_its_store_from_it(  # noqa: E501
+    def test_every_node_reaches_the_same_repository_the_application_has_none_and_the_request_gets_its_store_from_it(
         self,
     ):
         person = self.repo["person"]
@@ -62,7 +62,7 @@ class RepositoryOfNodeTest(EditCase):
         with self.assertRaises(KeyError):
             interfaces.find_child(self.repo, "rec:person:999")
 
-    def test_a_node_has_the_repository_the_store_the_registry_and_the_application_and_the_types_are_in_types(  # noqa: E501
+    def test_a_node_has_the_repository_the_store_the_registry_and_the_application_and_the_types_are_in_types(
         self,
     ):
         record = self.repo["person"].find_record("1")

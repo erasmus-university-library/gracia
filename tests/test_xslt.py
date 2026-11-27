@@ -180,22 +180,17 @@ class TypeFilesTest(unittest.TestCase):
         asked = []
         with tempfile.TemporaryDirectory() as folder:
             shared = Path(folder) / "shared.xsl"
-            shared.write_text(
-                '<xsl:stylesheet version="3.0" xmlns:xsl="%s"/>' % xslt.XSL
-            )
+            shared.write_text(f'<xsl:stylesheet version="3.0" xmlns:xsl="{xslt.XSL}"/>')
 
             def resolve(href):
                 asked.append(href)
                 return shared
 
             one = (
-                '<xsl:stylesheet xmlns:xsl="%s"><xsl:import href="type:a/x.xsl"/></xsl:stylesheet>'
-                % xslt.XSL
+                f'<xsl:stylesheet xmlns:xsl="{xslt.XSL}">'
+                '<xsl:import href="type:a/x.xsl"/></xsl:stylesheet>'
             )
-            two = (
-                '<xsl:stylesheet xmlns:xsl="%s"><xsl:import href="type:a/x.xsl"/></xsl:stylesheet>'
-                % xslt.XSL
-            )
+            two = one  # a second stylesheet that names the same address
             found = xslt.type_files([one, two], resolve)
         self.assertEqual(list(found), ["type:a/x.xsl"])
         self.assertEqual(asked, ["type:a/x.xsl"])

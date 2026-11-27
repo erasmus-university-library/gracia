@@ -79,7 +79,8 @@ class Application:
         ark: tuple[str, str] = (uri.DEFAULT_NAAN, uri.DEFAULT_ROOT_PREFIX),
         preset: str = presets.DEFAULT_PRESET,
     ) -> bool:
-        """Makes the repository and runs the preset (`gracia.presets`) in it; a repository
+        """Makes the repository and runs the preset (`gracia.presets`) in it; a
+        repository
         that is there is left as it is (False)."""
         if repo_id != DEFAULT_REPOSITORY:
             validate_repository_id(repo_id)
@@ -166,7 +167,8 @@ class ApplicationView:
         return self.refuse(getattr(self.request, "context", None))
 
     def refuse(self, context):
-        """The answer to someone who may not see `context`: not there (a record, in a type
+        """The answer to someone who may not see `context`: not there (a record, in a
+        type
         they may see), else a login is asked for, else forbidden."""
         request = self.request
         if (
@@ -174,7 +176,8 @@ class ApplicationView:
             and not request.has_permission("view", context)
             and request.has_permission("view", context.__parent__)
         ):
-            # a record the caller may not see, in a type they may: it is not there for them
+            # a record the caller may not see, in a type they may: it is not there for
+            # them
             request.response.status = 404
             return {"error": "not_found", "path": request.path}
         if request.authenticated_userid is None and getattr(

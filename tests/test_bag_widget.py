@@ -1,4 +1,3 @@
-# ruff: noqa: E501  (the shapes are written out in the tests)
 """A property that has many values, as a bag of rows: a text, or a text and its language."""
 
 import colander

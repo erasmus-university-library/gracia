@@ -274,7 +274,8 @@ class ChangeEventsWorker:
             if compounds:
                 listed = ", ".join(str(record_id) for record_id in compounds)
                 rows = store.con.execute(
-                    f"SELECT record_id, record_uri FROM etags WHERE record_id IN ({listed})"
+                    f"SELECT record_id, record_uri FROM etags WHERE record_id IN "
+                    f"({listed})"
                 ).fetchall()
                 for record_id, record_uri in rows:
                     record_uris[record_id] = record_uri

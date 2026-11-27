@@ -4,7 +4,7 @@ import signal
 from types import SimpleNamespace
 from unittest import mock
 
-from jobs_support import SCHEMAS, JobsCase, echo, quack_owner  # noqa: F401 - shared set-up
+from jobs_support import SCHEMAS, JobsCase, echo
 from pyramid.exceptions import ConfigurationConflictError
 
 from gracia.jobs import job as jobs_job
@@ -711,7 +711,7 @@ class ExportValidateTest(JobsCase):
 
 
 class RewriteExportTest(JobsCase):
-    def test_the_rewrite_job_stores_what_the_hooks_change_and_the_next_one_finds_nothing(  # noqa: E501
+    def test_the_rewrite_job_stores_what_the_hooks_change_and_the_next_one_finds_nothing(
         self,
     ):
         job_id = self.make(
@@ -770,7 +770,7 @@ class RewriteExportTest(JobsCase):
             )
             self.assertEqual(store.purge_slugs("person"), [])  # nothing left to forget
 
-    def test_the_rebuild_etags_job_makes_them_again_and_lists_the_records_whose_etag_was_wrong(  # noqa: E501
+    def test_the_rebuild_etags_job_makes_them_again_and_lists_the_records_whose_etag_was_wrong(
         self,
     ):
         first = self.make({"stage": "RebuildEtags"})

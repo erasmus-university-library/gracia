@@ -262,9 +262,9 @@ class DocCacheTest(DocsCase):
         with self.application["test_repo"] as repository:
             self.assertIsNone(repository.store.get_doc("rec:thing:99"))
             self.assertIsNone(repository.store.get_doc("rec:nothing:1"))
-        with self.application.new_store("test_repo") as store:  # no stylesheets here
-            with self.assertRaises(ValueError):
-                store.get_doc("rec:thing:1")
+        store_of = self.application.new_store("test_repo")
+        with store_of as store, self.assertRaises(ValueError):  # no stylesheets here
+            store.get_doc("rec:thing:1")
 
     def test_without_a_cache_directory_a_doc_is_made_every_time(self):
         app = open_application(self, str(self.tmp / "gracia.db"))

@@ -14,7 +14,10 @@ def _scrypt(password: str, salt: bytes, n: int, r: int, p: int) -> bytes:
 def hash_password(password: str) -> str:
     salt = os.urandom(16)
     digest = _scrypt(password, salt, N, R, P)
-    b64 = lambda raw: base64.b64encode(raw).decode("ascii")  # noqa: E731
+
+    def b64(raw: bytes) -> str:
+        return base64.b64encode(raw).decode("ascii")
+
     return f"scrypt${N}${R}${P}${b64(salt)}${b64(digest)}"
 
 

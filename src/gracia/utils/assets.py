@@ -30,13 +30,15 @@ VIEW = "view.xsl"
 SCHEMA_DIR = "shacl/"
 SCHEMA_NAME = re.compile(r"^([a-z][a-z0-9]*)-([a-z][a-z0-9_]*)-([0-9]{2,})\.ttl$")
 # the stylesheets that make the doc of a record (`gracia:docTemplate`) are in `doc/`, as
-# doc-<profile>-<revision>.xsl; the one of the type `type`, `record-base-01.xsl`, is what
+# doc-<profile>-<revision>.xsl; the one of the type `type`, `record-base-01.xsl`, is
+# what
 # the others
 # import
 DOC_DIR = "xslt/doc/"
 DOC_NAME = re.compile(r"^([a-z][a-z0-9]*)-([a-z][a-z0-9_]*)-([0-9]{2,})\.xsl$")
 DOC_BASE = "type:type/" + DOC_DIR + "record-base-01.xsl"
-# the stylesheets that make the page of a record of a type (`gracia:viewTemplate`) are in
+# the stylesheets that make the page of a record of a type (`gracia:viewTemplate`) are
+# in
 # `view/`, as <type>-<profile>-<revision>.xslt; the one with the profile `base` is what
 # the others import, and is not one to choose
 VIEW_DIR = "xslt/view/"
@@ -168,7 +170,10 @@ def record_shape(
 ) -> tuple[Graph, ox.NamedNode]:
     data = Graph(ox.Dataset(_record_shapes()))
     node = ox.NamedNode(uri.RECORD_SHAPE)
-    sh = lambda name: ox.NamedNode("http://www.w3.org/ns/shacl#" + name)  # noqa: E731
+
+    def sh(name: str) -> ox.NamedNode:
+        return ox.NamedNode("http://www.w3.org/ns/shacl#" + name)
+
     for prop in data.objects(node, sh("property")):
         if ox.NamedNode(uri.RESOURCE) not in data.objects(prop, sh("path")):
             continue
@@ -286,7 +291,8 @@ def view_spec(prefix: str, name: str) -> str:
     found = VIEW_NAME.match(name or "")
     if not found or found[2] == "base":
         raise ValueError(
-            f"not a view stylesheet: {name!r} (expected <type>-<profile>-<revision>.xslt)"
+            f"not a view stylesheet: {name!r} (expected "
+            f"<type>-<profile>-<revision>.xslt)"
         )
     return join(prefix, VIEW_DIR + name)
 

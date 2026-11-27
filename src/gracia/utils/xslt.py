@@ -323,7 +323,8 @@ class Compiled:
     ) -> Response:
         """What the stylesheet makes, read as the response of a view (`parse_response`).
         (The nodes of the document of Saxon, read with `transform_to_value`, crashed the
-        process now and then when the tests ran in parallel, with no report, and a forced
+        process now and then when the tests ran in parallel, with no report, and a
+        forced
         garbage collection did not help: the text is what is read.)"""
         return parse_response(self.transform(xml_text, params, messages, timings))
 

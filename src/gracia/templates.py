@@ -14,15 +14,19 @@ The stylesheet is run over the `<request>` document that `request_xml` makes of 
 request and of the dict: `rdfxml` is the data (in `<body>`), `records` and `paging` say
 what a listing used, `csrf` asks for the csrf token, `fragments` are pieces of HTML that
 the view made (a form), `site` and `properties` are what the pages have around them and
-what the shape lets them show, `layout` is a stylesheet that the one of the page is put in
+what the shape lets them show, `layout` is a stylesheet that the one of the page is put
+in
 (they are imported by one that is made, the page after the layout, so that what the page
 defines counts), and every other item is a value of the view (`<view><param name=>`:
-strings, numbers and booleans). `page` is the one that makes a page of the site, with the
-stylesheets of the repository (`skin/layout.xslt`, `skin/type.xslt`, `view/record-minimal-01.xslt`). The response is
+strings, numbers and booleans). `page` is the one that makes a page of the site, with
+the
+stylesheets of the repository (`skin/layout.xslt`, `skin/type.xslt`,
+`view/record-minimal-01.xslt`). The response is
 what the stylesheet says it is, 200, and the view can change it before it is returned.
 A stylesheet is compiled from its file, so the files it imports are found beside it.
 
-What the stylesheet makes is the response, written by Saxon as its `xsl:output` says (the
+What the stylesheet makes is the response, written by Saxon as its `xsl:output` says
+(the
 skins say `method="html" html-version="5"`):
 
     <response>
@@ -31,10 +35,12 @@ skins say `method="html" html-version="5"`):
     </response>
 
 A header is an element named after it, with its value as the text, and only those of
-`ALLOWED_HEADERS` can be set. The renderer does not parse it: it cuts it (`parse_response`),
+`ALLOWED_HEADERS` can be set. The renderer does not parse it: it cuts it
+(`parse_response`),
 the body is what is between the first `<body>` and the last `</body>`. A body of
 `text/html` or of an XML type is markup and is as the writer wrote it (with the doctype
-added to a page, the writer has none, the root is the response); of another type it is text,
+added to a page, the writer has none, the root is the response); of another type it is
+text,
 and is unescaped. With no Content-Type the response is `text/html`.
 
 It is registered for the extension `.xslt` (`gracia.main`). `pyramid.reload_templates`
@@ -148,7 +154,8 @@ class XsltRenderer:
 
     @staticmethod
     def record_uri_of(node) -> str:
-        """The uri of the record that a node is or has (a record, a type, a repository)."""
+        """The uri of the record that a node is or has (a record, a type, a
+        repository)."""
         for attribute in ("uri", "record"):
             value = getattr(node, attribute, None)
             if isinstance(value, str) and value.startswith("rec:"):
@@ -157,7 +164,8 @@ class XsltRenderer:
 
     @staticmethod
     def html_to_xml(html: str) -> str:
-        """HTML as markup that is XML: lxml reads it the way a browser would, as far as it
+        """HTML as markup that is XML: lxml reads it the way a browser would, as far as
+        it
         does, and writes it again."""
         xml = ""
         for part in lxml.html.fragments_fromstring(html):
@@ -169,9 +177,11 @@ class XsltRenderer:
 
     @classmethod
     def data_xml(cls, name: str, value) -> str:
-        """The XML of what a view gives its page: a dict is an element with an element for
+        """The XML of what a view gives its page: a dict is an element with an element
+        for
         each key, a list or tuple an element with an `<item>` for each of its values, a
-        string, number or boolean the text of an element, and None nothing at all. A key must
+        string, number or boolean the text of an element, and None nothing at all. A key
+        must
         be a name that an element can have."""
         if not re.fullmatch(r"[A-Za-z_][\w.-]*", name):
             raise ValueError(f"{name!r} cannot be the name of an element")
@@ -206,9 +216,11 @@ class XsltRenderer:
         properties=(),
         data=None,
     ) -> str:
-        """The XML text that a stylesheet makes the response from: the request, where it is
+        """The XML text that a stylesheet makes the response from: the request, where it
+        is
         in the tree (every node up to the root, with its address, so the stylesheet can
-        make absolute addresses), what the user may do there, the records that the page is
+        make absolute addresses), what the user may do there, the records that the page
+        is
         of with the paging, and the RDF/XML of the data.
 
             <request method= url= path= application-url= user=>
@@ -224,19 +236,21 @@ class XsltRenderer:
               <body><rdf:RDF>..</rdf:RDF></body>
             </request>
 
-        `records` are the uris of the records that were got, as of `referencing_records`,
-        and `paging` is what a listing says of its page (`page`, `pages`, `total`, `size`).
-        `fragments` are pieces of HTML that the view made (a Deform form): each is read by
-        lxml, which repairs what is not XML (a bare `readonly`, a `<br>`, `&nbsp;`), and put
-        in as markup, `<fragments><fragment name=>..</fragment></fragments>`, for the
-        stylesheet to copy where it wants it. `site` is what the pages of the site have
-        around them (`home`, `favicon`, `embed` and the `flashes`, each a level and a text)
-        and `properties` the properties of the shape of the type that a page may show, each
-        a path, a name and a role (`key_info`, `description`). `data` is what a page has of
-        structure, a dict as of `data_xml`: `<data><revisions><item><txn>3</txn>..`.
-        The view has its name (`request.view_name`) and `view_params`, the values it gives
-        its page besides the data (a heading, a subtitle: strings, numbers, booleans). The
-        headers are only `Accept` for now. The csrf token is made when it is asked for: it makes a session, and so a cookie."""
+        `records` are the uris of the records that were got, as of
+        `referencing_records`, and `paging` is what a listing says of its page (`page`,
+        `pages`, `total`, `size`). `fragments` are pieces of HTML that the view made (a
+        Deform form): each is read by lxml, which repairs what is not XML (a bare
+        `readonly`, a `<br>`, `&nbsp;`), and put in as markup, `<fragments><fragment
+        name=>..</fragment></fragments>`, for the stylesheet to copy where it wants it.
+        `site` is what the pages of the site have around them (`home`, `favicon`,
+        `embed` and the `flashes`, each a level and a text) and `properties` the
+        properties of the shape of the type that a page may show, each a path, a name
+        and a role (`key_info`, `description`). `data` is what a page has of structure,
+        a dict as of `data_xml`: `<data><revisions><item><txn>3</txn>..`. The view has
+        its name (`request.view_name`) and `view_params`, the values it gives its page
+        besides the data (a heading, a subtitle: strings, numbers, booleans). The
+        headers are only `Accept` for now. The csrf token is made when it is asked for:
+        it makes a session, and so a cookie."""
         context = request.context
         attributes = (
             f"method={quoteattr(request.method)} url={quoteattr(request.url)} "
@@ -258,7 +272,8 @@ class XsltRenderer:
         for node in reversed(list(lineage(context))):
             node_name = getattr(node, "__name__", None) or ""
             xml.append(
-                f"<node kind={quoteattr(type(node).__name__)} name={quoteattr(node_name)} "
+                f"<node kind={quoteattr(type(node).__name__)} "
+                f"name={quoteattr(node_name)} "
                 f"url={quoteattr(request.resource_url(node))} "
                 f"record_uri={quoteattr(cls.record_uri_of(node))}/>"
             )
@@ -284,7 +299,8 @@ class XsltRenderer:
         if site:
             embed = "true" if site["embed"] else "false"
             xml.append(
-                f"<site home={quoteattr(site['home'])} favicon={quoteattr(site['favicon'])} "
+                f"<site home={quoteattr(site['home'])} "
+                f"favicon={quoteattr(site['favicon'])} "
                 f"embed={quoteattr(embed)}>"
             )
             for level, text in site["flashes"]:
@@ -330,7 +346,8 @@ class XsltRenderer:
             xml.append("<fragments>")
             for name, html in fragments.items():
                 xml.append(
-                    f"<fragment name={quoteattr(name)}>{cls.html_to_xml(html)}</fragment>"
+                    f"<fragment "
+                    f"name={quoteattr(name)}>{cls.html_to_xml(html)}</fragment>"
                 )
             xml.append("</fragments>")
 
@@ -350,11 +367,16 @@ class XsltRenderer:
     def page_values(
         request, fragments=None, data=None, bare: bool = False, **values
     ) -> dict:
-        """The values of a page of the site, for a view that returns them to the renderer of
-        its template (`XsltRenderer`): the values it has (strings, numbers and booleans for
-        the page, `data` for what has structure, `fragments` for the HTML that the view made),
-        and what the site adds: where home is, the icon, whether it is shown in a frame, and
-        the flashes, and the layout of the repository, unless the page is `bare` (it is no
+        """The values of a page of the site, for a view that returns them to the
+        renderer of
+        its template (`XsltRenderer`): the values it has (strings, numbers and booleans
+        for
+        the page, `data` for what has structure, `fragments` for the HTML that the view
+        made),
+        and what the site adds: where home is, the icon, whether it is shown in a frame,
+        and
+        the flashes, and the layout of the repository, unless the page is `bare` (it is
+        no
         part of the site)."""
         repository = getattr(request.context, "repository", None)
         embed = request.params.get("embed") == "1"
@@ -396,8 +418,10 @@ class XsltRenderer:
         bare: bool = False,
         **values,
     ) -> Response:
-        """A page of the site made by stylesheets: the stylesheet `spec` (an asset spec or a
-        path) put in the layout of the repository, or alone when it is `bare`. The values
+        """A page of the site made by stylesheets: the stylesheet `spec` (an asset spec
+        or a
+        path) put in the layout of the repository, or alone when it is `bare`. The
+        values
         are those of `page_values`."""
         values = XsltRenderer.page_values(request, fragments, data, bare, **values)
         response = render_to_response(spec, values, request=request)
@@ -452,7 +476,8 @@ class XsltRenderer:
     ) -> xslt.Compiled:
         """The stylesheet, compiled the first time (and again when it was edited, if
         `pyramid.reload_templates` is on). With a layout it is one that imports the
-        helpers (`skin/rdf.xslt`), the layout and then the stylesheet of the page, so what
+        helpers (`skin/rdf.xslt`), the layout and then the stylesheet of the page, so
+        what
         the page defines is what counts, and a repository can have another of each."""
         files = xslt.imported_files(path)
         key = path
@@ -484,7 +509,8 @@ class XsltRenderer:
         return kept[1]
 
     def _response(self, request, path: str, made: xslt.Response) -> str:
-        """Sets the headers of the response that the stylesheet made, and gives its body."""
+        """Sets the headers of the response that the stylesheet made, and gives its
+        body."""
         if made.root == "":
             raise xslt.XsltError(f"{path} does not make a <response>")
         if made.root != "response":
@@ -581,7 +607,8 @@ class XsltRenderer:
         return "\n".join(lines) + "\n"
 
 
-# ---- deform views: a function that gives the options of a select of a form, as the value
+# ---- deform views: a function that gives the options of a select of a form, as the
+# value
 # of another field says (a schema file, as the type says), declared with
 # `@DeformViews.declare(name, form=..., at=..., permission=...)`. It answers over HTTP
 # (`GET /<repo>/deform/<name>?field=...`, for the select to ask when the other one

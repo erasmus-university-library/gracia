@@ -40,11 +40,11 @@ class CacheCase(EtagCase):
         database.cursor = lambda: (asked.append("cursor"), cursor())[1]
 
         class Counting:
-            def execute(_, sql, *args, **kwargs):  # noqa: N805
+            def execute(_, sql, *args, **kwargs):
                 asked.append("sql")
                 return con.execute(sql, *args, **kwargs)
 
-            def __getattr__(_, name):  # noqa: N805
+            def __getattr__(_, name):
                 return getattr(con, name)
 
         self.cached.con = Counting()

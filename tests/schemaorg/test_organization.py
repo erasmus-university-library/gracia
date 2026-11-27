@@ -170,9 +170,9 @@ class SubclassTest(OrganizationCase):
         data, _node = assets.record_shape((shapes, shape), content.class_uri)
         found = set()
         for q in data.dataset:
-            if q.predicate.value == "http://www.w3.org/ns/shacl#class":
-                if q.object.value == SCHEMA + "Person":
-                    found.add(q.object.value)
+            is_class = q.predicate.value == "http://www.w3.org/ns/shacl#class"
+            if is_class and q.object.value == SCHEMA + "Person":
+                found.add(q.object.value)
         self.assertEqual(found, {SCHEMA + "Person"})
 
 

@@ -430,7 +430,7 @@ class RecordsTest(DbTestCase):
         self.assertEqual(s.reserve_ids("fresh", 40), 40)  # a type that has nothing yet
         self.assertEqual(s.mint_id("fresh"), 41)
 
-    def test_a_number_that_a_deleted_record_had_is_not_given_out_again_also_when_it_was_raw(  # noqa: E501
+    def test_a_number_that_a_deleted_record_had_is_not_given_out_again_also_when_it_was_raw(
         self,
     ):
         s = self.store

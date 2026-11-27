@@ -80,15 +80,16 @@ class HookContext:
 
 
 def add_gracia_predicate(config, cls: type[Predicate]) -> None:
-    """The directive of the scan for a class that implements `IPredicate`: one that has no
+    """The directive of the scan for a class that implements `IPredicate`: one that has
+    no
     `uri` is not the code of a predicate (the base class)."""
     if cls.uri is None:
         return
 
     def register():
-        config.registry.registerUtility(cls(), IPredicate, name=cls.uri)  # ty: ignore[missing-attribute]
+        config.registry.registerUtility(cls(), IPredicate, name=cls.uri)
 
-    config.action(("gracia predicate", cls.uri), register)  # ty: ignore[missing-attribute]
+    config.action(("gracia predicate", cls.uri), register)
 
 
 def find(registry, predicate_uri: str) -> Predicate | None:
