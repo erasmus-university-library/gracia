@@ -1,6 +1,6 @@
 from test_edit import EditCase
 
-from gracia.jobs.nodes import Jobs
+from gracia.jobs.web import Jobs
 from gracia.types.type import Record, Type
 
 

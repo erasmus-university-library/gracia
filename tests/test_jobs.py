@@ -11,9 +11,8 @@ from gracia.jobs import job as jobs_job
 from gracia.jobs import runner
 from gracia.jobs import stage as stage_module
 from gracia.jobs.db import NOW, JobsDb
-from gracia.jobs.job import Job
-from gracia.jobs.progress import Snapshotter
-from gracia.jobs.spec import JobSpecError, validate_spec
+from gracia.jobs.job import Job, JobSpecError, validate_spec
+from gracia.jobs.runner import Snapshotter
 from gracia.jobs.stage import JobTask, Stage
 from gracia.main import make_config
 from gracia.store import fetch_one
@@ -179,11 +178,7 @@ class DbTest(JobsCase):
 
 class RegistryTest(JobsCase):
     def test_what_is_scanned_for_jobs_and_for_stages(self):
-        built_in = [
-            "gracia.jobs.validate",
-            "gracia.jobs.type_jobs",
-            "gracia.jobs.repository_jobs",
-        ]
+        built_in = ["gracia.jobs.job"]
         self.assertEqual(jobs_job.scan_targets({}), built_in)
         self.assertEqual(
             jobs_job.scan_targets({"gracia.jobs": "mylib.jobs other.module"}),
@@ -191,7 +186,7 @@ class RegistryTest(JobsCase):
         )
         # one inside another is not scanned twice: that would be a conflict
         self.assertEqual(
-            jobs_job.scan_targets({"gracia.jobs": "gracia.jobs.validate"}), built_in
+            jobs_job.scan_targets({"gracia.jobs": "gracia.jobs.job"}), built_in
         )
         point = SimpleNamespace(value="installed.jobs:Thing")
         with mock.patch.object(jobs_job, "entry_points", lambda group: [point]):

@@ -170,8 +170,7 @@ def includeme(config: Configurator) -> None:
     config.add_view_predicate("enabled_extension", extensions.ExtensionPredicate)
     # what is below a repository besides its types (`jobs`, `deform`, `rec:`): the
     # nodes that say so with `@traversable`
-    config.scan("gracia.jobs.nodes")
-    config.scan("gracia.jobs.views")
+    config.scan("gracia.jobs.web")
     config.add_renderer(templates.DeformViewRenderer.name, templates.DeformViewRenderer)
     config.add_view(
         templates.DeformViews.serve,

@@ -13,8 +13,7 @@ from webtest import TestApp
 from gracia.interfaces import IJob
 from gracia.jobs import procs
 from gracia.jobs.db import JobsDb
-from gracia.jobs.job import Job, all_jobs, job
-from gracia.jobs.validate import ValidateJob
+from gracia.jobs.job import Job, ValidateJob, all_jobs, job
 from gracia.main import make_config
 
 ORIGIN = {"Origin": "http://localhost:80"}  # what the browser says of the test host

@@ -9,29 +9,33 @@ import luigi
 import pyoxigraph as ox
 from luigi.local_target import LocalTarget
 from pyramid.threadlocal import manager
+
 from gracia import uri
-from gracia.change_events import (ChangeEventsWorker)
-from gracia.graph import dataset_rdfxml
-from gracia.graph import Graph
-from gracia.jobs import context
-from gracia.jobs.stage import (JobTask, Stage, StageFailure)
+from gracia.change_events import ChangeEventsWorker
+from gracia.graph import Graph, dataset_rdfxml
+from gracia.jobs.runner import context
+from gracia.jobs.stage import JobTask, Stage, StageFailure
 from gracia.utils import assets
 
 
 def find_type(node, wanted: str):
     types = node.types
-    found = types.get(wanted) or next((k for k in types.values() if k.name == wanted), None)
+    found = types.get(wanted) or next(
+        (k for k in types.values() if k.name == wanted), None
+    )
     if found is None:
         known = ", ".join(sorted(types)) or "none"
-        raise StageFailure(f"no type {wanted!r} in repository {node.__name__} (known: {known})")
+        raise StageFailure(
+            f"no type {wanted!r} in repository {node.__name__} (known: {known})"
+        )
     return found
 
 
-# ---- the plan -----------------------------------------------------------------------------------
+# ---- the plan
+# -----------------------------------------------------------------------------------
 
 
 class Plan(JobTask):
-
     first = luigi.Parameter()  # the JSON of the first stage of the job
 
     def output(self):
@@ -43,16 +47,15 @@ class Plan(JobTask):
 
 
 class Source(Stage):
-
     first = True
     abstract = True
 
 
-# ---- Export --------------------------------------------------------------------------------------
+# ---- Export
+# --------------------------------------------------------------------------------------
 
 
 class Export(Source):
-
     res_type = luigi.Parameter(default="")  # a slug or a name; none: every type
     chunk_bytes = luigi.IntParameter(default=0)  # 0: all in one file
     graphs = luigi.BoolParameter(default=False)
@@ -67,9 +70,13 @@ class Export(Source):
             res_type = find_type(node, self.res_type) if self.res_type else None
             directory = self.directory()
             directory.mkdir(parents=True, exist_ok=True)
-            bound = node.store.last_transaction()  # before the export: what is written after is not in it
+            bound = (
+                node.store.last_transaction()
+            )  # before the export: what is written after is not in it
             if self.queued:
-                count, files, bound = node.store.export_queue(directory / "chunks", self.chunk_bytes)
+                count, files, bound = node.store.export_queue(
+                    directory / "chunks", self.chunk_bytes
+                )
             else:
                 count, files = node.store.export_chunks(
                     directory / "chunks",
@@ -91,12 +98,18 @@ class Export(Source):
 
     @classmethod
     def offer(cls, job_dir: Path, stages: list, index: int) -> tuple[str, str] | None:
-        for extension, content_type in (("nt", "application/n-triples"), ("trig", "application/trig")):
-            files = sorted((job_dir / f"{index:02d}-{cls.__name__}").glob(f"batch-*.{extension}"))
+        for extension, content_type in (
+            ("nt", "application/n-triples"),
+            ("trig", "application/trig"),
+        ):
+            files = sorted(
+                (job_dir / f"{index:02d}-{cls.__name__}").glob(f"batch-*.{extension}")
+            )
             if files:
                 with open(job_dir / f"export.{extension}", "wb") as out:
                     for path in files:
-                        shutil.copyfileobj(open(path, "rb"), out)
+                        with open(path, "rb") as part:
+                            shutil.copyfileobj(part, out)
                 return f"export.{extension}", content_type
         return None
 
@@ -106,12 +119,12 @@ class Export(Source):
         count = len(JobTask.read_items(path))
         JobTask.write_lines(out["rejected"], [])
         JobTask.write_json(
-            out["stats"], {"processed": count, "passed": count, "rejected": {}, "samples": []}
+            out["stats"],
+            {"processed": count, "passed": count, "rejected": {}, "samples": []},
         )
 
 
 class UpdateCache(Stage):
-
     def process(self, items):
         cache = context.application().cache
         passed, rejected, made = [], [], []
@@ -122,7 +135,9 @@ class UpdateCache(Stage):
                 if record_id is None:
                     rejected.append({"id": item["id"], "reason": "no_record_id"})
                     continue
-                graph = ox.Dataset(ox.parse(item["source"].encode(), format=ox.RdfFormat.N_TRIPLES))
+                graph = ox.Dataset(
+                    ox.parse(item["source"].encode(), format=ox.RdfFormat.N_TRIPLES)
+                )
                 made.append((record_id, item["etag"], dataset_rdfxml(graph)))
                 passed.append({"id": item["id"]})
         try:
@@ -133,7 +148,6 @@ class UpdateCache(Stage):
 
 
 class ProcessChangeEvents(Stage):
-
     def process(self, items):
         bound = json.loads((Path(self.job_dir) / "plan.json").read_text())["bound"]
         entries, rejected = [], []
@@ -146,17 +160,27 @@ class ProcessChangeEvents(Stage):
                     continue
                 gone = item["etag"] == "delete"
                 entries.append(
-                    (record_id, item["id"], item["kind"], None if gone else item["etag"],
-                     None if gone else item["source"])
+                    (
+                        record_id,
+                        item["id"],
+                        item["kind"],
+                        None if gone else item["etag"],
+                        None if gone else item["source"],
+                    )
                 )
-            with ChangeEventsWorker.repository_lock(ChangeEventsWorker.lock_dir_for(context.settings()), self.repo, wait=True):
-                changes = ChangeEventsWorker(context.application(), context.registry()).deliver(self.repo, entries)
+            with ChangeEventsWorker.repository_lock(
+                ChangeEventsWorker.lock_dir_for(context.settings()),
+                self.repo,
+                wait=True,
+            ):
+                changes = ChangeEventsWorker(
+                    context.application(), context.registry()
+                ).deliver(self.repo, entries)
                 store.change_events_done([c.record_id for c in changes], bound)
         return [{"id": c.record, "kind": c.kind} for c in changes], rejected
 
 
 class IndexRecords(Stage):
-
     def process(self, items):
         from gracia.search import definitions_for
 
@@ -164,7 +188,9 @@ class IndexRecords(Stage):
         plan = json.loads((job_dir / "plan.json").read_text())
         locks, token = ChangeEventsWorker.lock_dir_for(context.settings()), job_dir.name
         rejected, ids = [], {}
-        with context.repository(self.repo) as node:  # this makes the configuration, which sets `indexes`
+        with context.repository(
+            self.repo
+        ) as node:  # this makes the configuration, which sets `indexes`
             indexes = context.application().indexes
             if indexes is None:
                 raise StageFailure("there is no search index: set gracia.index_dir")
@@ -176,29 +202,50 @@ class IndexRecords(Stage):
                 else:
                     ids[item["id"]] = record_id
             dataset = ox.Dataset(
-                ox.parse("".join(i["source"] for i in items if i["id"] in ids).encode(), format=ox.RdfFormat.N_TRIPLES)
+                ox.parse(
+                    "".join(i["source"] for i in items if i["id"] in ids).encode(),
+                    format=ox.RdfFormat.N_TRIPLES,
+                )
             )
             definitions = definitions_for(node)
             docs = []
             if ids and definitions:
-                manager.push({"registry": context.registry(), "request": None})  # the files of the types are assets
+                manager.push(
+                    {"registry": context.registry(), "request": None}
+                )  # the files of the types are assets
                 try:
                     made = context.application().cache.docs.bulk_update(
-                        node, ids, ox.serialize(dataset, format=ox.RdfFormat.RDF_XML).decode()
+                        node,
+                        ids,
+                        dataset_rdfxml(dataset).decode(),
                     )
                 finally:
                     manager.pop()
                 docs = list(made.values())
             for definition in definitions:
-                with ChangeEventsWorker.repository_lock(locks, f"index-{self.repo}-{definition.name}", wait=True):  # one writer
+                with ChangeEventsWorker.repository_lock(
+                    locks, f"index-{self.repo}-{definition.name}", wait=True
+                ):  # one writer
                     done = indexes.build_batch(self.repo, definition, token, docs)
                 for record, found in done["problems"].items():
-                    rejected.append({"id": record, "reason": "document", "message": "; ".join(found)})
+                    rejected.append(
+                        {
+                            "id": record,
+                            "reason": "document",
+                            "message": "; ".join(found),
+                        }
+                    )
             marks = job_dir / "index-done"
             marks.mkdir(exist_ok=True)
             (marks / str(self.n)).write_text("")
-            if len(list(marks.iterdir())) >= plan["batches"]:  # the last: the new indexes take over
-                with ChangeEventsWorker.repository_lock(ChangeEventsWorker.lock_dir_for(context.settings()), self.repo, wait=True):  # not the worker's turn
+            if (
+                len(list(marks.iterdir())) >= plan["batches"]
+            ):  # the last: the new indexes take over
+                with ChangeEventsWorker.repository_lock(
+                    ChangeEventsWorker.lock_dir_for(context.settings()),
+                    self.repo,
+                    wait=True,
+                ):  # not the worker's turn
                     if not (job_dir / "index-swapped").exists():
                         for definition in definitions:
                             indexes.swap(self.repo, definition, token)
@@ -208,7 +255,6 @@ class IndexRecords(Stage):
 
 
 class Rewrite(Source):
-
     res_type = luigi.Parameter()
     size = luigi.IntParameter(default=5000)
 
@@ -235,7 +281,6 @@ class Rewrite(Source):
 
 
 class PurgeSlugs(Source):
-
     res_type = luigi.Parameter()
 
     def plan(self) -> dict:
@@ -251,7 +296,6 @@ class PurgeSlugs(Source):
 
 
 class RebuildEtags(Source):
-
     def plan(self) -> dict:
         with context.repository(self.repo) as node:
             records = sum(node.store.count_records_by_type().values())
@@ -260,12 +304,15 @@ class RebuildEtags(Source):
     def process(self, items):
         with context.repository(self.repo) as node:
             store = node.store
-            store.sync()  # the numbers of its types, which the ids of the etags are made of
+            # the numbers of its types, which the ids of the etags are
+            # made of
+            store.sync()
             wrong = store.rebuild_etags()
         return [{"id": record} for record in wrong], []
 
 
-# ---- Validate ------------------------------------------------------------------------------------
+# ---- Validate
+# ------------------------------------------------------------------------------------
 
 
 def _safe(text: str) -> str:
@@ -273,7 +320,6 @@ def _safe(text: str) -> str:
 
 
 class PinSchema(JobTask):
-
     res_type = luigi.Parameter()
     schema = luigi.Parameter(default="")
 
@@ -302,8 +348,12 @@ class PinSchema(JobTask):
             try:
                 source = assets.resolve(spec)
             except FileNotFoundError as err:
-                raise StageFailure(f"no schema file {schema} for {res_type.name} ({err})") from None
-            try:  # the shape must exist for the class of the type, or nothing is checked at all
+                raise StageFailure(
+                    f"no schema file {schema} for {res_type.name} ({err})"
+                ) from None
+            # the shape must exist for the class of the type, or nothing
+            # is checked at all
+            try:
                 assets.load_shape(source, res_type.class_uri)
             except (ValueError, SyntaxError) as err:
                 raise StageFailure(f"cannot use {schema}: {err}") from None
@@ -327,7 +377,10 @@ class Validate(Stage):
     def also_requires(self):
         return {
             "schema": PinSchema(
-                job_dir=self.job_dir, repo=self.repo, res_type=self.res_type, schema=self.schema
+                job_dir=self.job_dir,
+                repo=self.repo,
+                res_type=self.res_type,
+                schema=self.schema,
             )
         }
 
@@ -337,7 +390,9 @@ class Validate(Stage):
         quads: list[ox.Quad] = []
         content: dict[str, bool] = {}
         for item in items:
-            found = list(ox.parse(item["source"].encode("utf-8"), format=ox.RdfFormat.N_TRIPLES))
+            found = list(
+                ox.parse(item["source"].encode("utf-8"), format=ox.RdfFormat.N_TRIPLES)
+            )
             content[item["id"]] = any(q.predicate.value == uri.RESOURCE for q in found)
             for quad in found:
                 for term in (quad.subject, quad.object):
@@ -351,7 +406,9 @@ class Validate(Stage):
             record = owner.get(label) or owner.get(label.removeprefix("_:")) or label
             by_record.setdefault(record, []).append(
                 {
-                    "focus": None if record != label and label.startswith("_:") else label,
+                    "focus": None
+                    if record != label and label.startswith("_:")
+                    else label,
                     "path": violation.path,
                     "message": violation.message,
                     "severity": violation.severity,
@@ -367,9 +424,14 @@ class Validate(Stage):
                 rejected.append({"id": record, "reason": "no_content"})
             elif record in by_record:
                 rejected.append(
-                    {"id": record, "reason": "violation", "violations": by_record[record]}
+                    {
+                        "id": record,
+                        "reason": "violation",
+                        "violations": by_record[record],
+                    }
                 )
             else:
                 passed.append(item)
-        # nothing rejected: the very same list, so the base class links the file instead of copying
+        # nothing rejected: the very same list, so the base class links the file instead
+        # of copying
         return (items if not rejected else passed), rejected

@@ -7,10 +7,10 @@ from jobs_support import JobsCase, person
 
 from gracia.change_events import ChangeEventsWorker, RecordsChanged
 from gracia.graph import rdfxml
-from gracia.jobs import context, runner
-from gracia.jobs.repository_jobs import ProcessActionsJob, UpdateCacheJob
+from gracia.jobs import runner
+from gracia.jobs.job import ExportJob, ProcessActionsJob, UpdateCacheJob
+from gracia.jobs.runner import context
 from gracia.jobs.stage import JobTask
-from gracia.jobs.type_jobs import ExportJob
 from gracia.store import fetch_one
 from gracia.types.application import Application
 

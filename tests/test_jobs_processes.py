@@ -13,7 +13,8 @@ import pytest
 from jobs_support import JobsCase, echo, quack_owner
 
 from gracia import cli
-from gracia.jobs import cleanup, parse_duration, procs, retention, runner
+from gracia.jobs import db as jobs_db
+from gracia.jobs import parse_duration, procs, retention, runner
 from gracia.jobs.db import NOW, JobsDb
 
 ECHO = echo()
@@ -398,7 +399,7 @@ class CleanTest(ProcessCase):
 
     def clean(self, **kw):
         with JobsDb(self.application) as db:
-            return cleanup.clean(
+            return jobs_db.clean(
                 db, self.jobs_dir, parse_duration(kw.pop("older_than", "8h")), **kw
             )
 
@@ -456,11 +457,11 @@ class CleanTest(ProcessCase):
         link = self.jobs_dir / str(uuid.uuid4())
         link.symlink_to(outside, target_is_directory=True)
         (self.jobs_dir / "not-a-uuid").mkdir()
-        self.assertIsNone(cleanup.safe_job_dir(self.jobs_dir, link.name))  # a symlink
-        self.assertIsNone(cleanup.safe_job_dir(self.jobs_dir, "not-a-uuid"))
-        self.assertIsNone(cleanup.safe_job_dir(self.jobs_dir, "../precious"))
+        self.assertIsNone(jobs_db.safe_job_dir(self.jobs_dir, link.name))  # a symlink
+        self.assertIsNone(jobs_db.safe_job_dir(self.jobs_dir, "not-a-uuid"))
+        self.assertIsNone(jobs_db.safe_job_dir(self.jobs_dir, "../precious"))
         self.assertIsNone(
-            cleanup.safe_job_dir(self.jobs_dir, str(uuid.uuid4()).upper())
+            jobs_db.safe_job_dir(self.jobs_dir, str(uuid.uuid4()).upper())
         )  # not canonical
         old = time.time() - 20 * 3600
         os.utime(self.jobs_dir / "not-a-uuid", (old, old))

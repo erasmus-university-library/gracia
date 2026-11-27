@@ -53,6 +53,12 @@ unsupported-base = "ignore"  # zope.interface: `class IFoo(Interface)`
 invalid-type-form = "ignore"  # colander.SchemaNode used in annotations
 import-not-found = "ignore"  # saxonche ships no importable stubs here
 
+[[tool.ty.overrides]]
+include = ["src/gracia/jobs/**"]
+
+[tool.ty.overrides.rules]
+unknown-argument = "ignore"  # luigi.Parameter attributes are the arguments of a task
+
 [tool.ruff]
 line-length = 88
 target-version = "py312"

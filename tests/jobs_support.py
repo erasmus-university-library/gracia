@@ -14,7 +14,7 @@ from harness import open_application
 from gracia.jobs import runner
 from gracia.jobs.builtin import Source
 from gracia.jobs.db import JobsDb
-from gracia.jobs.spec import validate_spec
+from gracia.jobs.job import validate_spec
 from gracia.jobs.stage import JobTask, Stage, StageFailure
 from gracia.types.application import Application
 

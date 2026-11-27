@@ -6,8 +6,9 @@ from jobs_support import person as jobs_person
 from test_graph_jobs import LINKED, GraphJobsCase
 
 from gracia.change_events import ChangeEventsWorker, RecordsChanged
-from gracia.jobs import context, runner
-from gracia.jobs.repository_jobs import RebuildSearchJob
+from gracia.jobs import runner
+from gracia.jobs.job import RebuildSearchJob
+from gracia.jobs.runner import context
 from gracia.search import RECORDS, Indexes, on_records_changed
 from gracia.store import fetch_one
 
@@ -232,7 +233,7 @@ class FromTheSettingsTest(GraphJobsCase):
         directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, directory, True)
         context.use(self.application, {"gracia.index_dir": directory})
-        self.assertIsNone(context._current.config)  # a process that has not made it
+        self.assertIsNone(context._config)  # a process that has not made it
         self.assertIsNone(self.application.indexes)
         _, files = self.store.export_chunks(
             Path(directory) / "export", None, 32_000_000, graphs=True

@@ -1,3 +1,4 @@
+import contextlib
 import json
 import os
 import signal
@@ -44,7 +45,9 @@ def is_alive(pid: int | None, started: int | None = None) -> bool:
     return True
 
 
-def spawn(job_id: str, log_path: Path, config: str | None = None, db: str | None = None) -> int:
+def spawn(
+    job_id: str, log_path: Path, config: str | None = None, db: str | None = None
+) -> int:
     command = [sys.executable, "-m", "gracia"]
     if config:
         command += ["-c", str(config)]
@@ -155,7 +158,11 @@ def reconcile(db: JobsDb, jobs_dir: Path, host: str | None = None) -> list[str]:
     reap_children()
     judged = []
     for job in db.active():
-        if job["state"] not in ("running", "stopping") or job["host"] != host or not job["pid"]:
+        if (
+            job["state"] not in ("running", "stopping")
+            or job["host"] != host
+            or not job["pid"]
+        ):
             continue
         if is_alive(job["pid"], job["pid_started"]):
             continue
@@ -217,7 +224,9 @@ def stop_job(
                 time.sleep(0.1)
                 reap_children()
     elif job["host"] != host:
-        raise RuntimeError(f"the job runs on {job['host']}, not on {host}: stop it there")
+        raise RuntimeError(
+            f"the job runs on {job['host']}, not on {host}: stop it there"
+        )
     message = stopped_by if job["pid"] else "stopped (the process was gone)"
     db.update_job(
         job_id,
@@ -235,7 +244,5 @@ def _leads_its_group(pid: int) -> bool:
 
 
 def _signal_group(pid: int, sig: int) -> None:
-    try:
+    with contextlib.suppress(ProcessLookupError):
         os.killpg(pid, sig)
-    except ProcessLookupError:
-        pass

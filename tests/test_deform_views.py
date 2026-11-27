@@ -186,7 +186,7 @@ class DeclaredTest(FieldsCase):
 
         self.assertIsNone(support.shades.deform_at)  # the repository
         self.assertEqual(support.hue.deform_permission, "edit")
-        from gracia.jobs.validate import schema_files
+        from gracia.jobs.job import schema_files
 
         self.assertEqual(
             (schema_files.deform_at, schema_files.deform_permission),

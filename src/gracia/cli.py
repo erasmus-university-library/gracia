@@ -608,7 +608,7 @@ def cmd_jobs_log(args) -> int:
 
 def _make_job(args, spec: dict) -> int:
     from gracia.jobs import procs
-    from gracia.jobs.spec import JobSpecError, validate_spec
+    from gracia.jobs.job import JobSpecError, validate_spec
 
     with _jobs(args) as (application, db, directory, _cfg):
         try:
@@ -646,7 +646,7 @@ def cmd_jobs_create(args) -> int:
 
 
 def cmd_jobs_validate(args) -> int:
-    from gracia.jobs.validate import ValidateJob
+    from gracia.jobs.job import ValidateJob
 
     params = {"res_type": args.res_type, "size": args.size, "schema": args.schema}
     return _make_job(args, ValidateJob().spec(args.repo, params))
@@ -691,11 +691,12 @@ def cmd_jobs_stop(args) -> int:
 
 
 def cmd_jobs_clean(args) -> int:
-    from gracia.jobs import cleanup, procs, retention
+    from gracia.jobs import db as jobs_db
+    from gracia.jobs import procs, retention
 
     with _jobs(args) as (_app, db, directory, settings):
         procs.reconcile(db, directory)
-        report = cleanup.clean(
+        report = jobs_db.clean(
             db, directory, retention(settings, args.older_than), args.dry_run
         )
     verb = "would remove" if report.dry_run else "removed"

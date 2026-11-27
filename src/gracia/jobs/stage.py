@@ -22,7 +22,6 @@ class StageFailure(Exception):
 
 
 class JobTask(luigi.Task):
-
     job_dir = luigi.Parameter()
     repo = luigi.Parameter()
 
@@ -42,7 +41,12 @@ class JobTask(luigi.Task):
             if block is not None:
                 if line == "}":
                     items.append(
-                        {"id": block[0][1:-3], "etag": etag, "kind": kind, "source": "\n".join(block[1:]) + "\n"}
+                        {
+                            "id": block[0][1:-3],
+                            "etag": etag,
+                            "kind": kind,
+                            "source": "\n".join(block[1:]) + "\n",
+                        }
                     )
                     block = None
                 else:
@@ -71,9 +75,13 @@ class JobTask(luigi.Task):
 
     @staticmethod
     def write_lines(target: LocalTarget, items) -> None:
-        with target.open("w") as handle:  # a temporary file that is renamed: never half written
+        with target.open(
+            "w"
+        ) as handle:  # a temporary file that is renamed: never half written
             for item in items:
-                handle.write(json.dumps(item, ensure_ascii=False, separators=(",", ":")) + "\n")
+                handle.write(
+                    json.dumps(item, ensure_ascii=False, separators=(",", ":")) + "\n"
+                )
 
     @staticmethod
     def write_json(target: LocalTarget, data) -> None:
@@ -113,8 +121,11 @@ class Stage(JobTask):
     n = luigi.IntParameter()  # the batch
     chain = luigi.Parameter()  # JSON: the stages up to and including this one
 
-    extension = "jsonl"  # of the file of the items that pass on: `nt` for records as N-Triples
-    first = False  # a source: nothing comes before it, `plan` says how many batches there are
+    extension = (
+        "jsonl"  # of the file of the items that pass on: `nt` for records as N-Triples
+    )
+    # a source: nothing comes before it, `plan` says how many batches there are
+    first = False
     abstract = True  # a base class: not a stage a job can name
 
     @property
@@ -125,7 +136,8 @@ class Stage(JobTask):
     def index(self) -> int:
         return len(self.stages) - 1
 
-    # ---- what a stage author may override ----------------------------------------------------
+    # ---- what a stage author may override
+    # ----------------------------------------------------
 
     def process(self, items):
         raise NotImplementedError
@@ -136,12 +148,15 @@ class Stage(JobTask):
     def also_requires(self) -> dict:
         return {}
 
-    # ---- the wiring -----------------------------------------------------------------------------
+    # ---- the wiring
+    # -----------------------------------------------------------------------------
 
     def requires(self):
         needed = dict(self.also_requires())
         if self.first:
-            from gracia.jobs.builtin import Plan  # the plan is a task of its own: done once
+            from gracia.jobs.builtin import (
+                Plan,  # the plan is a task of its own: done once
+            )
 
             needed["upstream"] = Plan(
                 job_dir=self.job_dir, repo=self.repo, first=self.dumps(self.stages[0])
@@ -197,9 +212,10 @@ class Stage(JobTask):
         )
         if unchanged:
             self.link_or_copy(Path(upstream["passed"].path), Path(out["passed"].path))
-        else:  # the data is written last: a task is only done when all three files are there
+        # the data is written last: a task is only done when all three files
+        # are there
+        else:
             self.write_lines(out["passed"], passed)
-
 
     # ---- finding stages by name
 
@@ -209,7 +225,9 @@ class Stage(JobTask):
             found = Register.get_task_cls(name)
         except Exception as err:
             raise KeyError(name) from err
-        if not (isinstance(found, type) and issubclass(found, Stage)) or found.__dict__.get("abstract"):
+        if not (
+            isinstance(found, type) and issubclass(found, Stage)
+        ) or found.__dict__.get("abstract"):
             raise KeyError(name)
         return found
 
@@ -228,12 +246,20 @@ class Stage(JobTask):
     def make(job_dir, repo: str, stages: list, n: int) -> Stage:
         entry = stages[-1]
         cls = Stage.named(entry["stage"])
-        return cls(job_dir=str(job_dir), repo=repo, n=n, chain=JobTask.dumps(stages), **entry.get("params", {}))
+        return cls(
+            job_dir=str(job_dir),
+            repo=repo,
+            n=n,
+            chain=JobTask.dumps(stages),
+            **entry.get("params", {}),
+        )
 
     @staticmethod
     def load_modules(settings: dict | None = None) -> list[str]:
         names = [BUILTIN]
-        names += [entry.value.split(":")[0] for entry in entry_points(group=ENTRY_POINT_GROUP)]
+        names += [
+            entry.value.split(":")[0] for entry in entry_points(group=ENTRY_POINT_GROUP)
+        ]
         names += (settings or {}).get("gracia.stages", "").split()
         names = list(dict.fromkeys(names))
         for name in names:

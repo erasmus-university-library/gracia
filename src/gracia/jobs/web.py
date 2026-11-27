@@ -1,30 +1,93 @@
-"""The views of the jobs of a repository: the list and the start of them (`JobsView`, of
-the node `jobs`) and one run of a job (`JobRunView`, below it)."""
-
 import contextlib
+import re
 from pathlib import Path
 
 import deform
+from pyramid.authorization import DENY_ALL, Allow
 from pyramid.httpexceptions import HTTPForbidden, HTTPNotFound, HTTPServiceUnavailable
 from pyramid.response import FileResponse, Response
 from pyramid.view import view_config
 
 from gracia import static
-from gracia.interfaces import IJob
+from gracia.forms import fragment
+from gracia.interfaces import IJob, Node, traversable
 from gracia.jobs import ACTIVE, jobs_dir, procs
 from gracia.jobs.db import JobsDb
-from gracia.jobs.job import all_jobs
-from gracia.jobs.nodes import JobRun, Jobs
-from gracia.jobs.spec import JobSpecError, validate_spec
-from gracia.forms import fragment
-from gracia.security import same_origin
+from gracia.jobs.job import JobSpecError, all_jobs, validate_spec
+from gracia.security import ADMINS, same_origin
 from gracia.templates import XsltRenderer
 
+"""The nodes of the jobs of a repository: `jobs` (the list and the start of jobs) and
+below it a run of a job (`JobRun`)."""
+
+_UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 LIST_LIMIT = (
     50  # the newest jobs of the list; the finished ones go with `gracia jobs clean`
 )
 LOG_CHUNK = 64 * 1024
 LOGS = {"luigi": "luigi.log", "job": "job.log"}
+
+
+@traversable("jobs")
+class Jobs(Node):
+    __name__ = "jobs"
+
+    def __init__(self, repository):
+        super().__init__(repository)
+
+    @property
+    def __acl__(self):
+        from gracia.jobs.job import all_jobs
+
+        grants: dict[str, list[str]] = {}
+        for job in all_jobs(self.registry):
+            for group in job.groups:
+                grants.setdefault(f"group:{group}", ["list_jobs"]).append(
+                    job.start_permission
+                )
+        return [
+            ADMINS,
+            *((Allow, group, perms) for group, perms in sorted(grants.items())),
+            DENY_ALL,
+        ]
+
+    def __getitem__(self, job_id: str) -> "JobRun":
+        if not _UUID.match(job_id):
+            raise KeyError(job_id)
+        from gracia.jobs.db import JobsDb
+
+        with JobsDb(self.application) as db:
+            row = db.get(job_id)
+        if row is None or row["repo"] != self.repository.__name__:
+            raise KeyError(job_id)
+        return self.run(row)
+
+    def run(self, row: dict) -> "JobRun":
+        run = JobRun(self.repository, row)
+        run.__parent__ = self
+        return run
+
+
+class JobRun(Node):
+    def __init__(self, repository, row: dict):
+        self.__name__ = row["id"]
+        super().__init__(repository)
+        self.row = row
+
+    @property
+    def __acl__(self):
+        creator = self.row[
+            "created_by"
+        ]  # `user:<userid>`; None for a job from the command line
+        return [
+            *([(Allow, creator, ["view_job", "stop_job"])] if creator else []),
+            ADMINS,
+            DENY_ALL,
+        ]
+
+
+"""The views of the jobs of a repository: the list and the start of them (`JobsView`, of
+the node `jobs`) and one run of a job (`JobRunView`, below it)."""
 
 
 class JobsBase:
@@ -34,7 +97,6 @@ class JobsBase:
     def __init__(self, request):
         self.request = request
         self.context = request.context
-
 
     def directory(self):
         try:
@@ -167,7 +229,9 @@ class JobsView(JobsBase):
     def visible(self, db: JobsDb, job=None, subject=None) -> list[dict]:
         request, node = self.request, self.context
         out = []
-        for row in db.list_jobs(repo=node.repository.__name__, job=job, subject=subject):
+        for row in db.list_jobs(
+            repo=node.repository.__name__, job=job, subject=subject
+        ):
             if request.has_permission("view_job", node.run(row)):
                 out.append(self.summary(node, row))
                 if len(out) >= LIST_LIMIT:
