@@ -170,3 +170,19 @@ def default_resource_uri(
 def parse_record_uri(key: str) -> tuple[str, int] | None:
     found = _RECORD.match(key)
     return (found[1], int(found[2])) if found else None
+
+
+# The name of a URI as people read it: the namespace is taken off and the words are
+# split (https://schema.org/CollegeOrUniversity: College or university). Shapes do not
+# describe the classes and other things they list, so this is the label of a choice.
+def uri_label(value: str) -> str:
+    split = re.sub(
+        r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])", " ", local_name(value)
+    )
+    words = split.split()
+    text = " ".join(w if w.isupper() and len(w) > 1 else w.lower() for w in words)
+    return text[:1].upper() + text[1:]
+
+
+def local_name(path: str) -> str:
+    return path.rsplit("/", 1)[-1].rsplit("#", 1)[-1]

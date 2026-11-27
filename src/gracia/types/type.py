@@ -53,7 +53,7 @@ from gracia.graph import Graph, ParseError
 from gracia.interfaces import IRecord, IRecordType, IType, Node
 from gracia.jobs.job import all_jobs
 from gracia.security import ADMINS, same_origin
-from gracia.store import PAGE_SIZE, DuplicateValue, page_window
+from gracia.store import PAGE_SIZE, DuplicateValue, Store, page_window
 from gracia.templates import XsltRenderer
 from gracia.utils import assets, dates, etags, pretty_modified
 
@@ -258,13 +258,14 @@ class Type(Node):
 
     @cached_property
     def property_roles(self) -> list[tuple[str, str, int]]:
-        return forms.property_roles(*self.shacl_shape(), self.class_uri)
+        shapes, shape = self.shacl_shape()
+        return shapes.property_roles(shape, self.class_uri)
 
     @cached_property
     def icon(self) -> str | None:
         """The Bootstrap icon of the type (the icon role of its shape), if any."""
         shapes = self.shacl_shape(include_record_shape=False)
-        return forms.icon(*shapes) if shapes else None
+        return shapes[0].icon(shapes[1]) if shapes else None
 
     def property_role_paths(self, role: str) -> list[str]:
         return [path for r, path, _place in self.property_roles if r == role]
@@ -275,8 +276,7 @@ class Type(Node):
 
     def _sql_plan(self, shapes, shape, above: tuple = ()) -> list[str]:
         properties = [
-            (path, forms.nested_shape(shapes, prop))
-            for path, prop in forms.properties(shapes, shape)
+            (path, shapes.nested_shape(prop)) for path, prop in shapes.properties(shape)
         ]
         statements = []
         for _path, nested in properties:  # what is embedded comes first
@@ -285,12 +285,14 @@ class Type(Node):
                     shapes, nested, (*above, shape)
                 )  # is its own
         made: dict[str, list] = {}
-        for template in shacl.of_shape(shapes, shape):
+        for template in shapes.templates(shape):
             made.setdefault(template.target, []).append(template)
         for target, variants in made.items():  # before any label is made
             context = predicates.HookContext(self.repository, self, target)
             statements += [
-                s for s in shacl.sql_of(variants, context) if s not in statements
+                s
+                for s in Store.template_statements(variants, context)
+                if s not in statements
             ]
         for path, _nested in properties:
             code = predicates.find(self.registry, path)
@@ -483,17 +485,17 @@ class Record(Node):
     ) -> list[colander.SchemaNode]:
         nodes = []
         made: dict[str, list] = {}
-        for template in shacl.of_shape(shapes, shape):
+        for template in shapes.templates(shape):
             made.setdefault(template.target, []).append(template)
-        only_for = forms.fields_only_for(shapes, shape)  # fields of some works only
-        for path, prop in forms.properties(shapes, shape):
+        only_for = shapes.fields_only_for(shape)  # fields of some works only
+        for path, prop in shapes.properties(shape):
             if path in self.hidden:
                 continue
-            nested = forms.nested_shape(shapes, prop)
+            nested = shapes.nested_shape(prop)
             if nested is not None and nested in (*above, shape):
                 node = None  # a shape that refers to itself: no form is that deep
             elif nested is not None:
-                title = forms.property_title(shapes, prop, path)
+                title = shapes.property_title(prop, path)
                 node = colander.SchemaNode(
                     colander.Mapping(), name=forms.local_name(path), title=title
                 )
@@ -511,12 +513,12 @@ class Record(Node):
                     node.children,
                     forms.alternatives_validator(shapes, nested, node.children),
                 )
-                node.icon = forms.icon(shapes, prop, nested)
-                node.header, node.header_addon = shacl.header_of(shapes, nested)
-                lowest, highest = forms.cardinality(shapes, prop)
+                node.icon = shapes.icon(prop, nested)
+                node.header, node.header_addon = shapes.header_templates(nested)
+                lowest, highest = shapes.cardinality(prop)
                 if (lowest, highest) != (1, 1):  # not exactly one: none, one, or more,
                     node.name = "item"  # each of them added (a button) or removed
-                    node.node_class = forms.nested_class(shapes, nested)
+                    node.node_class = shapes.nested_class(nested)
                     node.widget = deform.widget.MappingWidget(template="mapping_plain")
                     target = self.type if self.is_new else self
                     node = colander.SchemaNode(
@@ -542,7 +544,7 @@ class Record(Node):
                     node.icon = node.children[0].icon
             else:
                 node = forms.leaf_node(shapes, prop, path)
-                if node is None and forms.is_list(shapes, prop):
+                if node is None and shapes.is_list(prop):
                     target = self.type if self.is_new else self
                     node = forms.list_node(
                         shapes,
@@ -550,7 +552,7 @@ class Record(Node):
                         path,
                         request.resource_url(target, "sequence") if request else None,
                     )
-                if node is None and forms.is_bag(shapes, prop):
+                if node is None and shapes.is_bag(prop):
                     target = self.type if self.is_new else self
                     node = forms.bag_node(
                         shapes,
@@ -560,12 +562,8 @@ class Record(Node):
                     )
                 if node is not None:
                     forms.localize_dates(node, self.repository)
-                if (
-                    node is not None
-                    and request is not None
-                    and forms.by_uri(shapes, prop)
-                ):
-                    named = forms.reference_shapes(shapes, prop, shape)
+                if node is not None and request is not None and shapes.by_uri(prop):
+                    named = shapes.reference_shapes(prop, shape)
                     classes, new, icons = self.reference_kinds(request, named)
                     if classes:  # a reference to records: looked for by their labels
                         forms.wire_references(
@@ -588,11 +586,11 @@ class Record(Node):
                     forms.made_of(
                         node,
                         made[path],
-                        shacl.variants_json(made[path]),
-                        forms.needed(shapes, shape, path),
+                        shacl.PropertyTemplate.variants_json(made[path]),
+                        shapes.needed(shape, path),
                     )
             if node is not None:
-                node.group = forms.property_group(shapes, prop)
+                node.group = shapes.property_group(prop)
             if node is not None and path in only_for:
                 node.only_for_classes = only_for[path]
             if node is not None:
@@ -606,7 +604,7 @@ class Record(Node):
                 node = code.schema_node(self, request, node)
             if node is not None:
                 node.predicate = path
-                node.as_uri = forms.is_iri(shapes, prop)
+                node.as_uri = shapes.is_iri(prop)
                 nodes.append(node)
         return nodes
 
@@ -634,7 +632,7 @@ class Record(Node):
     def _follow(self, request, shapes, shape, prop) -> dict | None:
         """For a reference that follows the field next to it (the role of a
         contributor): what it points at for each value of that field."""
-        followed = forms.class_follow(shapes, shape, prop)
+        followed = shapes.class_follow(shape, prop)
         if followed is None:
             return None
         path, by_value = followed
@@ -918,7 +916,7 @@ class Record(Node):
         have = {n.predicate for n in self.fields} | set(self.supplies)
         return [
             f"The form cannot fill in {path}, which {self.type.name} requires"
-            for path in sorted(forms.required_paths(*found) - have)
+            for path in sorted(found[0].required_paths(found[1]) - have)
         ]
 
     def validate(self, graph: Graph | None = None) -> list[str]:
@@ -1035,7 +1033,7 @@ class RecordView:
         record = self.record
         res_type = self.res_type
         shapes, shape = res_type.shacl_shape()
-        names = forms.property_names(shapes, shape)
+        names = shapes.property_names(shape)
         properties = []
         for role in ("key_info", "description"):
             for path in dict.fromkeys(res_type.property_role_paths(role)):

@@ -18,7 +18,7 @@ from test_list_widget import ListCase
 from widgets_support import ADMIN, EX, ORG, POSTING, ROSTER
 
 from gracia import forms
-from gracia.change_events import RecordsChanged, process_pending
+from gracia.change_events import ChangeEventsWorker, RecordsChanged
 from gracia.search import Indexes, on_records_changed
 from gracia.types.repository import RepositoryView
 
@@ -49,7 +49,7 @@ class ReferenceCase(ListCase):
     def reindex(self) -> None:
         registry = Registry()
         registry.registerHandler(on_records_changed, (RecordsChanged,))
-        process_pending(self.application, registry)
+        ChangeEventsWorker(self.application, registry).process_pending()
 
     def lookup(self, text: str, *classes: str, who=ADMIN):
         params = [("q", text), *(("type", c) for c in classes)]
@@ -248,8 +248,8 @@ class ShapeClassesTest(ReferenceCase):
         roster = self.repository().types["roster"]
         graph, shape = roster.shacl_shape(include_record_shape=False)
         said = {
-            path: sorted(s.value for s in forms.reference_shapes(graph, prop))
-            for path, prop in forms.properties(graph, shape)
+            path: sorted(s.value for s in graph.reference_shapes(prop))
+            for path, prop in graph.properties(shape)
         }
         self.assertEqual(
             said[EX + "members"], ["https://gracia.pub/ns/PersonMinimalShape"]

@@ -26,7 +26,7 @@ from zope.interface import implementer
 
 from gracia import forms, interfaces, predicates, search, static, uri
 from gracia.api import document as api_document
-from gracia.extensions import ExtensionError, settings_form
+from gracia.extensions import Extension, ExtensionError, settings_form
 from gracia.forms import Form, edit_address, fragment
 from gracia.graph import Graph
 from gracia.interfaces import IExtension, IRepository, Node, traversable
@@ -84,7 +84,7 @@ class Repository:
         self.__parent__ = parent
         self._owns_store = True
         self._extensions: dict[str, object] = {}  # by name, for this node
-        self.extension_states: dict | None = None  # read by `gracia.extensions`
+        self._extension_states: dict | None = None  # read by `extension_states`
         self.extension_settings: dict = {}  # likewise
 
     def use_store(self, store) -> None:
@@ -390,6 +390,76 @@ class Repository:
             self._extensions[name] = found
         return self._extensions[name]
 
+    def extension_states(self) -> dict[str, tuple[bool | None, dict]]:
+        cached = self._extension_states
+        if cached is None:
+            try:
+                record = self.record()
+            except LookupError:
+                cached = {}
+            else:
+                cached = self.read_extension_states(record.graph, record.uri)
+            self._extension_states = cached
+        return cached
+
+    def write_extension(self, name: str, enabled: bool | None, settings: dict) -> None:
+        store = self.store
+        record = self.record()
+        subject, record_graph = record.resource, record.graph
+        if subject is None:
+            raise LookupError(
+                f"the record of repository {self.__name__} has no content"
+            )
+        graph = next(
+            iter(record_graph.quads_for_subject(ox.NamedNode(self.uri)))
+        ).graph_name
+        for node in record_graph.objects(subject, ox.NamedNode(uri.EXTENSION)):
+            said = record_graph.value(node, ox.NamedNode(uri.EXTENSION_NAME))
+            if said is not None and said.value == name:
+                for quad in list(record_graph.quads_for_subject(node)):
+                    record_graph.discard(quad)
+                record_graph.discard(
+                    ox.Quad(subject, ox.NamedNode(uri.EXTENSION), node, graph)
+                )
+        placeholder = ox.NamedNode("urn:gracia:content")
+        parsed = ox.parse(
+            Extension.turtle(
+                f"<{placeholder.value}>", name, settings or None, enabled
+            ).encode(),
+            format=ox.RdfFormat.TURTLE,
+        )
+        for (
+            quad
+        ) in parsed:  # what the Turtle says of the placeholder is said of the content
+            owner = subject if quad.subject == placeholder else quad.subject
+            record_graph.add(ox.Quad(owner, quad.predicate, quad.object, graph))
+        store.put_multi(record_graph)
+        self._extension_states = None
+
+    @staticmethod
+    def read_extension_states(
+        graph, repo_uri: str
+    ) -> dict[str, tuple[bool | None, dict]]:
+        content = graph.value(ox.NamedNode(repo_uri), ox.NamedNode(uri.RESOURCE))
+        found: dict[str, tuple[bool | None, dict]] = {}
+        if content is None:
+            return found
+        for node in graph.objects(content, ox.NamedNode(uri.EXTENSION)):
+            name = graph.value(node, ox.NamedNode(uri.EXTENSION_NAME))
+            if name is None:
+                continue
+            flag = graph.value(node, ox.NamedNode(uri.EXTENSION_IS_ENABLED))
+            text = graph.value(node, ox.NamedNode(uri.EXTENSION_SETTINGS))
+            try:
+                settings = json.loads(text.value) if text is not None else {}
+            except ValueError:
+                settings = {}
+            found[name.value] = (
+                None if flag is None else flag.value.lower() in ("true", "1"),
+                settings if isinstance(settings, dict) else {},
+            )
+        return found
+
     def extensions(self) -> list:
         found = self.registry.getAdapters((self,), IExtension)
         return sorted(
@@ -602,7 +672,7 @@ class RepositoryView:
         given = given[0] if isinstance(given, list) else given
         shapes = res_type.shacl_shape(include_record_shape=False) if res_type else None
         if given and shapes:
-            return forms.describe(shapes[0], [given])[given]["label"]
+            return shapes[0].describe([given])[given]["label"]
         return res_type.name if res_type is not None else ""
 
     @staticmethod
@@ -813,7 +883,9 @@ class RepositoryManage(Manage):
                     "slug": slug,
                     # what the shape of the type says of itself (the schema file it is
                     # on)
-                    "description": forms.shape_description(*shape) if shape else "",
+                    "description": shape[0].shape_description(shape[1])
+                    if shape
+                    else "",
                     "system": bool(
                         res_type and res_type.class_uri in uri.SYSTEM_CLASSES
                     ),
@@ -1164,15 +1236,15 @@ class RepositoryManage(Manage):
         found: dict[str, tuple[str, str]] = {}
 
         def walk(dataset, shape, above=()):
-            for path, prop in forms.properties(dataset, shape):
+            for path, prop in dataset.properties(shape):
                 found.setdefault(
                     path,
                     (
-                        forms.property_title(dataset, prop, ""),
-                        forms.shape_description(dataset, prop),
+                        dataset.property_title(prop, ""),
+                        dataset.shape_description(prop),
                     ),
                 )
-                nested = forms.nested_shape(dataset, prop)
+                nested = dataset.nested_shape(prop)
                 if nested is not None and nested not in (*above, shape):
                     walk(dataset, nested, (*above, shape))
 

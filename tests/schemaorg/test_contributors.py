@@ -14,7 +14,7 @@ from schemaorg.cases import ADA, ADMIN, DELFT, POSTING, WORK, ReferenceCase
 from support import must_search, uri_select
 
 from gracia import forms, uri
-from gracia.graph import Graph
+from gracia.shacl import Shapes
 
 SCHEMA = "https://schema.org/"
 ROLE = "http://example.org/vocab/role/"
@@ -308,15 +308,13 @@ class ShapeSaysTest(unittest.TestCase):
     validates the same): there are no terms of its own for it."""
 
     @staticmethod
-    def graph(text: str) -> Graph:
-        return Graph.parse(PREFIXES + text, "turtle")
+    def graph(text: str) -> Shapes:
+        return Shapes.parse(PREFIXES + text, "turtle")
 
     @staticmethod
     def prop(graph, shape, path):
         return next(
-            p
-            for found, p in forms.properties(graph, ox.NamedNode(shape))
-            if found == path
+            p for found, p in graph.properties(ox.NamedNode(shape)) if found == path
         )
 
     ROLE_SHAPE = """
@@ -335,7 +333,7 @@ class ShapeSaysTest(unittest.TestCase):
     def test_the_alternatives_of_a_shape_say_what_a_reference_points_at(self):
         graph = self.graph(self.ROLE_SHAPE)
         prop = self.prop(graph, EX + "Role", SCHEMA + "contributor")
-        found = forms.class_follow(graph, ox.NamedNode(EX + "Role"), prop)
+        found = graph.class_follow(ox.NamedNode(EX + "Role"), prop)
         assert found is not None
         follows, by_value = found
         self.assertEqual(follows, SCHEMA + "roleName")
@@ -351,17 +349,15 @@ class ShapeSaysTest(unittest.TestCase):
         graph = self.graph(self.ROLE_SHAPE)
         shape = ox.NamedNode(EX + "Role")
         prop = self.prop(graph, EX + "Role", SCHEMA + "contributor")
-        found = forms.reference_shapes(graph, prop, shape)
+        found = graph.reference_shapes(prop, shape)
         self.assertCountEqual(
             [s.value for s in found], [EX + "PersonShape", EX + "OrganizationShape"]
         )
-        self.assertEqual(
-            forms.reference_shapes(graph, prop), []
-        )  # the property says none
+        self.assertEqual(graph.reference_shapes(prop), [])  # the property says none
 
         graph = self.graph(self.ROLE_SHAPE)
         prop = self.prop(graph, EX + "Role", SCHEMA + "roleName")
-        self.assertIsNone(forms.class_follow(graph, ox.NamedNode(EX + "Role"), prop))
+        self.assertIsNone(graph.class_follow(ox.NamedNode(EX + "Role"), prop))
 
     def test_the_alternatives_of_a_shape_say_for_which_resources_a_value_is(self):
         graph = self.graph(
@@ -374,12 +370,10 @@ class ShapeSaysTest(unittest.TestCase):
         )
         shape = ox.NamedNode(EX + "Kind")
         prop = self.prop(graph, EX + "Kind", SCHEMA + "url")
-        self.assertIsNone(forms.class_follow(graph, shape, prop))
-        self.assertEqual(forms.only_for_rules(graph, shape), {})
+        self.assertIsNone(graph.class_follow(shape, prop))
+        self.assertEqual(graph.only_for_rules(shape), {})
 
-        rules = forms.only_for_rules(
-            self.graph(self.WORK_SHAPE), ox.NamedNode(EX + "Work")
-        )
+        rules = self.graph(self.WORK_SHAPE).only_for_rules(ox.NamedNode(EX + "Work"))
         self.assertEqual(
             rules,
             {

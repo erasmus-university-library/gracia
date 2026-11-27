@@ -1,7 +1,7 @@
 import pyoxigraph as ox
 
 from gracia import uri
-from gracia.extensions import extension_turtle
+from gracia.extensions import Extension
 
 PLACEHOLDER = ox.NamedNode("urn:gracia:content")
 
@@ -13,7 +13,7 @@ def put_extension_state(
         repo_uri = uri.repository_uri()
         data = store.get(repo_uri)
         content = data.value(ox.NamedNode(repo_uri), ox.NamedNode(uri.RESOURCE))
-        text = turtle or extension_turtle(
+        text = turtle or Extension.turtle(
             f"<{PLACEHOLDER.value}>", name, settings, enabled
         )
         for quad in ox.parse(text.encode(), format=ox.RdfFormat.TURTLE):

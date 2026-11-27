@@ -5,7 +5,7 @@ import tantivy
 from jobs_support import person as jobs_person
 from test_graph_jobs import LINKED, GraphJobsCase
 
-from gracia.change_events import RecordsChanged, process_pending
+from gracia.change_events import ChangeEventsWorker, RecordsChanged
 from gracia.jobs import context, runner
 from gracia.jobs.repository_jobs import RebuildSearchJob
 from gracia.search import RECORDS, Indexes, on_records_changed
@@ -69,9 +69,9 @@ class RebuildTest(SearchJobCase):
         )
         # the documents are the ones the worker makes
         before = self.hits("Fourteen")
-        process_pending(
+        ChangeEventsWorker(
             self.application, context.registry()
-        )  # the worker's way, for the same records
+        ).process_pending()  # the worker's way, for the same records
         self.assertEqual(self.hits("Fourteen"), before)
         self.assertEqual(self.docs(), self.records())  # and no record twice
         # nothing of the making is left
@@ -131,9 +131,9 @@ class RebuildTest(SearchJobCase):
 
 class MeanwhileTest(SearchJobCase):
     def test_what_is_written_while_it_is_made_is_in_the_new_index_after(self):
-        process_pending(
+        ChangeEventsWorker(
             self.application, context.registry()
-        )  # the queue is empty: what follows is new
+        ).process_pending()  # the queue is empty: what follows is new
         real = Indexes.swap
         written = {}
 
@@ -151,9 +151,9 @@ class MeanwhileTest(SearchJobCase):
         self.assertGreater(
             self.store.pending_change_events()[0], written["queued"]
         )  # and more, queued again after the swap
-        process_pending(
+        ChangeEventsWorker(
             self.application, context.registry()
-        )  # the worker brings the new index up to date
+        ).process_pending()  # the worker brings the new index up to date
         self.assertEqual(
             self.hits("Newcomer"), [self.store.record_id_of("rec:person:300")]
         )
@@ -227,7 +227,7 @@ class FromTheSettingsTest(GraphJobsCase):
         from pathlib import Path
 
         from gracia.jobs.builtin import IndexRecords
-        from gracia.jobs.stage import dumps, read_graphs
+        from gracia.jobs.stage import JobTask
 
         directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, directory, True)
@@ -237,7 +237,7 @@ class FromTheSettingsTest(GraphJobsCase):
         _, files = self.store.export_chunks(
             Path(directory) / "export", None, 32_000_000, graphs=True
         )
-        items = read_graphs(files[0].read_text())
+        items = JobTask.read_graphs(files[0].read_text())
         job_dir = Path(directory) / "job"
         job_dir.mkdir()
         (job_dir / "plan.json").write_text(
@@ -247,7 +247,7 @@ class FromTheSettingsTest(GraphJobsCase):
             job_dir=str(job_dir),  # ty: ignore[unknown-argument]
             repo="test_repo",  # ty: ignore[unknown-argument]
             n=0,  # ty: ignore[unknown-argument]
-            chain=dumps([{"stage": "IndexRecords"}]),  # ty: ignore[unknown-argument]
+            chain=JobTask.dumps([{"stage": "IndexRecords"}]),  # ty: ignore[unknown-argument]
         )
         passed, rejected = stage.process(items)
         self.assertEqual((len(passed), rejected), (len(items), []))

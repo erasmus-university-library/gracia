@@ -17,7 +17,8 @@ from deform.template import ZPTRendererFactory, default_dir
 
 from gracia import static
 from gracia.graph import Graph
-from gracia.uri import G_NS, PROPERTY_TEMPLATE, SH_NS, parse_record_uri
+from gracia.shacl import RDF_TYPE
+from gracia.uri import G_NS, local_name, parse_record_uri, uri_label
 from gracia.utils import assets, dates
 
 GENERIC_ICON = "link-45deg"  # of a reference to a record, when it is not said what of
@@ -35,35 +36,13 @@ LANGUAGES = [
     ("ja", "Japanese"),
     ("ar", "Arabic"),
 ]
-DASH_ICON_ROLE = ox.NamedNode("http://datashapes.org/dash#IconRole")
-PROPERTY_ROLE = ox.NamedNode("http://datashapes.org/dash#propertyRole")
-SH_OR, SH_PROPERTY, SH_PATH = (SH_NS["or"], SH_NS.property, SH_NS.path)
-SH_HAS_VALUE = SH_NS.hasValue
-RDF_NS = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
-RDFS_LABEL = "http://www.w3.org/2000/01/rdf-schema#label"
-RDF_TYPE = RDF_NS + "type"
 IRI_TEXT = r"[A-Za-z][A-Za-z0-9+.-]*:[^\s<>\"{}|\\^`]+\Z"  # what can be an IRI here
-LANG_STRING = ox.NamedNode(RDF_NS + "langString")
-DASH = "http://datashapes.org/dash#"
-DASH_TEXT_AREA = ox.NamedNode(DASH + "TextAreaEditor")  # a text area of four lines
-DASH_URI = ox.NamedNode(
-    DASH + "URIEditor"
-)  # an IRI, as text (no widget of its own yet)
-LIST_EDITOR = ox.NamedNode(
-    G_NS.URIListEditor
-)  # an rdf:list of IRIs, in the order the form puts them in
 LANGUAGE_EDITOR = ox.NamedNode(
     G_NS.LanguageEditor
 )  # a language code, with a menu of languages
 LANGUAGE_CODE = re.compile(r"[A-Za-z]{1,8}(-[A-Za-z0-9]{1,8})*\Z")
 # what a shape says of its properties (dash): the role a property has in a page of a
 # record (`property_roles`) and the class it is the unique value for
-ROLE_NAMES = {
-    DASH + "LabelRole": "label",
-    DASH + "KeyInfoRole": "key_info",
-    DASH + "DescriptionRole": "description",
-}
-UNIQUE_VALUE_FOR_CLASS = DASH + "uniqueValueForClass"
 _TEMPLATES: dict[str, PageTemplateFile] = {}
 
 
@@ -196,18 +175,6 @@ def change_sequence(
     return field.widget.serialize(field, items)
 
 
-# The name of a URI as people read it: the namespace is taken off and the words are
-# split (https://schema.org/CollegeOrUniversity: College or university). Shapes do not
-# describe the classes and other things they list, so this is the label of a choice.
-def uri_label(value: str) -> str:
-    split = re.sub(
-        r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])", " ", local_name(value)
-    )
-    words = split.split()
-    text = " ".join(w if w.isupper() and len(w) > 1 else w.lower() for w in words)
-    return text[:1].upper() + text[1:]
-
-
 # A select of URIs, each named by what is left of it when the namespace is taken off,
 # with its icon if the shape has one. It is the widget of every property whose shape
 # lists IRIs (sh:in), such as the rdf:type that a resource has, of the classes its shape
@@ -261,24 +228,6 @@ class URISelectWidget(deform.widget.SelectWidget):
         if cstruct in (colander.null, None) and self.default and not field.error:
             cstruct = self.default
         return super().serialize(field, cstruct, **kw)
-
-
-# What a shape says of the things in a choice of URIs, when it describes them (an
-# rdfs:label and an icon, as a shape has them): the name and the icon of each.
-def describe(shapes: Graph, uris) -> dict[str, dict]:
-    found = {}
-    for value in uris:
-        node = ox.NamedNode(value)
-        labels = [
-            o.value
-            for o in shapes.objects(node, ox.NamedNode(RDFS_LABEL))
-            if isinstance(o, ox.Literal)
-        ]
-        found[value] = {
-            "label": labels[0] if labels else uri_label(value),
-            "icon": icon(shapes, node),
-        }
-    return found
 
 
 class ReadOnlyWidget(deform.widget.TextInputWidget):
@@ -430,42 +379,6 @@ class ReferenceWidget(deform.widget.TextInputWidget):
             addon=kw.get("addon", ""),
             describedby=kw.get("describedby", f"error-{field.oid}"),
         )
-
-
-# the shapes that say what a reference points at: the `sh:node` of the property, or of
-# the alternatives of its `sh:or`; of a list (an rdf:list of references) the shapes of
-# its items, which the shape of the list says as the `sh:node` of `rdf:first`
-def reference_shapes(shapes: Graph, prop, shape=None) -> list[ox.NamedNode]:
-    def named(subject) -> list[ox.NamedNode]:
-        return [
-            o for o in _objects(shapes, subject, "node") if isinstance(o, ox.NamedNode)
-        ]
-
-    def alternatives(subject) -> list:
-        found = [subject]
-        for head in _objects(shapes, subject, "or"):
-            found += _list_items(shapes, head)
-        return found
-
-    if not is_list(shapes, prop):
-        found = [s for a in alternatives(prop) for s in named(a)]
-        # and what the alternatives of its shape say it points at (a contributor's role)
-        paths = _objects(shapes, prop, "path")
-        for head in _objects(shapes, shape, "or") if shape is not None else []:
-            for alternative in _list_items(shapes, head):
-                for given in _alternative_parts(shapes, alternative)[1].get(
-                    paths[0].value if len(paths) == 1 else "", []
-                ):
-                    found.append(given)
-        return list(dict.fromkeys(found))
-    first = ox.NamedNode(RDF_NS + "first")
-    found: list[ox.NamedNode] = []
-    for list_shape in named(prop):
-        for part in alternatives(list_shape):
-            for item in _objects(shapes, part, "property"):
-                if first in _objects(shapes, item, "path"):
-                    found += [s for a in alternatives(item) for s in named(a)]
-    return found
 
 
 # a node (a text, or the bag or list of them) that refers to resources of the classes:
@@ -662,183 +575,15 @@ class Form(deform.Form):
             self.widget.attributes = {"novalidate": "novalidate"}  # ty: ignore[invalid-assignment]
 
 
-def _objects(shapes, subject, predicate):
-    return shapes.objects(subject, ox.NamedNode(SH_NS[predicate]))
-
-
-def _value(shapes, subject, predicate):
-    objects = _objects(shapes, subject, predicate)
-    return objects[0].value if objects else None
-
-
-def _editable(shapes, prop, many: bool = False) -> bool:
-    if is_list(shapes, prop) and not many:
-        return False  # the one value is a list: the rows of it are the fields
-    if (_objects(shapes, prop, "node") and not by_uri(shapes, prop)) or (
-        not many and _value(shapes, prop, "maxCount") != "1"
-    ):
-        return False
-    kinds = _objects(shapes, prop, "nodeKind")
-    if ox.NamedNode(SH_NS.BlankNode) in kinds:
-        return False
-    # an IRI is typed as text, when the shape says it is meant to be (dash:URIEditor)
-    return (
-        ox.NamedNode(SH_NS.IRI) not in kinds
-        or has_editor(shapes, prop, DASH_URI)
-        or bool(_objects(shapes, prop, "in"))  # a choice of IRIs (the types)
-    )
-
-
-def single_literal(shapes, prop) -> bool:
-    return (
-        _value(shapes, prop, "maxCount") == "1"
-        and not _objects(shapes, prop, "node")
-        and not is_iri(shapes, prop)
-    )
-
-
-def property_title(shapes: Graph, prop, path: str) -> str:
-    return _value(shapes, prop, "name") or path
-
-
-def is_iri(shapes: Graph, prop) -> bool:
-    return ox.NamedNode(SH_NS.IRI) in _objects(shapes, prop, "nodeKind") or by_uri(
-        shapes, prop
-    )
-
-
-def shape_description(shapes: Graph, shape) -> str:
-    return _value(shapes, shape, "description") or ""
-
-
-def local_name(path: str) -> str:
-    return path.rsplit("/", 1)[-1].rsplit("#", 1)[-1]
-
-
-# the name of the group a property is in (`sh:group` of a `sh:PropertyGroup`, which has
-# an rdfs:label): the form shows the properties of a group next to each other in a box
-def property_group(shapes: Graph, prop) -> str | None:
-    for group in _objects(shapes, prop, "group"):
-        labels = [
-            o.value
-            for o in shapes.objects(group, ox.NamedNode(RDFS_LABEL))
-            if isinstance(o, ox.Literal)
-        ]
-        return labels[0] if labels else local_name(group.value)
-    return None
-
-
-def properties(shapes: Graph, shape) -> list[tuple[str, ox.NamedNode | ox.BlankNode]]:
-    found = []
-    for prop in _objects(shapes, shape, "property"):
-        path = _objects(shapes, prop, "path")
-        if len(path) != 1 or not isinstance(path[0], ox.NamedNode):
-            continue  # property paths are not supported yet
-        order = _value(shapes, prop, "order")
-        found.append((float(order) if order else 1e9, path[0].value, prop))
-    return [(path, prop) for _, path, prop in sorted(found, key=lambda p: p[:2])]
-
-
-def cardinality(shapes: Graph, prop) -> tuple[int, int | None]:
-    highest = _value(shapes, prop, "maxCount")
-    return int(_value(shapes, prop, "minCount") or 0), int(highest) if highest else None
-
-
-def nested_class(shapes: Graph, shape) -> str | None:
-    for predicate in ("class", "targetClass"):
-        found = [
-            o for o in _objects(shapes, shape, predicate) if isinstance(o, ox.NamedNode)
-        ]
-        if found:
-            return found[0].value
-    return None
-
-
-# the name of a Bootstrap icon (without "bi-") that a shape has with the icon role (its
-# sh:defaultValue); a property shape with none has the one of the node it points at
-def icon(shapes: Graph, *candidates) -> str | None:
-    for shape in candidates:
-        if shape is not None and DASH_ICON_ROLE in shapes.objects(shape, PROPERTY_ROLE):
-            name = _value(shapes, shape, "defaultValue")
-            if name:
-                return name
-    return None
-
-
-def nested_shape(shapes: Graph, prop):
-    if by_uri(shapes, prop):  # a reference to records, not a form
-        return None
-    shapes = _objects(shapes, prop, "node")
-    return shapes[0] if shapes else None
-
-
-def _list_items(shapes: Graph, head) -> list:
-    found = []
-    while isinstance(head, ox.BlankNode):
-        found += shapes.objects(head, ox.NamedNode(RDF_NS + "first"))[:1]
-        rest = shapes.objects(head, ox.NamedNode(RDF_NS + "rest"))
-        head = rest[0] if rest else None
-    return found
-
-
-# a property whose shape allows language-tagged strings (sh:datatype rdf:langString, on
-# the property or in one of the alternatives of its sh:or, or sh:languageIn)
-def allows_language(shapes: Graph, prop) -> bool:
-    if _objects(shapes, prop, "languageIn"):
-        return True
-    alternatives = [prop]
-    for head in _objects(shapes, prop, "or"):
-        alternatives += _list_items(shapes, head)
-    return any(
-        LANG_STRING in _objects(shapes, alternative, "datatype")
-        for alternative in alternatives
-    )
-
-
-# the datatypes that a property allows (on it, or in the alternatives of its sh:or)
-def datatypes(shapes: Graph, prop) -> list[str]:
-    alternatives = [prop]
-    for head in _objects(shapes, prop, "or"):
-        alternatives += _list_items(shapes, head)
-    return [d.value for a in alternatives for d in _objects(shapes, a, "datatype")]
-
-
-# the date datatypes of a property that has dates and nothing else (xsd:date,
-# gYearMonth, gYear): it gets a date widget
-def date_kinds(shapes: Graph, prop) -> tuple[str, ...]:
-    found = datatypes(shapes, prop)
-    if found and all(d in dates.KINDS for d in found):
-        return tuple(d for d in dates.KINDS if d in found)
-    return ()
-
-
-def has_editor(shapes: Graph, prop, editor) -> bool:
-    return editor in shapes.objects(prop, ox.NamedNode(DASH + "editor"))
-
-
-# a property whose one value is an rdf:list of IRIs (its shape says what the list is)
-def is_list(shapes: Graph, prop) -> bool:
-    return has_editor(shapes, prop, LIST_EDITOR)
-
-
-# a reference to records, by URI: what its shape (sh:node) says is not a form to fill in
-def by_uri(shapes: Graph, prop) -> bool:
-    return has_editor(shapes, prop, DASH_URI) or is_list(shapes, prop)
-
-
-def wants_text_area(shapes: Graph, prop) -> bool:
-    return has_editor(shapes, prop, DASH_TEXT_AREA)
-
-
 def leaf_node(
     shapes: Graph, prop, path: str, many: bool = False
 ) -> colander.SchemaNode | None:
-    if not _editable(shapes, prop, many):
+    if not shapes._editable(prop, many):
         return None
-    minimum = _value(shapes, prop, "minLength")
-    maximum = _value(shapes, prop, "maxLength")
-    pattern = _value(shapes, prop, "pattern")
-    required = not many and int(_value(shapes, prop, "minCount") or 0) > 0
+    minimum = shapes._value(prop, "minLength")
+    maximum = shapes._value(prop, "maxLength")
+    pattern = shapes._value(prop, "pattern")
+    required = not many and int(shapes._value(prop, "minCount") or 0) > 0
     validators = [
         colander.Length(
             min=int(minimum) if minimum else None, max=int(maximum) if maximum else None
@@ -848,7 +593,7 @@ def leaf_node(
         validators.append(
             colander.Regex(re.compile(pattern), msg="Not in the expected form")
         )
-    if is_iri(shapes, prop):  # a text input, until there is a widget for URIs
+    if shapes.is_iri(prop):  # a text input, until there is a widget for URIs
         validators.append(
             colander.Regex(
                 re.compile(IRI_TEXT), msg="Not a URI, like https://example.org/"
@@ -856,14 +601,14 @@ def leaf_node(
         )
     choices = [
         o.value
-        for head in _objects(shapes, prop, "in")
-        for o in _list_items(shapes, head)
+        for head in shapes._objects(prop, "in")
+        for o in shapes._list_items(head)
         if isinstance(o, ox.Literal | ox.NamedNode)
     ]
     if choices:
         validators.append(colander.OneOf(choices))
-    title = property_title(shapes, prop, path)
-    description = _value(shapes, prop, "description") or ""
+    title = shapes.property_title(prop, path)
+    description = shapes._value(prop, "description") or ""
     text = colander.SchemaNode(
         colander.String(),
         name="value",
@@ -871,15 +616,15 @@ def leaf_node(
         missing=colander.required if required else "",
         validator=colander.All(*validators),
     )
-    area = wants_text_area(shapes, prop)
+    area = shapes.wants_text_area(prop)
     if area:
         text.widget = deform.widget.TextAreaWidget(rows=4, cols=None)
-    if choices and is_iri(shapes, prop):  # a choice of URIs (the classes of a type)
-        said = describe(shapes, choices)
+    if choices and shapes.is_iri(prop):  # a choice of URIs (the classes of a type)
+        said = shapes.describe(choices)
         labels = {u: d["label"] for u, d in said.items()}
         starts = [  # sh:defaultValue: the choice that a new node has
             o.value
-            for o in _objects(shapes, prop, "defaultValue")
+            for o in shapes._objects(prop, "defaultValue")
             if isinstance(o, ox.NamedNode) and o.value in choices
         ]
         text.widget = URISelectWidget(
@@ -897,17 +642,17 @@ def leaf_node(
         text.widget = deform.widget.SelectWidget(
             values=[("", "- choose -"), *((c, c) for c in choices)]
         )
-    if has_editor(shapes, prop, LANGUAGE_EDITOR) and not allows_language(shapes, prop):
+    if shapes.has_editor(prop, LANGUAGE_EDITOR) and not shapes.allows_language(prop):
         text.widget = LanguageCodeWidget()
         validators.append(
             colander.Regex(LANGUAGE_CODE, msg="Not a language code, like en or pt-BR")
         )
         text.validator = colander.All(*validators)
-    kinds = date_kinds(shapes, prop)
-    if kinds and not choices and not area and not allows_language(shapes, prop):
+    kinds = shapes.date_kinds(prop)
+    if kinds and not choices and not area and not shapes.allows_language(prop):
         text.widget = DateWidget(kinds=kinds)
         text.date_kinds = kinds
-    if allows_language(shapes, prop):
+    if shapes.allows_language(prop):
         language = colander.SchemaNode(
             colander.String(),
             name="lang",
@@ -938,127 +683,11 @@ def leaf_node(
     return node
 
 
-# A reference that follows a field next to it: what it points at is what the value of
-# the field says (the role of a contributor: a funder is an organization, a supervisor a
-# person). The shape says it with `sh:or`: each alternative has a property with a choice
-# of values (`sh:in`, `sh:hasValue`) and the property of the reference with the shape of
-# what it points at (`sh:node`), so that the values of the first are for the second.
-def _alternative_parts(shapes: Graph, alternative):
-    """(the choices in an alternative: path -> values; the shapes: path -> shapes)"""
-    choices: dict[str, list[str]] = {}
-    pointing: dict[str, list] = {}
-    for prop in _objects(shapes, alternative, "property"):
-        paths = _objects(shapes, prop, "path")
-        if len(paths) != 1 or not isinstance(paths[0], ox.NamedNode):
-            continue
-        path = paths[0].value
-        values = [o.value for o in _objects(shapes, prop, "hasValue")] + [
-            o.value
-            for head in _objects(shapes, prop, "in")
-            for o in _list_items(shapes, head)
-        ]
-        if values:
-            choices[path] = values
-        named = [
-            o for o in _objects(shapes, prop, "node") if isinstance(o, ox.NamedNode)
-        ]
-        for head in _objects(shapes, prop, "or"):  # one or the other of the shapes
-            for either in _list_items(shapes, head):
-                named += [
-                    o
-                    for o in _objects(shapes, either, "node")
-                    if isinstance(o, ox.NamedNode)
-                ]
-        if named:
-            pointing[path] = named
-    return choices, pointing
-
-
-def class_follow(shapes: Graph, shape, prop) -> tuple[str, dict[str, list]] | None:
-    paths = _objects(shapes, prop, "path")
-    if len(paths) != 1:
-        return None
-    mine = paths[0].value
-    follows, found = None, {}
-    for head in _objects(shapes, shape, "or"):
-        for alternative in _list_items(shapes, head):
-            choices, pointing = _alternative_parts(shapes, alternative)
-            guards = [p for p in choices if p != mine]
-            if mine in pointing and len(guards) == 1:
-                follows = guards[0]
-                for value in choices[guards[0]]:
-                    found[value] = pointing[mine]
-    return (follows, found) if follows and found else None
-
-
-# Choices that are only for some resources: the thesis advisor is for a thesis. The
-# shape says it with an `sh:or` in the shape of the resource, of the alternatives that
-# the resource has one of the classes (a property `rdf:type` that has the value), or the
-# choice is not among the values of the path (`sh:not` of a `sh:hasValue` or `sh:in`, on
-# a path of the property that has the nodes and the property of the choice in them). The
-# choice is left out of the menu for the others (uri_select.js), and a form that has it
-# for another resource is refused (only_for_validator).
-def _rule_shapes(shapes: Graph, shape) -> list:
-    """The shape of a resource and the shapes of its rules: the shapes that are for
-    the same works (they have one of the classes of its `sh:targetClass`). A rule is a
-    shape of its own, so that it says what is wrong in its own words."""
-    own = set(_objects(shapes, shape, "targetClass"))
-    rules = [
-        q.subject
-        for q in shapes.dataset.quads_for_object(ox.NamedNode(SH_NS.NodeShape))
-        if q.predicate.value == RDF_TYPE
-        and q.subject != shape
-        and own & set(_objects(shapes, q.subject, "targetClass"))
-    ]
-    return [shape, *rules]
-
-
-def _rule_alternatives(shapes: Graph, shape):
-    """The `sh:or` of the shape and of its rules, each as a list of alternatives."""
-    for rule in _rule_shapes(shapes, shape):
-        for head in _objects(shapes, rule, "or"):
-            yield _list_items(shapes, head)
-
-
-def only_for_rules(shapes: Graph, shape) -> dict[tuple[str, str], dict[str, list[str]]]:
-    found: dict[tuple[str, str], dict[str, list[str]]] = {}
-    for alternatives_ in _rule_alternatives(shapes, shape):
-        classes: list[str] = []
-        guard = None
-        for alternative in alternatives_:
-            props = _objects(shapes, alternative, "property")
-            paths = _objects(shapes, props[0], "path") if len(props) == 1 else []
-            if len(paths) != 1:
-                break
-            if isinstance(paths[0], ox.NamedNode) and paths[0].value == RDF_TYPE:
-                classes += [o.value for o in _objects(shapes, props[0], "hasValue")]
-                continue
-            steps = (
-                _list_items(shapes, paths[0])
-                if isinstance(paths[0], ox.BlankNode)
-                else []
-            )
-            nots = _objects(shapes, props[0], "not")
-            if len(steps) != 2 or len(nots) != 1 or guard:
-                break
-            values = [o.value for o in _objects(shapes, nots[0], "hasValue")] + [
-                o.value
-                for h in _objects(shapes, nots[0], "in")
-                for o in _list_items(shapes, h)
-            ]
-            guard = ((steps[0].value, steps[1].value), values)
-        else:
-            if classes and guard:
-                for value in guard[1]:
-                    found.setdefault(guard[0], {})[value] = classes
-    return found
-
-
 # Said of the choices in the nodes of a property (`path`): what the shape of the
 # resource says, as above, for the property of the choice in them, which gets it (and
 # the names that the form says of it in a message)
 def apply_only_for(shapes: Graph, shape, path: str, children) -> None:
-    for (outer, inner), by_value in only_for_rules(shapes, shape).items():
+    for (outer, inner), by_value in shapes.only_for_rules(shape).items():
         if outer != path:
             continue
         for child in children:
@@ -1068,7 +697,7 @@ def apply_only_for(shapes: Graph, shape, path: str, children) -> None:
             ):
                 continue
             widget.only_for = by_value
-            names = describe(shapes, [c for cs in by_value.values() for c in cs])
+            names = shapes.describe([c for cs in by_value.values() for c in cs])
             widget.only_for_names = {
                 value: " or ".join(names[c]["label"] for c in classes)
                 for value, classes in by_value.items()
@@ -1081,32 +710,6 @@ def apply_only_for(shapes: Graph, shape, path: str, children) -> None:
                 }
                 for value, classes in by_value.items()
             }
-
-
-# Fields that are only for some resources: the degree a thesis is in support of. The
-# same rule, of a path that is a property of the resource itself, which it has none of
-# unless it is of the class (`sh:maxCount 0`): the field is left out of the form of the
-# others, and what it had is not kept (apply_form).
-def fields_only_for(shapes: Graph, shape) -> dict[str, list[str]]:
-    found: dict[str, list[str]] = {}
-    for alternatives_ in _rule_alternatives(shapes, shape):
-        classes: list[str] = []
-        fields: list[str] = []
-        for alternative in alternatives_:
-            props = _objects(shapes, alternative, "property")
-            paths = _objects(shapes, props[0], "path") if len(props) == 1 else []
-            if len(paths) != 1 or not isinstance(paths[0], ox.NamedNode):
-                break
-            if paths[0].value == RDF_TYPE:
-                classes += [o.value for o in _objects(shapes, props[0], "hasValue")]
-            elif _value(shapes, props[0], "maxCount") == "0":
-                fields.append(paths[0].value)
-            else:
-                break
-        else:
-            if classes and len(fields) == 1:
-                found[fields[0]] = classes
-    return found
 
 
 def only_for_validator(nodes):
@@ -1206,18 +809,6 @@ def template_validator(nodes):
     return validate
 
 
-# a property that can have several values that are plain: literals (it says their
-# datatype, or that they have a language) or IRIs that are typed as text
-def is_bag(shapes: Graph, prop) -> bool:
-    if _value(shapes, prop, "maxCount") == "1" or not _editable(shapes, prop, True):
-        return False
-    return bool(
-        _objects(shapes, prop, "datatype")
-        or allows_language(shapes, prop)
-        or (is_iri(shapes, prop) and has_editor(shapes, prop, DASH_URI))
-    )
-
-
 def _enough(lowest: int, highest: int | None, title: str = ""):
     noun = title.lower() or "value"
 
@@ -1240,7 +831,7 @@ def bag_node(shapes: Graph, prop, path: str, url: str | None):
     item = leaf_node(shapes, prop, path, many=True)
     assert item is not None
     item.name = "item"
-    lowest, highest = cardinality(shapes, prop)
+    lowest, highest = shapes.cardinality(prop)
     node = colander.SchemaNode(
         colander.Sequence(),
         item,
@@ -1260,7 +851,7 @@ def list_node(shapes: Graph, prop, path: str, url: str | None):
     item = leaf_node(shapes, prop, path, many=True)
     assert item is not None
     item.name = "item"
-    lowest = cardinality(shapes, prop)[0]  # of the list: its rows, not its one value
+    lowest = shapes.cardinality(prop)[0]  # of the list: its rows, not its one value
     node = colander.SchemaNode(
         colander.Sequence(),
         item,
@@ -1281,7 +872,7 @@ def fields_from_shape(
     shapes: Graph, shape, hidden=frozenset()
 ) -> list[colander.SchemaNode]:
     nodes = []
-    for path, prop in properties(shapes, shape):
+    for path, prop in shapes.properties(shape):
         if path not in hidden and (node := leaf_node(shapes, prop, path)) is not None:
             nodes.append(node)
     return nodes
@@ -1294,62 +885,8 @@ def schema_from_shape(shapes: Graph, shape) -> colander.Schema:
     return schema
 
 
-# a property that has to be there: its own shape says so, or an alternative of an sh:or
-# of the node does (a name, or the two parts it is made of)
-def needed(shapes: Graph, shape, path: str) -> bool:
-    if path in required_paths(shapes, shape):
-        return True
-    for head in _objects(shapes, shape, "or"):
-        for alternative in _list_items(shapes, head):
-            if path in required_paths(shapes, alternative):
-                return True
-    return False
-
-
-# The alternatives of an sh:or of a node shape, when each of them is made only of
-# properties with sh:hasValue or sh:in (they say which alternative it is) and sh:pattern
-# (what the others have to look like, with its sh:message): the form can tell what is
-# wrong, and where, which a validator of the shapes alone (it says the node does not
-# conform) cannot. Anything else in them, and the form leaves it to the shape.
-def alternatives(shapes: Graph, shape) -> list[list[tuple]] | None:
-    known = {
-        SH_NS.path,
-        SH_NS.hasValue,
-        SH_NS["in"],
-        SH_NS.pattern,
-        SH_NS.message,
-        PROPERTY_TEMPLATE,  # (what a form does with it: template.js)
-    }
-    found = []
-    for head in _objects(shapes, shape, "or"):
-        for alternative in _list_items(shapes, head):
-            rules = []
-            if {
-                q.predicate.value for q in shapes.dataset.quads_for_subject(alternative)
-            } - {SH_NS.property}:
-                return None
-            for prop in _objects(shapes, alternative, "property"):
-                if {
-                    q.predicate.value for q in shapes.dataset.quads_for_subject(prop)
-                } - known:
-                    return None
-                path = _value(shapes, prop, "path")
-                for kind in ("hasValue", "in", "pattern"):
-                    for o in _objects(shapes, prop, kind):
-                        values = (
-                            [i.value for i in _list_items(shapes, o)]
-                            if kind == "in"
-                            else [o.value]
-                        )
-                        rules.append(
-                            (path, kind, values, _value(shapes, prop, "message"))
-                        )
-            found.append(rules)
-    return found or None
-
-
 def alternatives_validator(shapes: Graph, shape, nodes):
-    options = alternatives(shapes, shape)
+    options = shapes.alternatives(shape)
     names = {getattr(n, "predicate", None): n.name for n in nodes}
     if options is None or any(r[0] not in names for rules in options for r in rules):
         return None
@@ -1389,19 +926,6 @@ def _text_of(value) -> str:
     if isinstance(value, dict):
         value = value.get("value")
     return (value or "").strip()
-
-
-def required_paths(shapes: Graph, shape) -> set[str]:
-    required = set()
-    for prop in _objects(shapes, shape, "property"):
-        path = _objects(shapes, prop, "path")
-        if (
-            len(path) == 1
-            and isinstance(path[0], ox.NamedNode)
-            and int(_value(shapes, prop, "minCount") or 0) > 0
-        ):
-            required.add(path[0].value)
-    return required
 
 
 # ---- cstructs and JSON
@@ -1466,54 +990,6 @@ def edit_address(request, repository, record: str, slug: str | None) -> str:
     return request.resource_url(
         node, slug or str(parsed[1]), "edit", query={"embed": "1"}
     )
-
-
-def property_paths(shapes: Graph, shape, above: tuple = ()) -> set[str]:
-    found: set[str] = set()
-    for path, prop in properties(shapes, shape):
-        found.add(path)
-        nested = nested_shape(shapes, prop)
-        if nested is not None and nested not in (*above, shape):  # a shape that
-            found |= property_paths(shapes, nested, (*above, shape))  # refers to itself
-    return found
-
-
-def property_names(shapes: Graph, shape) -> dict[str, str]:
-    found: dict[str, str] = {}
-
-    def walk(node, above: tuple) -> None:
-        for path, prop in properties(shapes, node):
-            title = property_title(shapes, prop, path)
-            found.setdefault(path, local_name(path) if title == path else title)
-            nested = nested_shape(shapes, prop)
-            if nested is not None and nested not in (*above, node):
-                walk(nested, (*above, node))
-
-    walk(shape, ())
-    return found
-
-
-def property_roles(
-    shapes: Graph, shape, class_uri: str | None = None
-) -> list[tuple[str, str, int]]:
-    found: list[tuple[str, str, int]] = []
-
-    def walk(node, above: tuple) -> None:
-        for path, prop in properties(shapes, node):
-            place = len(found)
-            for role in shapes.objects(prop, PROPERTY_ROLE.value):
-                if isinstance(role, ox.NamedNode) and role.value in ROLE_NAMES:
-                    found.append((ROLE_NAMES[role.value], path, place))
-            if class_uri is not None:
-                for target in shapes.objects(prop, UNIQUE_VALUE_FOR_CLASS):
-                    if isinstance(target, ox.NamedNode) and target.value == class_uri:
-                        found.append(("unique", path, place))
-            nested = nested_shape(shapes, prop)
-            if nested is not None and nested not in (*above, node):
-                walk(nested, (*above, node))
-
-    walk(shape, ())
-    return found
 
 
 def template(spec: str) -> PageTemplateFile:

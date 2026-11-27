@@ -559,9 +559,9 @@ class StatsTabTest(ManageCase):
         )
 
         # nothing waiting is said so and has no oldest
-        from gracia.change_events import process_pending
+        from gracia.change_events import ChangeEventsWorker
 
-        process_pending(self.application, Registry())
+        ChangeEventsWorker(self.application, Registry()).process_pending()
         pane = self.pane()
         self.assertTrue(self.text(pane, "stats-pending").startswith("0 records"))
         self.assertNotIn("Oldest", pane)

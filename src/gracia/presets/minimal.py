@@ -1,4 +1,4 @@
-"""The minimal preset: the types a repository cannot work without, its groups and admin."""
+"""The minimal preset: the types a repository needs, its groups and its admin."""
 
 from collections.abc import Callable
 from importlib.resources import files
@@ -6,7 +6,7 @@ from importlib.resources import files
 import pyoxigraph as ox
 
 from gracia import uri
-from gracia.extensions import extension_turtle
+from gracia.extensions import Extension
 from gracia.graph import Graph
 from gracia.presets import Preset
 from gracia.types.group import UserGroupRecord
@@ -169,7 +169,7 @@ class MinimalPreset(Preset):
             )
         # the ARK settings are fixed when the repository is made
         # (see gracia.extensions.ark)
-        text += extension_turtle(
+        text += Extension.turtle(
             "_:content", "ark", {"naan": naan, "root_prefix": root_prefix}
         )
         return Graph(

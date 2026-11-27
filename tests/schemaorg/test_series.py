@@ -117,20 +117,16 @@ class SeriesIdentifierTest(SeriesCase):
         graph, shape = self.application["test_repo"].types["series"].shacl_shape(False)
         node = ox.NamedNode("http://example.org/shapes#PropertyValueShape")
         (kind,) = [
-            p
-            for path, p in forms.properties(graph, node)
-            if path == SCHEMA + "propertyID"
+            p for path, p in graph.properties(node) if path == SCHEMA + "propertyID"
         ]
         (head,) = graph.objects(kind, ox.NamedNode("http://www.w3.org/ns/shacl#in"))
         self.assertEqual(
-            [i.value for i in forms._list_items(graph, head)],
+            [i.value for i in graph._list_items(head)],
             ["ISSN", "ISBN", "OpenAlex", "Local", "External"],
         )
         # the issn is a kind of identifier, not a field of its own
         self.assertNotIn('name="issn"', self.web.get(ADD, headers=ADMIN).text)
-        self.assertNotIn(
-            SCHEMA + "issn", [p for p, _ in forms.properties(graph, shape)]
-        )
+        self.assertNotIn(SCHEMA + "issn", [p for p, _ in graph.properties(shape)])
 
     def test_a_value_in_the_form_of_its_kind_conforms(self):
         for kind, value, url in (

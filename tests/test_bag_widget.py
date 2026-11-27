@@ -3,7 +3,6 @@
 import colander
 import pyoxigraph as ox
 from harness import ConfiguredCase
-from test_records import graph
 from widgets_support import (
     ADMIN,
     EX,
@@ -13,6 +12,7 @@ from widgets_support import (
 )
 
 from gracia import forms
+from gracia.shacl import Shapes
 
 SH = "http://www.w3.org/ns/shacl#"
 ADD = "/test_repo/gadget/add"
@@ -25,6 +25,10 @@ PREFIXES = (
     "@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .\n"
     "@prefix ex: <http://example.org/> .\n"
 )
+
+
+def shapes_of(text: str) -> Shapes:
+    return Shapes.parse(text, "turtle")
 
 
 class AliasBagTest(FormCase):
@@ -134,7 +138,7 @@ class AliasBagTest(FormCase):
 
 class BagNodeTest(ConfiguredCase):
     def node(self, body: str, url: str | None = "http://x/sequence"):
-        data = graph(PREFIXES + "ex:S a sh:NodeShape ; sh:property " + body)
+        data = shapes_of(PREFIXES + "ex:S a sh:NodeShape ; sh:property " + body)
         (prop,) = data.objects(ox.NamedNode(EX + "S"), SH + "property")
         return forms.bag_node(data, prop, EX + "alt", url), data, prop
 
@@ -143,7 +147,7 @@ class BagNodeTest(ConfiguredCase):
         return form.render({"alt": values})
 
     def test_a_property_with_a_datatype_and_no_max_count_is_a_bag(self):
-        data = graph(
+        data = shapes_of(
             PREFIXES
             + "ex:S a sh:NodeShape ; sh:property [ sh:path ex:alt ; sh:datatype xsd:string ] , "
             "[ sh:path ex:one ; sh:datatype xsd:string ; sh:maxCount 1 ] , "
@@ -152,8 +156,8 @@ class BagNodeTest(ConfiguredCase):
             "[ sh:path ex:plain ] ."
         )
         found = {
-            path: forms.is_bag(data, prop)
-            for path, prop in forms.properties(data, ox.NamedNode(EX + "S"))
+            path: data.is_bag(prop)
+            for path, prop in data.properties(ox.NamedNode(EX + "S"))
         }
         self.assertEqual(
             {p.removeprefix(EX): v for p, v in found.items()},

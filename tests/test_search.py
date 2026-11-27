@@ -10,7 +10,7 @@ from test_change_events import BatchCase
 from test_manage import ADMIN, ManageCase
 
 from gracia import search
-from gracia.change_events import ChangeEvent, RecordsChanged, process_pending
+from gracia.change_events import ChangeEvent, ChangeEventsWorker, RecordsChanged
 from gracia.graph import serialize_bytes
 from gracia.search import (
     RECORDS,
@@ -73,7 +73,7 @@ class SearchCase(BatchCase):
         self.store.put_multi(ox.Dataset(q for d in datasets for q in d))
 
     def handle(self) -> int:
-        return process_pending(self.app, self.registry)
+        return ChangeEventsWorker(self.app, self.registry).process_pending()
 
     def hits(
         self,
@@ -359,9 +359,8 @@ class WiringTest(BatchCase):
         config.make_wsgi_app()
         self.assertEqual(self.app.indexes.directory, self.tmp / "idx")
         self.store.put_multi(person(1, "Ada Lovelace"))
-        process_pending(
-            self.app, config.registry
-        )  # the registry of the application: it has the subscriber
+        # the registry of the application: it has the subscriber
+        ChangeEventsWorker(self.app, config.registry).process_pending()
         self.assertEqual(self.app.indexes.stats("main")[0]["documents"], 1)
 
 
@@ -391,7 +390,7 @@ class StatsRowTest(ManageCase):
         self.assertIn("not made yet", self.page())
         registry = Registry()
         registry.registerHandler(on_records_changed, (RecordsChanged,))
-        process_pending(self.application, registry, "test_repo")
+        ChangeEventsWorker(self.application, registry).process_pending("test_repo")
         row = self.row()
         records = sum(
             self.application.new_store("test_repo").count_records_by_type().values()
@@ -478,7 +477,9 @@ class SearchExtensionTest(ExtensionCase):
 
         indexes = self.application.indexes = Indexes(self.index_dir)
         self.put_person(1, "Ada Lovelace")
-        process_pending(self.application, self.config.registry, "archive")
+        ChangeEventsWorker(self.application, self.config.registry).process_pending(
+            "archive"
+        )
         (before,) = search.definitions_for(self.repository)
         self.assertEqual(indexes.status("archive", before), "ok")
         self.extension().save_settings(
@@ -544,7 +545,9 @@ class SearchExtensionTest(ExtensionCase):
     ):
         indexes = self.application.indexes = Indexes(self.index_dir)
         self.put_person(1, "Ada Lovelace")
-        process_pending(self.application, self.config.registry, "archive")
+        ChangeEventsWorker(self.application, self.config.registry).process_pending(
+            "archive"
+        )
         self.assertEqual(
             indexes.stats("archive")[0]["documents"], 1 + self.records_of_types()
         )
@@ -553,7 +556,9 @@ class SearchExtensionTest(ExtensionCase):
         self.assertEqual(search.definitions_for(self.application["archive"]), [])
         before = indexes.stats("archive")[0]["documents"]
         self.put_person(2, "Charles Babbage")
-        process_pending(self.application, self.config.registry, "archive")
+        ChangeEventsWorker(self.application, self.config.registry).process_pending(
+            "archive"
+        )
         self.assertEqual(
             indexes.stats("archive")[0]["documents"], before
         )  # nothing went in
@@ -604,7 +609,9 @@ class SearchPageTest(ManageCase):
                     for q in d
                 )
             )
-        process_pending(self.application, self.config.registry, "archive")
+        ChangeEventsWorker(self.application, self.config.registry).process_pending(
+            "archive"
+        )
 
     def page(self, query: str = "", headers=None, accept=None):
         return self.client().get(
@@ -670,7 +677,9 @@ class SearchPageTest(ManageCase):
     ):
         with self.application.new_store("archive") as store:
             store.put_multi(person(4, "Grace Hopper", slug="grace-hopper"))
-        process_pending(self.application, self.config.registry, "archive")
+        ChangeEventsWorker(self.application, self.config.registry).process_pending(
+            "archive"
+        )
         page = self.page("hopper", ADMIN).text
         self.assertIn('href="http://localhost/archive/person/grace-hopper"', page)
         self.assertNotIn("/archive/person/4", page)
@@ -863,7 +872,7 @@ class SearchTabTest(ManageCase):
         registry.registerHandler(on_records_changed, (RecordsChanged,))
         with self.application.new_store("archive") as store:
             store.put_multi(person(1, "Ada Lovelace"))
-        process_pending(self.application, registry, "archive")
+        ChangeEventsWorker(self.application, registry).process_pending("archive")
 
     def test_the_counts_are_shown_add_puts_the_field_in_the_settings_remove_takes_it_out_and_an_orphan_can_be_removed(
         self,
@@ -923,7 +932,9 @@ class RestartTest(ExtensionCase):
     def build(self) -> None:
         self.application.indexes = Indexes(self.index_dir)
         self.put_person(1, "Ada Lovelace")
-        process_pending(self.application, self.config.registry, "archive")
+        ChangeEventsWorker(self.application, self.config.registry).process_pending(
+            "archive"
+        )
 
     def test_an_index_made_for_the_default_settings_is_ok_after_a_restart(self):
         self.build()

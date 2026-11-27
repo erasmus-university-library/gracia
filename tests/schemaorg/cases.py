@@ -13,7 +13,7 @@ from test_manage import ADMIN as MANAGE_ADMIN
 from test_manage import ManageCase
 from test_web import HeaderPolicy, WebCase
 
-from gracia.change_events import RecordsChanged, process_pending
+from gracia.change_events import ChangeEventsWorker, RecordsChanged
 from gracia.main import make_config
 from gracia.search import Indexes, on_records_changed
 
@@ -253,7 +253,7 @@ class ReferenceCase(ListCase):
     def reindex(self) -> None:
         registry = Registry()
         registry.registerHandler(on_records_changed, (RecordsChanged,))
-        process_pending(self.application, registry)
+        ChangeEventsWorker(self.application, registry).process_pending()
 
     def lookup(self, text: str, *classes: str, who=ADMIN):
         params = [("q", text), *(("type", c) for c in classes)]

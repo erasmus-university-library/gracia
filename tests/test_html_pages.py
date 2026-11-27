@@ -5,8 +5,8 @@ from unittest import mock
 import pyoxigraph as ox
 from test_edit import FOAF, EditCase
 
-from gracia import forms
 from gracia.graph import Graph
+from gracia.shacl import Shapes
 from gracia.types.type import Type
 
 HTML = {"Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8"}
@@ -249,7 +249,7 @@ class NamesTest(PagesCase):
     def test_what_a_shape_calls_a_property_and_the_last_part_of_the_uri_when_it_has_no_name(
         self,
     ):
-        shapes = Graph.parse(
+        shapes = Shapes.parse(
             """@prefix sh: <http://www.w3.org/ns/shacl#> . @prefix ex: <http://ex/> .
                ex:Shape a sh:NodeShape ; sh:property [ sh:path ex:a ; sh:name "Alpha" ]
                  ,
@@ -260,7 +260,7 @@ class NamesTest(PagesCase):
             "turtle",
         )
         self.assertEqual(
-            forms.property_names(shapes, ox.NamedNode("http://ex/Shape")),
+            shapes.property_names(ox.NamedNode("http://ex/Shape")),
             {
                 "http://ex/a": "Alpha",
                 "http://ex/b": "b",

@@ -201,7 +201,7 @@ class TabFollowsTheClassTest(OrganizationCase):
         shapes, _shape = assets.shape(
             content.assets, content.schema, content.class_uri, content.slug
         )
-        said = forms.describe(shapes, [SCHEMA + c for c in self.LOOKS])
+        said = shapes.describe([SCHEMA + c for c in self.LOOKS])
         self.assertEqual(
             {
                 c: (said[SCHEMA + c]["label"], said[SCHEMA + c]["icon"])
@@ -212,7 +212,7 @@ class TabFollowsTheClassTest(OrganizationCase):
         # a class the shape does not describe is named by its uri
         other = "http://example.org/ns#SomethingElse"
         self.assertEqual(
-            forms.describe(shapes, [other])[other],
+            shapes.describe([other])[other],
             {"label": "Something else", "icon": None},
         )
 

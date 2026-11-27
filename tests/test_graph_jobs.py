@@ -5,11 +5,11 @@ import pyoxigraph as ox
 from harness import etag_of, graph_of, open_application
 from jobs_support import JobsCase, person
 
-from gracia.change_events import RecordsChanged, process_pending
+from gracia.change_events import ChangeEventsWorker, RecordsChanged
 from gracia.graph import rdfxml
 from gracia.jobs import context, runner
 from gracia.jobs.repository_jobs import ProcessActionsJob, UpdateCacheJob
-from gracia.jobs.stage import read_graphs
+from gracia.jobs.stage import JobTask
 from gracia.jobs.type_jobs import ExportJob
 from gracia.store import fetch_one
 from gracia.types.application import Application
@@ -64,7 +64,7 @@ class ExportGraphsTest(GraphJobsCase):
     def test_every_record_with_an_etag_is_a_graph_after_a_comment_with_its_etag(self):
         count, files = self.store.export_chunks(self.tmp / "out", None, graphs=True)
         self.assertEqual([f.name for f in files], ["chunk-0.trig"])
-        items = read_graphs(files[0].read_text())
+        items = JobTask.read_graphs(files[0].read_text())
         self.assertEqual(count, len(items))
         self.assertEqual(
             count, fetch_one(self.store.con.execute("SELECT count(*) FROM etags"))[0]
@@ -88,7 +88,7 @@ class ExportGraphsTest(GraphJobsCase):
             self.tmp / "chunks", None, chunk_bytes=1, graphs=True
         )
         self.assertEqual([f.name for f in files], ["chunk-0.trig"])
-        ids = [i["id"] for f in files for i in read_graphs(f.read_text())]
+        ids = [i["id"] for f in files for i in JobTask.read_graphs(f.read_text())]
         self.assertEqual(len(ids), count)
         self.assertEqual(len(set(ids)), count)
         # the export without graphs is as it was
@@ -107,7 +107,7 @@ class ExportGraphsTest(GraphJobsCase):
             self.tmp / "nobody", "nobody", graphs=True
         )
         self.assertEqual((nobody, none), (0, []))
-        by_record = {i["id"]: i for i in read_graphs(files[0].read_text())}
+        by_record = {i["id"]: i for i in JobTask.read_graphs(files[0].read_text())}
         self.assertLessEqual(
             {"rec:person:14", "rec:person:13", "rec:type:5"},
             self.subjects(by_record["rec:person:14"]),
@@ -135,7 +135,7 @@ class ExportGraphsTest(GraphJobsCase):
         self.assertTrue(batch.is_file())
         self.assertEqual(
             self.stage(job_id, "Export")["processed"],
-            len(read_graphs(batch.read_text())),
+            len(JobTask.read_graphs(batch.read_text())),
         )
         from gracia.jobs.builtin import Export
 
@@ -149,7 +149,7 @@ class ExportQueueTest(GraphJobsCase):
         return (
             count,
             bound,
-            {i["id"]: i for f in files for i in read_graphs(f.read_text())},
+            {i["id"]: i for f in files for i in JobTask.read_graphs(f.read_text())},
         )
 
     def test_every_waiting_record_is_one_graph_with_its_etag_and_the_newest_action_and_a_deleted_one_is_empty(
@@ -322,7 +322,7 @@ class ProcessActionsJobTest(GraphJobsCase):
         self,
     ):
         events = self.subscribe()
-        process_pending(self.application, context.registry())
+        ChangeEventsWorker(self.application, context.registry()).process_pending()
         job_id = self.make(*ProcessActionsJob().spec("test_repo", {})["stages"])
         self.assertEqual(
             self.run_job(job_id), runner.EXIT_DONE, self.job(job_id)["error_msg"]

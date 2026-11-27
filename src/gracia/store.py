@@ -16,6 +16,7 @@ import pyoxigraph as ox
 
 from gracia import uri
 from gracia.database import RemoteConnection, literal
+from gracia.forms import IRI_TEXT
 from gracia.graph import Graph, dataset_rdfxml
 
 _SQL = files("gracia") / "assets" / "sql"
@@ -24,6 +25,9 @@ BATCH = 50_000
 # a load that loses a race with another writer is repeated this many times before it
 # gives up
 LOAD_ATTEMPTS = 20
+IRI_PATTERN = (
+    "^" + IRI_TEXT.removesuffix("\\Z") + "$"
+)  # what can be an IRI, as SQL has it
 TYPE_SLUG = re.compile(r"^[a-z][a-z0-9-]{0,62}$")
 _STAGING_COLUMNS = (
     "s VARCHAR, s_type VARCHAR, p VARCHAR, o VARCHAR, o_type VARCHAR, "
@@ -557,6 +561,80 @@ class Store:
 
     def __exit__(self, *exc) -> None:
         self.close()
+
+    @staticmethod
+    def template_select(template, context) -> str:
+        """The rows `(s, loc, text)` that a property template makes of the stored
+        values (a SELECT, to be put in the statements of `template_statements`)."""
+        self = template
+        flat, of_type = context.flat, context.of_type
+        names = [f"v{i}" for i in range(len(self.sources))]
+
+        def expression(pieces) -> str:
+            parts = []
+            for kind, value in pieces:
+                if kind == "text":
+                    parts.append(literal(value))
+                elif kind == "source":
+                    parts.append(names[value])
+                else:
+                    present = " AND ".join(
+                        f"{names[i]} IS NOT NULL" for i in self.sources_in(value)
+                    )
+                    parts.append(
+                        f"CASE WHEN {present} THEN {expression(value)} ELSE '' END"
+                    )
+            return f"concat({', '.join(parts)})"
+
+        used = (*self.sources, *([self.when[0]] if self.when else []))
+        columns = [
+            f"max(NULLIF(trim(lit), '')) FILTER (WHERE p = {literal(p)}) AS {name}"
+            for p, name in zip(self.sources, names, strict=True)
+        ]
+        conditions = [
+            f"{names[i]} IS NOT NULL"
+            for i in self.sources_in(p for p in self.pieces if p[0] == "source")
+        ]
+        if self.when:
+            columns.append(
+                f"max(lit) FILTER (WHERE p = {literal(self.when[0])}) AS discriminator"
+            )
+            conditions.append(f"discriminator = {literal(self.when[1])}")
+        where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+        # an IRI has to be one: the text of a value that is not fit for it makes none
+        usable = (
+            f" AND regexp_matches(text, {literal(IRI_PATTERN)})" if self.iri else ""
+        )
+        made = f"""SELECT s, loc, text FROM (
+                SELECT s, loc, trim({expression(self.pieces)}) AS text FROM (
+                    SELECT s, loc, {", ".join(columns)}
+                    FROM {flat}
+                    WHERE {of_type} AND p IN ({", ".join(literal(p) for p in used)})
+                      AND lit IS NOT NULL
+                    GROUP BY s, loc
+                ){where}
+            ) WHERE text <> ''{usable}"""
+        return made
+
+    @staticmethod
+    def template_statements(variants, context) -> list[str]:
+        """The statements for the templates of one property (one for each value of
+        another property, perhaps): one delete and one insert of what they all make,
+        since each statement is a round trip to the database."""
+        flat, of_type = context.flat, context.of_type
+        target = literal(variants[0].target)
+        made = " UNION ALL ".join(
+            f"({Store.template_select(t, context)})" for t in variants
+        )
+        values = (
+            "text, NULL" if variants[0].iri else "NULL, text"
+        )  # the columns o and lit
+        return [
+            f"""DELETE FROM {flat} WHERE p = {target} AND {of_type}
+                AND (s, loc) IN (SELECT s, loc FROM ({made}))""",
+            f"""INSERT INTO {flat} SELECT s, loc, {target}, {values}, NULL, NULL
+                FROM ({made})""",
+        ]
 
     def _sql(self, name: str, **subs: str) -> str:
         text = (_SQL / name).read_text(encoding="utf-8")

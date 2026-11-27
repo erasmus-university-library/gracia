@@ -54,147 +54,6 @@ class RecordsChanged:
         return self.repository.__name__
 
 
-def _notify(registry, event: RecordsChanged) -> None:
-    manager.push({"registry": registry, "request": None})
-    try:
-        registry.notify(event)
-    finally:
-        manager.pop()
-
-
-def lock_dir_for(settings: dict) -> Path | None:
-    if settings.get("gracia.cache_dir"):
-        return Path(settings["gracia.cache_dir"])
-    target = settings.get("gracia.db") or os.environ.get("GRACIA_DB", "gracia.db")
-    database = settings.get("gracia.db.file") or (
-        None if target.startswith("quack:") else target
-    )
-    return Path(database).parent if database and database != ":memory:" else None
-
-
-@contextmanager
-def repository_lock(lock_dir, repo: str, wait: bool = False):
-    if lock_dir is None:
-        yield True
-        return
-    Path(lock_dir).mkdir(parents=True, exist_ok=True)
-    descriptor = os.open(
-        Path(lock_dir) / f"change_events-{repo}.lock", os.O_CREAT | os.O_RDWR
-    )
-    held = False
-    try:
-        try:
-            fcntl.flock(descriptor, fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
-            held = True
-        except BlockingIOError:
-            pass
-        yield held
-    finally:
-        if held:
-            fcntl.flock(descriptor, fcntl.LOCK_UN)
-        os.close(descriptor)
-
-
-def process_pending(
-    application,
-    registry,
-    repo: str | None = None,
-    batch: int = BATCH,
-    max_bytes: int | None = BATCH_BYTES,
-) -> int:
-    total = 0
-    for name in [repo] if repo else application.list_repositories():
-        while changes := process_batch(application, registry, name, batch, max_bytes):
-            total += len(changes)
-    return total
-
-
-def deliver(application, registry, repo: str, entries) -> list[ChangeEvent]:
-    cache = application.cache
-    changes, graphs, made, gone = [], {}, [], []
-    for record_id, record, kind, etag, text in entries:
-        if (
-            kind == "delete" or text is None
-        ):  # gone: deleted, and perhaps made again, since
-            changes.append(ChangeEvent(record_id, record, "delete"))
-            gone.append(record_id)
-            continue
-        graph = ox.Dataset(ox.parse(text.encode(), format=ox.RdfFormat.N_TRIPLES))
-        graphs[record] = graph
-        changes.append(ChangeEvent(record_id, record, kind))
-        if cache.keeps_graphs:
-            made.append((record_id, etag, dataset_rdfxml(graph)))
-    if made:
-        cache.keep(repo, made)  # one write for the batch
-    if gone and cache.keeps_graphs:
-        cache.forget(repo, gone)
-    manager.push(
-        {"registry": registry, "request": None}
-    )  # the files of the types are assets of the registry
-    repository = application[repo]
-    try:
-        docs = (
-            _make_docs(
-                repository, changes, graphs, {i: etag for i, _, _, etag, _ in entries}
-            )
-            if graphs
-            else {}
-        )
-        _notify(registry, RecordsChanged(repository, changes, graphs, docs))
-    finally:
-        repository.close()
-        manager.pop()
-    return changes
-
-
-def _make_docs(repository, changes, graphs, etags) -> dict[str, dict]:
-    cache = repository.__parent__.cache
-    if not cache.keeps_docs:
-        return {}
-    ids = {c.record: c.record_id for c in changes if c.record in graphs}
-    merged = ox.Dataset(quad for record in ids for quad in graphs[record])
-    try:
-        made = cache.docs.bulk_update(
-            repository,
-            ids,
-            serialize_bytes(merged, format=ox.RdfFormat.RDF_XML).decode(),
-            etags,
-        )
-    except Exception:
-        log.exception(
-            "%s: the docs of %d records could not be made",
-            repository.__name__,
-            len(ids),
-        )
-        return {}
-    return {record: doc for record, doc in made.items() if "error" not in doc}
-
-
-def process_batch(
-    application,
-    registry,
-    repo: str,
-    limit: int = BATCH,
-    max_bytes: int | None = BATCH_BYTES,
-) -> list[ChangeEvent]:
-    with application.new_store(repo) as store:
-        # a write outside the store has not made its etags: they are what is read
-        store.catch_up_etags()
-        taken, bound = store.take_change_events(limit, max_bytes)
-        if not taken:
-            return []
-        sources = store.fetch_compound_graphs(
-            i for i, _, kind in taken if kind != "delete"
-        )
-        entries = []
-        for record_id, record, kind in taken:
-            etag, text = sources.get(record_id, (None, None))
-            entries.append((record_id, record, kind, etag, text))
-        changes = deliver(application, registry, repo, entries)
-        store.change_events_done([c.record_id for c in changes], bound)
-    return changes
-
-
 class ChangeEventsWorker:
     def __init__(
         self,
@@ -284,7 +143,7 @@ class ChangeEventsWorker:
         for record_id, (etag, text) in compounds.items():
             entries.append((record_id, record_uris[record_id], "update", etag, text))
         if entries:
-            deliver(self.application, self.registry, repo, entries)
+            self.deliver(repo, entries)
 
     def _run(self) -> None:
         while not self._stopped:
@@ -355,9 +214,7 @@ class ChangeEventsWorker:
                     self._line.append(repo)
                     continue
                 try:
-                    changes = process_batch(
-                        self.application,
-                        self.registry,
+                    changes = self.process_batch(
                         repo,
                         self.batch,
                         self.batch_bytes,
@@ -380,13 +237,148 @@ class ChangeEventsWorker:
     def drain(self, repo: str) -> int:
         total = 0
         while not self._stopped:
-            done = process_batch(
-                self.application, self.registry, repo, self.batch, self.batch_bytes
-            )
+            done = self.process_batch(repo, self.batch, self.batch_bytes)
             if not done:
                 break
             total += len(done)
         return total
 
     def _lock(self, repo: str):
-        return repository_lock(self.lock_dir, repo)
+        return self.repository_lock(self.lock_dir, repo)
+
+    def _notify(self, event: RecordsChanged) -> None:
+        manager.push({"self.registry": self.registry, "request": None})
+        try:
+            self.registry.notify(event)
+        finally:
+            manager.pop()
+
+    def process_pending(
+        self,
+        repo: str | None = None,
+        batch: int = BATCH,
+        max_bytes: int | None = BATCH_BYTES,
+    ) -> int:
+        total = 0
+        for name in [repo] if repo else self.application.list_repositories():
+            while changes := self.process_batch(name, batch, max_bytes):
+                total += len(changes)
+        return total
+
+    def deliver(self, repo: str, entries) -> list[ChangeEvent]:
+        cache = self.application.cache
+        changes, graphs, made, gone = [], {}, [], []
+        for record_id, record, kind, etag, text in entries:
+            if (
+                kind == "delete" or text is None
+            ):  # gone: deleted, and perhaps made again, since
+                changes.append(ChangeEvent(record_id, record, "delete"))
+                gone.append(record_id)
+                continue
+            graph = ox.Dataset(ox.parse(text.encode(), format=ox.RdfFormat.N_TRIPLES))
+            graphs[record] = graph
+            changes.append(ChangeEvent(record_id, record, kind))
+            if cache.keeps_graphs:
+                made.append((record_id, etag, dataset_rdfxml(graph)))
+        if made:
+            cache.keep(repo, made)  # one write for the batch
+        if gone and cache.keeps_graphs:
+            cache.forget(repo, gone)
+        manager.push(
+            {"self.registry": self.registry, "request": None}
+        )  # the files of the types are assets of the self.registry
+        repository = self.application[repo]
+        try:
+            docs = (
+                self._make_docs(
+                    repository,
+                    changes,
+                    graphs,
+                    {i: etag for i, _, _, etag, _ in entries},
+                )
+                if graphs
+                else {}
+            )
+            self._notify(RecordsChanged(repository, changes, graphs, docs))
+        finally:
+            repository.close()
+            manager.pop()
+        return changes
+
+    def _make_docs(self, repository, changes, graphs, etags) -> dict[str, dict]:
+        cache = repository.__parent__.cache
+        if not cache.keeps_docs:
+            return {}
+        ids = {c.record: c.record_id for c in changes if c.record in graphs}
+        merged = ox.Dataset(quad for record in ids for quad in graphs[record])
+        try:
+            made = cache.docs.bulk_update(
+                repository,
+                ids,
+                serialize_bytes(merged, format=ox.RdfFormat.RDF_XML).decode(),
+                etags,
+            )
+        except Exception:
+            log.exception(
+                "%s: the docs of %d records could not be made",
+                repository.__name__,
+                len(ids),
+            )
+            return {}
+        return {record: doc for record, doc in made.items() if "error" not in doc}
+
+    def process_batch(
+        self,
+        repo: str,
+        limit: int = BATCH,
+        max_bytes: int | None = BATCH_BYTES,
+    ) -> list[ChangeEvent]:
+        with self.application.new_store(repo) as store:
+            # a write outside the store has not made its etags: they are what is read
+            store.catch_up_etags()
+            taken, bound = store.take_change_events(limit, max_bytes)
+            if not taken:
+                return []
+            sources = store.fetch_compound_graphs(
+                i for i, _, kind in taken if kind != "delete"
+            )
+            entries = []
+            for record_id, record, kind in taken:
+                etag, text = sources.get(record_id, (None, None))
+                entries.append((record_id, record, kind, etag, text))
+            changes = self.deliver(repo, entries)
+            store.change_events_done([c.record_id for c in changes], bound)
+        return changes
+
+    @staticmethod
+    def lock_dir_for(settings: dict) -> Path | None:
+        if settings.get("gracia.cache_dir"):
+            return Path(settings["gracia.cache_dir"])
+        target = settings.get("gracia.db") or os.environ.get("GRACIA_DB", "gracia.db")
+        database = settings.get("gracia.db.file") or (
+            None if target.startswith("quack:") else target
+        )
+        return Path(database).parent if database and database != ":memory:" else None
+
+    @staticmethod
+    @contextmanager
+    def repository_lock(lock_dir, repo: str, wait: bool = False):
+        if lock_dir is None:
+            yield True
+            return
+        Path(lock_dir).mkdir(parents=True, exist_ok=True)
+        descriptor = os.open(
+            Path(lock_dir) / f"change_events-{repo}.lock", os.O_CREAT | os.O_RDWR
+        )
+        held = False
+        try:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
+                held = True
+            except BlockingIOError:
+                pass
+            yield held
+        finally:
+            if held:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+            os.close(descriptor)

@@ -10,7 +10,7 @@ from harness import FOAF_PERSON, etag_of, graph_of, open_application
 from pyramid.registry import Registry
 from test_web import WebCase
 
-from gracia.change_events import RecordsChanged, process_pending
+from gracia.change_events import ChangeEventsWorker, RecordsChanged
 from gracia.store import fetch_one
 from gracia.utils import assets, xslt
 
@@ -287,7 +287,7 @@ class WorkerTest(DocsCase):
     def run_worker(self):
         registry, events = Registry(), []
         registry.registerHandler(events.append, (RecordsChanged,))
-        process_pending(self.application, registry)
+        ChangeEventsWorker(self.application, registry).process_pending()
         return events
 
     def test_the_docs_of_a_batch_are_in_the_event_and_the_cache_and_the_view_serves_them(

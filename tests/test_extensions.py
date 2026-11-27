@@ -11,7 +11,7 @@ from pyramid.response import Response
 from support import must_search
 from test_web import HeaderPolicy, WebCase
 
-from gracia import extensions, uri
+from gracia import uri
 from gracia.extensions import Extension, ExtensionError
 from gracia.forms import to_json
 from gracia.main import make_config
@@ -107,7 +107,7 @@ class ExtensionsCase(WebCase):
 
     def stored(self):
         with self.application.new_store("test_repo") as store:
-            return extensions.read_extension_states(
+            return Repository.read_extension_states(
                 store.get(uri.repository_uri()), uri.repository_uri()
             )
 

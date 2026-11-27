@@ -1,9 +1,12 @@
+from __future__ import annotations
+
 import functools
 import json
 import re
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Self
 
 import pyoxigraph as ox
 
@@ -92,74 +95,6 @@ class RdfError(RuntimeError):
     pass
 
 
-def guess_format(path: str | Path) -> str:
-    ext = Path(path).suffix.lower()
-    try:
-        return INPUT_BY_EXTENSION[ext]
-    except KeyError:
-        known = ", ".join(sorted(INPUT_BY_EXTENSION))
-        raise RdfError(
-            f"cannot guess the format of {path} (known extensions: {known})"
-        ) from None
-
-
-def rdf_format(name: str) -> ox.RdfFormat:
-    try:
-        return _FORMATS[name]
-    except KeyError:
-        raise RdfError(
-            f"unknown format {name!r}; known: {', '.join(_FORMATS)}"
-        ) from None
-
-
-def _term_text(term) -> tuple[str, str]:
-    if isinstance(term, ox.NamedNode):
-        return term.value, "uri"
-    if isinstance(term, ox.BlankNode):
-        return "_:" + term.value, "bnode"
-    raise RdfError(
-        f"unsupported term {term!r} (RDF-star triple terms are not supported)"
-    )
-
-
-def _row_of(quad: ox.Quad) -> Row:
-    s, s_type = _term_text(quad.subject)
-    lang = dtype = None
-    if isinstance(quad.object, ox.Literal):
-        literal = quad.object
-        o, o_type, lang = literal.value, "literal", literal.language
-        dt = literal.datatype.value
-        dtype = None if dt in (XSD_STRING, RDF_LANGSTRING) else dt
-    else:
-        o, o_type = _term_text(quad.object)
-    return (s, s_type, quad.predicate.value, o, o_type, lang, dtype)
-
-
-def _node(value: str, res_type: str):
-    return (
-        ox.NamedNode(value)
-        if res_type == "uri"
-        else ox.BlankNode(value.removeprefix("_:"))
-    )
-
-
-def _quad_of(row: Row, with_graph: bool = True):
-    s, s_type, p, o, o_type, lang, dtype = row
-    subject = _node(s, s_type)
-    if o_type == "literal":
-        if lang:
-            obj = ox.Literal(o, language=lang)
-        elif dtype:
-            obj = ox.Literal(o, datatype=ox.NamedNode(dtype))
-        else:
-            obj = ox.Literal(o)
-    else:
-        obj = _node(o, o_type)
-    if with_graph:
-        return ox.Quad(subject, ox.NamedNode(p), obj, ox.DefaultGraph())
-    return ox.Triple(subject, ox.NamedNode(p), obj)
-
-
 def streaming_parse(
     source: str | Path | bytes,
     fmt: str | None = None,
@@ -168,13 +103,13 @@ def streaming_parse(
     if isinstance(source, bytes):
         if fmt is None:
             raise RdfError("a format is required to parse bytes")
-        parsed = ox.parse(source, format=rdf_format(fmt))
+        parsed = ox.parse(source, format=Graph.rdf_format(fmt))
     else:
-        fmt = fmt or guess_format(source)
-        parsed = ox.parse(path=str(source), format=rdf_format(fmt))
+        fmt = fmt or Graph.guess_format(source)
+        parsed = ox.parse(path=str(source), format=Graph.rdf_format(fmt))
     try:
         for quad in parsed:
-            yield _row_of(quad)
+            yield Graph._row_of(quad)
         if prefixes is not None:
             prefixes.update(parsed.prefixes)
     except (SyntaxError, ValueError, OSError) as err:
@@ -190,9 +125,9 @@ def streaming_serialize(
     output: str | Path | None = None,
     prefixes: dict[str, str] | None = None,
 ) -> str | None:
-    rdf_fmt = rdf_format(fmt)
+    rdf_fmt = Graph.rdf_format(fmt)
     with_graph = rdf_fmt.supports_datasets
-    quads = (_quad_of(row, with_graph) for row in rows)
+    quads = (Graph._quad_of(row, with_graph) for row in rows)
     try:
         if output is None:
             return serialize_bytes(quads, format=rdf_fmt, prefixes=prefixes).decode(
@@ -202,10 +137,6 @@ def streaming_serialize(
     except (ValueError, OSError) as err:
         raise RdfError(f"cannot write {fmt}: {err}") from err
     return None
-
-
-def _term(term):
-    return ox.NamedNode(term) if isinstance(term, str) else term
 
 
 def serialize_bytes(data, **kwargs) -> bytes:
@@ -231,9 +162,9 @@ class Graph:
         self.dataset = ox.Dataset() if dataset is None else dataset
 
     @classmethod
-    def parse(cls, text: str, fmt: str) -> "Graph":
+    def parse(cls, text: str, fmt: str) -> Self:
         try:
-            quads = list(ox.parse(text.encode("utf-8"), format=rdf_format(fmt)))
+            quads = list(ox.parse(text.encode("utf-8"), format=cls.rdf_format(fmt)))
         except (SyntaxError, ValueError) as err:
             raise ParseError(
                 f"This is not valid {fmt}: {str(err).splitlines()[0][:200]}"
@@ -246,11 +177,11 @@ class Graph:
         )
 
     @classmethod
-    def of_rows(cls, rows: Iterable["Row"]) -> "Graph":
-        return cls(ox.Dataset(_quad_of(row, True) for row in rows))
+    def of_rows(cls, rows: Iterable[Row]) -> Self:
+        return cls(ox.Dataset(cls._quad_of(row, True) for row in rows))
 
-    def rows(self) -> Iterator["Row"]:
-        return (_row_of(quad) for quad in self.dataset)
+    def rows(self) -> Iterator[Row]:
+        return (self._row_of(quad) for quad in self.dataset)
 
     # ---- it is a dataset
     # -----------------------------------------------------------------
@@ -277,14 +208,14 @@ class Graph:
             raise AttributeError(name)
         return getattr(self.dataset, name)
 
-    def copy(self) -> "Graph":
+    def copy(self) -> Graph:
         return Graph(ox.Dataset(self.dataset))
 
     # ---- reading
     # -------------------------------------------------------------------------
 
     def objects(self, subject, predicate) -> list:
-        subject, predicate = _term(subject), _term(predicate)
+        subject, predicate = self._term(subject), self._term(predicate)
         return [
             q.object
             for q in self.dataset.quads_for_subject(subject)
@@ -326,10 +257,10 @@ class Graph:
                 )
         return found
 
-    def extract(self, uri) -> "Graph":
-        return Graph(ox.Dataset(self._resource(_term(uri))))
+    def extract(self, uri) -> Graph:
+        return Graph(ox.Dataset(self._resource(self._term(uri))))
 
-    def orphaned_nodes(self) -> "Graph":
+    def orphaned_nodes(self) -> Graph:
         covered: set[ox.Quad] = set()
         for root in self.subjects():
             covered |= self._resource(root)
@@ -353,11 +284,12 @@ class Graph:
 
     def graph_name_of(self, subject):
         return next(
-            (q.graph_name for q in self.dataset.quads_for_subject(_term(subject))), None
+            (q.graph_name for q in self.dataset.quads_for_subject(self._term(subject))),
+            None,
         )
 
     def replace(self, subject, predicate, new, graph=None) -> None:
-        subject, predicate = _term(subject), _term(predicate)
+        subject, predicate = self._term(subject), self._term(predicate)
         if graph is None:
             graph = self.graph_name_of(subject) or ox.DefaultGraph()
         for quad in [
@@ -372,7 +304,7 @@ class Graph:
     def replace_list(self, subject, predicate, items: list) -> None:
         """Make the value of a property the rdf:list of the items, in their order (no
         value for none, and what the old list was made of is gone)."""
-        subject, predicate = _term(subject), _term(predicate)
+        subject, predicate = self._term(subject), self._term(predicate)
         for old in self.objects(subject, predicate):
             if isinstance(old, ox.BlankNode):
                 self.discard_node(subject, predicate, old)
@@ -391,7 +323,7 @@ class Graph:
     def discard_plain(self, subject, predicate) -> None:
         """Take away the values of a property that are not blank nodes (a form of
         values leaves the nodes alone, which another form has)."""
-        subject, predicate = _term(subject), _term(predicate)
+        subject, predicate = self._term(subject), self._term(predicate)
         for quad in list(self.dataset.quads_for_subject(subject)):
             if quad.predicate == predicate and not isinstance(
                 quad.object, ox.BlankNode
@@ -399,7 +331,7 @@ class Graph:
                 self.dataset.discard(quad)
 
     def discard_node(self, subject, predicate, node) -> None:
-        subject, predicate = _term(subject), _term(predicate)
+        subject, predicate = self._term(subject), self._term(predicate)
         for quad in list(self.dataset.quads_for_subject(subject)):
             if quad.predicate == predicate and quad.object == node:
                 self.dataset.discard(quad)
@@ -411,10 +343,10 @@ class Graph:
                     pending.append(quad.object)
 
     def add_value(self, subject, predicate, term, graph=None) -> None:
-        subject = _term(subject)
+        subject = self._term(subject)
         if graph is None:
             graph = self.graph_name_of(subject) or ox.DefaultGraph()
-        self.dataset.add(ox.Quad(subject, _term(predicate), term, graph))
+        self.dataset.add(ox.Quad(subject, self._term(predicate), term, graph))
 
     # ---- whole graphs
     # --------------------------------------------------------------------
@@ -427,12 +359,12 @@ class Graph:
             return ""
         return dataset_rdfxml(shown.dataset).decode()
 
-    def without(self, predicates) -> "Graph":
-        hidden = {_term(p) for p in predicates}
+    def without(self, predicates) -> Graph:
+        hidden = {self._term(p) for p in predicates}
         return Graph(ox.Dataset(q for q in self.dataset if q.predicate not in hidden))
 
-    def remap(self, old, new) -> "Graph":
-        old, new = _term(old), _term(new)
+    def remap(self, old, new) -> Graph:
+        old, new = self._term(old), self._term(new)
 
         def swap(term):
             return new if term == old else term
@@ -462,14 +394,14 @@ class Graph:
     ) -> str:
         # the triple formats refuse a graph name, so a quad that has one is written
         # without it
-        quads = sorted(map(_flat, self.dataset), key=_order)
-        text = serialize_bytes(quads, format=rdf_format(fmt), prefixes=prefixes).decode(
-            "utf-8"
-        )
+        quads = sorted(map(self._flat, self.dataset), key=self._order)
+        text = serialize_bytes(
+            quads, format=self.rdf_format(fmt), prefixes=prefixes
+        ).decode("utf-8")
         if fmt == "turtle":
-            return _only_used_turtle_prefixes(text)
+            return self._only_used_turtle_prefixes(text)
         if fmt == "rdfxml":
-            return xslt.nest(_only_used_xml_prefixes(text), xslt_params)
+            return xslt.nest(self._only_used_xml_prefixes(text), xslt_params)
         if fmt == "jsonld":  # the serializer writes one line
             return json.dumps(json.loads(text), indent=2, ensure_ascii=False)
         return text
@@ -479,12 +411,12 @@ class Graph:
 
     def validate(
         self,
-        shapes: "Graph | ox.Dataset | str | Path",
-        shape: "str | ox.NamedNode | None" = None,
+        shapes: Graph | ox.Dataset | str | Path,
+        shape: str | ox.NamedNode | None = None,
     ) -> Report:
         import pyrudof  # about 30 ms to load: only when something is validated
 
-        shapes_graph = _shapes_graph(shapes)
+        shapes_graph = self._shapes_graph(shapes)
         if shape is not None:
             shape_node = (
                 shape if isinstance(shape, ox.NamedNode) else ox.NamedNode(shape)
@@ -514,7 +446,7 @@ class Graph:
                 Violation(
                     focus_node=entry.focus_node,
                     path=entry.path,
-                    message=_clean(entry.message),
+                    message=self._clean(entry.message),
                     severity=entry.severity,
                     source_shape=entry.source_shape,
                     constraint_component=entry.constraint_component,
@@ -539,64 +471,152 @@ class Graph:
         store.extend(self.dataset)
         return store.query(query, prefixes=prefixes, use_default_graph_as_union=True)  # ty: ignore[invalid-explicit-return]
 
+    @staticmethod
+    def guess_format(path: str | Path) -> str:
+        ext = Path(path).suffix.lower()
+        try:
+            return INPUT_BY_EXTENSION[ext]
+        except KeyError:
+            known = ", ".join(sorted(INPUT_BY_EXTENSION))
+            raise RdfError(
+                f"cannot guess the format of {path} (known extensions: {known})"
+            ) from None
 
-def _flat(quad: ox.Quad) -> ox.Quad:
-    if isinstance(quad.graph_name, ox.DefaultGraph):
-        return quad  # as it is
-    return ox.Quad(quad.subject, quad.predicate, quad.object, ox.DefaultGraph())
+    @staticmethod
+    def rdf_format(name: str) -> ox.RdfFormat:
+        try:
+            return _FORMATS[name]
+        except KeyError:
+            raise RdfError(
+                f"unknown format {name!r}; known: {', '.join(_FORMATS)}"
+            ) from None
 
+    @staticmethod
+    def _term_text(term) -> tuple[str, str]:
+        if isinstance(term, ox.NamedNode):
+            return term.value, "uri"
+        if isinstance(term, ox.BlankNode):
+            return "_:" + term.value, "bnode"
+        raise RdfError(
+            f"unsupported term {term!r} (RDF-star triple terms are not supported)"
+        )
 
-def _order(quad: ox.Quad) -> tuple:
-    subject, predicate, term = quad.subject, quad.predicate.value, quad.object
-    if isinstance(term, ox.Literal):
-        value = (1, term.value, term.language or "", term.datatype.value)
-    else:  # a uri before a literal before a blank node
-        value = (0 if isinstance(term, ox.NamedNode) else 2, str(term), "", "")
-    return (
-        isinstance(subject, ox.BlankNode),
-        subject.value,  # ty: ignore[missing-union-attribute]
-        predicate != uri.RDF_TYPE,
-        predicate,
-        value,
-    )
+    @staticmethod
+    def _row_of(quad: ox.Quad) -> Row:
+        s, s_type = Graph._term_text(quad.subject)
+        lang = dtype = None
+        if isinstance(quad.object, ox.Literal):
+            literal = quad.object
+            o, o_type, lang = literal.value, "literal", literal.language
+            dt = literal.datatype.value
+            dtype = None if dt in (XSD_STRING, RDF_LANGSTRING) else dt
+        else:
+            o, o_type = Graph._term_text(quad.object)
+        return (s, s_type, quad.predicate.value, o, o_type, lang, dtype)
 
+    @staticmethod
+    def _node(value: str, res_type: str):
+        return (
+            ox.NamedNode(value)
+            if res_type == "uri"
+            else ox.BlankNode(value.removeprefix("_:"))
+        )
 
-def _only_used_turtle_prefixes(text: str) -> str:
-    declared = list(_TURTLE_PREFIX.finditer(text))
-    if not declared:
+    @staticmethod
+    def _quad_of(row: Row, with_graph: bool = True):
+        s, s_type, p, o, o_type, lang, dtype = row
+        subject = Graph._node(s, s_type)
+        if o_type == "literal":
+            if lang:
+                obj = ox.Literal(o, language=lang)
+            elif dtype:
+                obj = ox.Literal(o, datatype=ox.NamedNode(dtype))
+            else:
+                obj = ox.Literal(o)
+        else:
+            obj = Graph._node(o, o_type)
+        if with_graph:
+            return ox.Quad(subject, ox.NamedNode(p), obj, ox.DefaultGraph())
+        return ox.Triple(subject, ox.NamedNode(p), obj)
+
+    @staticmethod
+    def _term(term):
+        return ox.NamedNode(term) if isinstance(term, str) else term
+
+    @staticmethod
+    def _flat(quad: ox.Quad) -> ox.Quad:
+        if isinstance(quad.graph_name, ox.DefaultGraph):
+            return quad  # as it is
+        return ox.Quad(quad.subject, quad.predicate, quad.object, ox.DefaultGraph())
+
+    @staticmethod
+    def _order(quad: ox.Quad) -> tuple:
+        subject, predicate, term = quad.subject, quad.predicate.value, quad.object
+        if isinstance(term, ox.Literal):
+            value = (1, term.value, term.language or "", term.datatype.value)
+        else:  # a uri before a literal before a blank node
+            value = (0 if isinstance(term, ox.NamedNode) else 2, str(term), "", "")
+        return (
+            isinstance(subject, ox.BlankNode),
+            subject.value,  # ty: ignore[missing-union-attribute]
+            predicate != uri.RDF_TYPE,
+            predicate,
+            value,
+        )
+
+    @staticmethod
+    def _only_used_turtle_prefixes(text: str) -> str:
+        declared = list(_TURTLE_PREFIX.finditer(text))
+        if not declared:
+            return text
+        body = text[declared[-1].end() :]
+        code = _LEFT_OUT.sub(" ", body)  # not what is inside a string or a URI
+        drop = [
+            m
+            for m in declared
+            if not re.search(rf"(?<![\w.-]){re.escape(m[1])}:", code)
+        ]
+        for match in reversed(drop):
+            text = text[: match.start()] + text[match.end() :]
         return text
-    body = text[declared[-1].end() :]
-    code = _LEFT_OUT.sub(" ", body)  # not what is inside a string or a URI
-    drop = [
-        m for m in declared if not re.search(rf"(?<![\w.-]){re.escape(m[1])}:", code)
-    ]
-    for match in reversed(drop):
-        text = text[: match.start()] + text[match.end() :]
-    return text
 
+    @staticmethod
+    def _only_used_xml_prefixes(text: str) -> str:
+        root_end = text.index(">", text.index("<rdf:RDF")) + 1
+        root, body = text[:root_end], text[root_end:]
+        tags = " ".join(
+            re.findall(r"<[^>]*>", body)
+        )  # names and attributes, not the text between
+        for match in _XMLNS.finditer(root):
+            name = match[1]
+            if name != "rdf" and not re.search(rf"(?<![\w.-]){re.escape(name)}:", tags):
+                root = root.replace(match[0], "", 1)
+        return root + body
 
-def _only_used_xml_prefixes(text: str) -> str:
-    root_end = text.index(">", text.index("<rdf:RDF")) + 1
-    root, body = text[:root_end], text[root_end:]
-    tags = " ".join(
-        re.findall(r"<[^>]*>", body)
-    )  # names and attributes, not the text between
-    for match in _XMLNS.finditer(root):
-        name = match[1]
-        if name != "rdf" and not re.search(rf"(?<![\w.-]){re.escape(name)}:", tags):
-            root = root.replace(match[0], "", 1)
-    return root + body
+    @staticmethod
+    def _missing_prefixes(text: str, known: tuple) -> list[str]:
+        declared = {name for name, _ in known} | set(
+            re.findall(r"(?i)\bPREFIX\s+([^\s:]*):", text)
+        )
+        code = re.sub(
+            r"<[^<>\s]*>|\"[^\"]*\"|'[^']*'|#[^\n]*", " ", text
+        )  # URIs, strings, comments
+        used = re.findall(r"(?<![\w:])([A-Za-z][\w.-]*):", code)
+        return sorted({name for name in used if name not in declared})
 
+    @staticmethod
+    def _shapes_graph(shapes: Graph | ox.Dataset | str | Path) -> Graph:
+        if isinstance(shapes, Graph | ox.Dataset):
+            return Graph(ox.Dataset(shapes))
+        if isinstance(shapes, Path) or ("\n" not in shapes and Path(shapes).exists()):
+            return Graph.of_rows(streaming_parse(shapes))
+        return Graph(
+            ox.Dataset(ox.parse(shapes.encode("utf-8"), format=ox.RdfFormat.TURTLE))
+        )
 
-def _missing_prefixes(text: str, known: tuple) -> list[str]:
-    declared = {name for name, _ in known} | set(
-        re.findall(r"(?i)\bPREFIX\s+([^\s:]*):", text)
-    )
-    code = re.sub(
-        r"<[^<>\s]*>|\"[^\"]*\"|'[^']*'|#[^\n]*", " ", text
-    )  # URIs, strings, comments
-    used = re.findall(r"(?<![\w:])([A-Za-z][\w.-]*):", code)
-    return sorted({name for name in used if name not in declared})
+    @staticmethod
+    def _clean(message: str) -> str:
+        return message.strip().strip('"')
 
 
 @functools.lru_cache(maxsize=512)
@@ -606,7 +626,7 @@ def _select_problem(text: str, prefixes: tuple) -> str | None:
     try:
         result = ox.Store().query(text, prefixes=dict(prefixes))
     except SyntaxError as err:
-        missing = _missing_prefixes(text, prefixes)
+        missing = Graph._missing_prefixes(text, prefixes)
         if missing:
             names = ", ".join(f"{name}:" for name in missing)
             return (
@@ -618,17 +638,3 @@ def _select_problem(text: str, prefixes: tuple) -> str | None:
     if not isinstance(result, ox.QuerySolutions):
         return "A query is a SELECT"
     return None
-
-
-def _shapes_graph(shapes: "Graph | ox.Dataset | str | Path") -> Graph:
-    if isinstance(shapes, Graph | ox.Dataset):
-        return Graph(ox.Dataset(shapes))
-    if isinstance(shapes, Path) or ("\n" not in shapes and Path(shapes).exists()):
-        return Graph.of_rows(streaming_parse(shapes))
-    return Graph(
-        ox.Dataset(ox.parse(shapes.encode("utf-8"), format=ox.RdfFormat.TURTLE))
-    )
-
-
-def _clean(message: str) -> str:
-    return message.strip().strip('"')

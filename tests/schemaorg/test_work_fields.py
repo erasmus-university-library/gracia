@@ -13,7 +13,7 @@ from support import must_search
 
 from gracia import forms
 from gracia.forms import TabsWidget
-from gracia.graph import Graph
+from gracia.shacl import Shapes
 
 SCHEMA = "https://schema.org/"
 EX = "http://example.org/shapes#"
@@ -65,8 +65,7 @@ class GroupRunsTest(ListCase):
     def test_a_group_has_the_label_of_the_group_in_the_shape(self):
         graph, shape = self.application["work_repo"].types["work"].shacl_shape(False)
         said = {
-            path: forms.property_group(graph, prop)
-            for path, prop in forms.properties(graph, shape)
+            path: graph.property_group(prop) for path, prop in graph.properties(shape)
         }
         for path in ("isPartOf", "volumeNumber", "issueNumber", "pageStart", "pageEnd"):
             self.assertEqual(said[SCHEMA + path], "Host Reference", path)
@@ -166,13 +165,11 @@ class IdentifierKindsTest(ListCase):
         graph, _shape = self.application["work_repo"].types["work"].shacl_shape(False)
         shape = ox.NamedNode("http://example.org/shapes#PropertyValueShape")
         (kind,) = [
-            p
-            for path, p in forms.properties(graph, shape)
-            if path == SCHEMA + "propertyID"
+            p for path, p in graph.properties(shape) if path == SCHEMA + "propertyID"
         ]
         (head,) = graph.objects(kind, ox.NamedNode("http://www.w3.org/ns/shacl#in"))
         self.assertEqual(
-            [i.value for i in forms._list_items(graph, head)],
+            [i.value for i in graph._list_items(head)],
             ["DOI", "ISBN", "Handle", "OpenAlex", "Scopus", "Local", "External"],
         )
 
@@ -234,7 +231,7 @@ class InSupportOfTest(ListCase):
     def test_the_shape_and_the_page_say_which_fields_are_for_which_works(self):
         graph, shape = self.application["work_repo"].types["work"].shacl_shape(False)
         self.assertEqual(
-            forms.fields_only_for(graph, shape),
+            graph.fields_only_for(shape),
             {SCHEMA + "inSupportOf": [SCHEMA + "Thesis"]},
         )
         page = self.web.get(ADD, headers=ADMIN).text
@@ -295,7 +292,7 @@ class FieldRuleTest(unittest.TestCase):
 
     @staticmethod
     def graph(text):
-        return Graph.parse(PREFIXES + text, "turtle")
+        return Shapes.parse(PREFIXES + text, "turtle")
 
     def test_a_rule_is_a_shape_that_is_for_the_same_works(self):
         graph = self.graph(
@@ -307,7 +304,7 @@ class FieldRuleTest(unittest.TestCase):
             ex:None a sh:NodeShape .
             """
         )
-        found = forms._rule_shapes(graph, ox.NamedNode(EX + "Work"))
+        found = graph._rule_shapes(ox.NamedNode(EX + "Work"))
         self.assertEqual({s.value for s in found}, {EX + "Work", EX + "Rule"})
 
     def test_a_field_that_a_work_has_none_of_unless_it_is_of_the_class(self):
@@ -320,7 +317,7 @@ class FieldRuleTest(unittest.TestCase):
             """
         )
         self.assertEqual(
-            forms.fields_only_for(graph, ox.NamedNode(EX + "Work")),
+            graph.fields_only_for(ox.NamedNode(EX + "Work")),
             {SCHEMA + "inSupportOf": [SCHEMA + "Thesis"]},
         )
         # several classes and several rules
@@ -338,7 +335,7 @@ class FieldRuleTest(unittest.TestCase):
             """
         )
         self.assertEqual(
-            forms.fields_only_for(graph, ox.NamedNode(EX + "Work")),
+            graph.fields_only_for(ox.NamedNode(EX + "Work")),
             {
                 SCHEMA + "inSupportOf": [SCHEMA + "Thesis", SCHEMA + "Report"],
                 SCHEMA + "isbn": [SCHEMA + "Book"],
@@ -357,4 +354,4 @@ class FieldRuleTest(unittest.TestCase):
             """
         )
         # the first is no rule of this kind; the second says two fields: not understood
-        self.assertEqual(forms.fields_only_for(graph, ox.NamedNode(EX + "Work")), {})
+        self.assertEqual(graph.fields_only_for(ox.NamedNode(EX + "Work")), {})

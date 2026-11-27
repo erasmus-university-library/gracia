@@ -10,11 +10,12 @@ from typing import ClassVar
 import colander
 import pyoxigraph as ox
 from harness import FIXTURES, FOAF_PERSON, fake_type, open_store
-from test_records import graph
 from widgets_support import EX, FormCase
 
 from gracia import forms, shacl
 from gracia.predicates import HookContext
+from gracia.shacl import Shapes
+from gracia.store import Store
 from gracia.utils import assets
 
 FOAF = "http://xmlns.com/foaf/0.1/"
@@ -23,16 +24,20 @@ GIVEN, FAMILY, PREFIX, NAME = (
 )
 
 
+def shapes_of(text: str) -> Shapes:
+    return Shapes.parse(text, "turtle")
+
+
 class ParseTest(unittest.TestCase):
     def test_a_placeholder_is_the_next_property_and_a_part_in_brackets_is_optional(
         self,
     ):
         self.assertEqual(
-            shacl.parse("{} {}", 2),
+            shacl.PropertyTemplate.pieces_of("{} {}", 2),
             (("source", 0), ("text", " "), ("source", 1)),
         )
         self.assertEqual(
-            shacl.parse("{} [{} ]{}", 3),
+            shacl.PropertyTemplate.pieces_of("{} [{} ]{}", 3),
             (
                 ("source", 0),
                 ("text", " "),
@@ -41,7 +46,9 @@ class ParseTest(unittest.TestCase):
             ),
         )
         # doubled braces and brackets are themselves
-        self.assertEqual(shacl.parse("{{x}} [[y]]", 0), (("text", "{x} [y]"),))
+        self.assertEqual(
+            shacl.PropertyTemplate.pieces_of("{{x}} [[y]]", 0), (("text", "{x} [y]"),)
+        )
 
     def test_a_template_that_makes_no_sense_is_refused(self):
         for text, count in (
@@ -55,11 +62,13 @@ class ParseTest(unittest.TestCase):
             ("[[{}]{}]", 2),  # nested
         ):
             with self.subTest(text=text), self.assertRaises(ValueError):
-                shacl.parse(text, count)
+                shacl.PropertyTemplate.pieces_of(text, count)
 
 
 def made(text: str, *sources: str) -> shacl.PropertyTemplate:
-    return shacl.PropertyTemplate(NAME, sources, shacl.parse(text, len(sources)))
+    return shacl.PropertyTemplate(
+        NAME, sources, shacl.PropertyTemplate.pieces_of(text, len(sources))
+    )
 
 
 class RenderTest(unittest.TestCase):
@@ -91,18 +100,20 @@ class ShapeTest(unittest.TestCase):
         "@prefix ex: <http://example.org/> .\n"
     )
 
+    def templates(self, body: str):
+        data, shape = self.shape(body)
+        return data.templates(shape)
+
     def shape(self, body: str):
         text = self.PREFIXES + "ex:S a sh:NodeShape ; sh:property " + body
-        data = graph(text)
+        data = shapes_of(text)
         return data, ox.NamedNode(EX + "S")
 
     def test_the_templates_of_a_shape_are_found_also_in_the_person_profiles(self):
-        found = shacl.of_shape(
-            *self.shape(
-                '[ sh:path ex:name ; gracia:propertyTemplate ( "{} {}" ex:givenName '
-                "ex:familyName ) ] , [ sh:path ex:givenName ; sh:maxCount 1 ] , "
-                "[ sh:path ex:familyName ; sh:maxCount 1 ] ."
-            )
+        found = self.templates(
+            '[ sh:path ex:name ; gracia:propertyTemplate ( "{} {}" ex:givenName '
+            "ex:familyName ) ] , [ sh:path ex:givenName ; sh:maxCount 1 ] , "
+            "[ sh:path ex:familyName ; sh:maxCount 1 ] ."
         )
         self.assertEqual(
             [(t.target, t.sources) for t in found], [(NAME, (GIVEN, FAMILY))]
@@ -112,7 +123,7 @@ class ShapeTest(unittest.TestCase):
                 path = assets.resolve(f"{FIXTURES}/foaf/shacl/{spec}")
                 shapes, shape = assets.load_shape(path, FOAF + "Person")
                 self.assertEqual(
-                    [(t.target, t.sources) for t in shacl.of_shape(shapes, shape)],
+                    [(t.target, t.sources) for t in shapes.templates(shape)],
                     [(FOAF + "name", (FOAF + "givenName", FOAF + "familyName"))],
                 )
 
@@ -134,23 +145,21 @@ class ShapeTest(unittest.TestCase):
         }
         for why, body in bad.items():
             with self.subTest(why), self.assertRaises(ValueError):
-                shacl.of_shape(*self.shape(body))
+                self.templates(body)
 
     def test_a_template_in_an_alternative_is_for_the_value_that_alternative_has_and_names_its_kind_once(
         self,
     ):
-        found = shacl.of_shape(
-            *self.shape(
-                "[ sh:path ex:url ; sh:nodeKind sh:IRI ; sh:maxCount 1 ] , "
-                "[ sh:path ex:id ; sh:maxCount 1 ] , "
-                "[ sh:path ex:kind ; sh:maxCount 1 ] ; "
-                'sh:or ( [ sh:property [ sh:path ex:kind ; sh:hasValue "A" ] ; '
-                "sh:property [ sh:path ex:url ; gracia:propertyTemplate "
-                '( "https://a.example/{}" ex:id ) ] ] '
-                '[ sh:property [ sh:path ex:kind ; sh:hasValue "B" ] ; '
-                "sh:property [ sh:path ex:url ; gracia:propertyTemplate "
-                '( "https://b.example/{}" ex:id ) ] ] ) .'
-            )
+        found = self.templates(
+            "[ sh:path ex:url ; sh:nodeKind sh:IRI ; sh:maxCount 1 ] , "
+            "[ sh:path ex:id ; sh:maxCount 1 ] , "
+            "[ sh:path ex:kind ; sh:maxCount 1 ] ; "
+            'sh:or ( [ sh:property [ sh:path ex:kind ; sh:hasValue "A" ] ; '
+            "sh:property [ sh:path ex:url ; gracia:propertyTemplate "
+            '( "https://a.example/{}" ex:id ) ] ] '
+            '[ sh:property [ sh:path ex:kind ; sh:hasValue "B" ] ; '
+            "sh:property [ sh:path ex:url ; gracia:propertyTemplate "
+            '( "https://b.example/{}" ex:id ) ] ] ) .'
         )
         self.assertEqual(
             sorted((t.when, t.iri, t.sources) for t in found),
@@ -165,13 +174,11 @@ class ShapeTest(unittest.TestCase):
             'sh:property [ sh:path ex:id ; sh:hasValue "B" ] ; ',
         ):
             with self.subTest(guards=guards), self.assertRaises(ValueError):
-                shacl.of_shape(
-                    *self.shape(
-                        "[ sh:path ex:url ; sh:maxCount 1 ] , [ sh:path ex:id ; "
-                        "sh:maxCount 1 ] , [ sh:path ex:kind ; sh:maxCount 1 ] ; "
-                        f"sh:or ( [ {guards}sh:property [ sh:path ex:url ; "
-                        'gracia:propertyTemplate ( "x/{}" ex:id ) ] ] ) .'
-                    )
+                self.templates(
+                    "[ sh:path ex:url ; sh:maxCount 1 ] , [ sh:path ex:id ; "
+                    "sh:maxCount 1 ] , [ sh:path ex:kind ; sh:maxCount 1 ] ; "
+                    f"sh:or ( [ {guards}sh:property [ sh:path ex:url ; "
+                    'gracia:propertyTemplate ( "x/{}" ex:id ) ] ] ) .'
                 )
 
 
@@ -183,10 +190,16 @@ class SqlTest(unittest.TestCase):
         store = open_store()
         self.addCleanup(store.close)
         store.configure(
-            lambda: [fake_type(template.sql(context), slug="person", number=5)]
+            lambda: [
+                fake_type(
+                    Store.template_statements([template], context),
+                    slug="person",
+                    number=5,
+                )
+            ]
         )
         return store.apply_hooks(
-            graph(
+            shapes_of(
                 "@prefix gracia: <https://gracia.pub/ns/> .\n"
                 "@prefix ex: <http://example.org/> .\n"
                 f"<rec:person:1> a gracia:Record ; gracia:resource [ {content} ] ."
@@ -244,7 +257,9 @@ class SqlTest(unittest.TestCase):
 
     def test_a_node_inside_the_record_has_its_own_name_from_its_own_parts(self):
         template = shacl.PropertyTemplate(
-            EX + "label", (EX + "a", EX + "b"), shacl.parse("{}, {}", 2)
+            EX + "label",
+            (EX + "a", EX + "b"),
+            shacl.PropertyTemplate.pieces_of("{}, {}", 2),
         )
         result = self.hooked(
             'a ex:Thing ; ex:note [ ex:a "x" ; ex:b "y" ] , [ ex:a "z" ]', template
@@ -316,11 +331,11 @@ class HeaderTest(FormCase):
 
     def test_a_node_shape_has_a_header_and_perhaps_a_badge(self):
         shapes = self.shapes()
-        header, addon = shacl.header_of(shapes, ox.NamedNode(EX + "MarkShape"))
+        header, addon = shapes.header_templates(ox.NamedNode(EX + "MarkShape"))
         assert header is not None and addon is not None
         self.assertEqual(header.sources, (EX + "value",))
         self.assertEqual(addon.sources, (EX + "kind",))
-        place, none = shacl.header_of(shapes, ox.NamedNode(EX + "PlaceShape"))
+        place, none = shapes.header_templates(ox.NamedNode(EX + "PlaceShape"))
         assert place is not None
         self.assertIsNone(none)
         self.assertEqual(
@@ -341,7 +356,7 @@ class HeaderTest(FormCase):
         self.assertIsNone(place.render_names({}))  # nothing: the bar has its title
 
     def test_a_header_can_only_use_the_properties_of_its_shape(self):
-        data = graph(
+        data = shapes_of(
             "@prefix sh: <http://www.w3.org/ns/shacl#> .\n"
             "@prefix gracia: <https://gracia.pub/ns/> .\n"
             "@prefix ex: <http://example.org/> .\n"
@@ -349,7 +364,7 @@ class HeaderTest(FormCase):
             "ex:streatAddress ) ; sh:property [ sh:path ex:streetAddress ] ."
         )
         with self.assertRaises(ValueError):
-            shacl.header_of(data, ox.NamedNode(EX + "S"))
+            data.header_templates(ox.NamedNode(EX + "S"))
 
     def test_the_bar_of_a_node_has_the_icon_the_badge_and_the_header(self):
         record = self.application["test_repo"].types["gadget"].blank_record()
@@ -467,10 +482,10 @@ class FewStatementsTest(FormCase):
             .types["gadget"]
             .shacl_shape(include_record_shape=False)[0]
         )
-        found = shacl.of_shape(shapes, ox.NamedNode(EX + "MarkShape"))
+        found = shapes.templates(ox.NamedNode(EX + "MarkShape"))
         self.assertEqual(len(found), 2)  # one for each kind that has an url
         context = HookContext(None, fake_type(slug="gadget"), EX + "url")
-        statements = shacl.sql_of(found, context)
+        statements = Store.template_statements(found, context)
         self.assertEqual(len(statements), 2)
         self.assertTrue(statements[0].lstrip().startswith("DELETE"))
         self.assertTrue(statements[1].lstrip().startswith("INSERT"))
@@ -489,7 +504,7 @@ class FewStatementsTest(FormCase):
             ]
         )
         store.apply_hooks(
-            graph(
+            shapes_of(
                 "@prefix gracia: <https://gracia.pub/ns/> .\n"
                 "<rec:person:1> a gracia:Record ."
             )

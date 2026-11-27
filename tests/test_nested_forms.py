@@ -10,7 +10,7 @@ import pyoxigraph as ox
 from widgets_support import ADMIN, EX, FormCase, sequence_params
 
 from gracia.forms import Form, change_sequence
-from gracia.graph import Graph
+from gracia.shacl import Shapes
 
 RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
 PLACE = [
@@ -247,7 +247,7 @@ class CardinalityTest(FormCase):
     def setUp(self):
         super().setUp()
         record = self.application["test_repo"].types["gadget"].blank_record()
-        shapes = Graph(
+        shapes = Shapes(
             ox.Dataset(ox.parse(SHAPES.encode(), format=ox.RdfFormat.TURTLE))
         )
         request = SimpleNamespace(resource_url=lambda target, name: f"/{name}")

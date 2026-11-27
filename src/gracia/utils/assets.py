@@ -12,7 +12,7 @@ from pyramid.path import AssetResolver
 from pyramid.threadlocal import manager
 
 from gracia import uri
-from gracia.graph import Graph
+from gracia.shacl import Shapes
 
 SH_NODE_SHAPE = "http://www.w3.org/ns/shacl#NodeShape"
 SH_TARGET_CLASS = "http://www.w3.org/ns/shacl#targetClass"
@@ -48,7 +48,7 @@ MEDIA_TYPES = {
     ".js": "text/javascript",
     ".json": "application/json",
 }
-_SHAPES: dict[tuple[str, int, str], tuple[Graph, ox.NamedNode | ox.BlankNode]] = {}
+_SHAPES: dict[tuple[str, int, str], tuple[Shapes, ox.NamedNode | ox.BlankNode]] = {}
 # an rdf list of [ sh:class <c> ] for each of the classes, added to the data
 _RDF = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
 _INFO: dict[tuple[str, int, int], tuple[str, str]] = {}
@@ -111,11 +111,13 @@ def read_text(spec: str) -> str:
     return resolve(spec).read_text(encoding="utf-8")
 
 
-def load_shape(path: Path, class_uri: str) -> tuple[Graph, ox.NamedNode | ox.BlankNode]:
+def load_shape(
+    path: Path, class_uri: str
+) -> tuple[Shapes, ox.NamedNode | ox.BlankNode]:
     stat = path.stat()
     key = (str(path), stat.st_mtime_ns, class_uri)
     if key not in _SHAPES:
-        data = Graph(
+        data = Shapes(
             ox.Dataset(ox.parse(path.read_bytes(), format=ox.RdfFormat.TURTLE))
         )
         shape_type, target = ox.NamedNode(SH_NODE_SHAPE), ox.NamedNode(SH_TARGET_CLASS)
@@ -141,7 +143,7 @@ def _record_shapes() -> tuple[ox.Quad, ...]:
     return tuple(ox.parse(text, format=ox.RdfFormat.TURTLE))
 
 
-def _class_alternatives(data: Graph, sh, classes: list[str]) -> ox.BlankNode:
+def _class_alternatives(data: Shapes, sh, classes: list[str]) -> ox.BlankNode:
     first, rest, nil = (
         ox.NamedNode(_RDF + "first"),
         ox.NamedNode(_RDF + "rest"),
@@ -165,8 +167,8 @@ def _class_alternatives(data: Graph, sh, classes: list[str]) -> ox.BlankNode:
 
 def record_shape(
     content=None, class_uri: str | None = None
-) -> tuple[Graph, ox.NamedNode]:
-    data = Graph(ox.Dataset(_record_shapes()))
+) -> tuple[Shapes, ox.NamedNode]:
+    data = Shapes(ox.Dataset(_record_shapes()))
     node = ox.NamedNode(uri.RECORD_SHAPE)
 
     def sh(name: str) -> ox.NamedNode:

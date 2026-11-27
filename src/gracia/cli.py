@@ -20,8 +20,8 @@ from gracia.graph import (
     INPUT_BY_EXTENSION,
     JSON_TRIPLES,
     OUTPUT_FORMATS,
+    Graph,
     RdfError,
-    guess_format,
     streaming_parse,
     streaming_serialize,
 )
@@ -173,7 +173,7 @@ def _hooks(args, store):
 def cmd_import(args) -> int:
     with _store(args, create=True) as store, _hooks(args, store) as node:
         for name in args.files:
-            fmt = args.format or guess_format(name)
+            fmt = args.format or Graph.guess_format(name)
             declared: dict[str, str] = {}
             if fmt == JSON_TRIPLES:
                 store.stage_json(name)

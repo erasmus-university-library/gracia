@@ -5,7 +5,6 @@ import unittest
 import pyoxigraph as ox
 from harness import BUNDLED, ConfiguredCase, open_application
 
-from gracia import forms
 from gracia.graph import Graph
 from gracia.utils import assets
 
@@ -74,9 +73,7 @@ class TypesTest(unittest.TestCase):
                 self.assertTrue(shapes)
                 labels = [
                     (role, path)
-                    for role, path, _place in forms.property_roles(
-                        data, node, class_uri
-                    )
+                    for role, path, _place in data.property_roles(node, class_uri)
                     if role == "label"
                 ]
                 self.assertEqual(
@@ -86,23 +83,19 @@ class TypesTest(unittest.TestCase):
                     self.assertTrue(
                         data.value(shape, "http://www.w3.org/ns/shacl#name"), shape
                     )  # the label of its class
-                    for path, prop in forms.properties(data, shape):
+                    for path, prop in data.properties(shape):
                         if path.startswith(SCHEMA):
-                            self.assertNotEqual(
-                                forms.property_title(data, prop, path), path
-                            )
+                            self.assertNotEqual(data.property_title(prop, path), path)
                     found = [
                         (path, data.value(prop, order))
-                        for path, prop in forms.properties(data, shape)
+                        for path, prop in data.properties(shape)
                         if path.startswith(SCHEMA)
                     ]
                     numbers = [float(n.value) for _path, n in found]  # an order each
                     self.assertEqual(numbers, sorted(set(numbers)), shape)  # in order
                 # (the type of a resource that can have several is before the name)
                 first = [
-                    path
-                    for path, _prop in forms.properties(data, node)
-                    if path != RDF_TYPE
+                    path for path, _prop in data.properties(node) if path != RDF_TYPE
                 ]
                 self.assertEqual(first[0], SCHEMA + "name")
 
@@ -128,8 +121,8 @@ class RecursiveShapesTest(ConfiguredCase):
             assets.resolve("gracia:assets/shacl/organization-schemaorg-01.ttl"),
             SCHEMAORG["organization"],
         )
-        self.assertIn(SCHEMA + "parentOrganization", forms.property_paths(data, node))
-        self.assertIn(SCHEMA + "name", forms.property_names(data, node))
+        self.assertIn(SCHEMA + "parentOrganization", data.property_paths(node))
+        self.assertIn(SCHEMA + "name", data.property_names(node))
 
     def put(self, text: str):
         record_graph = Graph(

@@ -15,7 +15,7 @@ from gracia.jobs import runner
 from gracia.jobs.builtin import Source
 from gracia.jobs.db import JobsDb
 from gracia.jobs.spec import validate_spec
-from gracia.jobs.stage import Stage, StageFailure, read_lines
+from gracia.jobs.stage import JobTask, Stage, StageFailure
 from gracia.types.application import Application
 
 FOAF = "http://xmlns.com/foaf/0.1/"
@@ -217,7 +217,7 @@ class JobsCase(unittest.TestCase):
         )
 
     def lines(self, job_id: str, name: str) -> list[dict]:
-        return read_lines(self.jobs_dir / job_id / name)
+        return JobTask.read_lines(self.jobs_dir / job_id / name)
 
 
 def quack_owner(test: unittest.TestCase) -> tuple[Application, str, str]:

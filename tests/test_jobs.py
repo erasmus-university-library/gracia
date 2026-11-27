@@ -14,7 +14,7 @@ from gracia.jobs.db import NOW, JobsDb
 from gracia.jobs.job import Job
 from gracia.jobs.progress import Snapshotter
 from gracia.jobs.spec import JobSpecError, validate_spec
-from gracia.jobs.stage import read_items, stage_class, stage_names
+from gracia.jobs.stage import JobTask, Stage
 from gracia.main import make_config
 from gracia.store import fetch_one
 
@@ -48,14 +48,14 @@ class SpecTest(JobsCase):
         plain = validate_spec(self.valid())
         self.assertEqual(plain["stages"][0]["params"]["n_items"], 6)
         self.assertEqual((plain["job"], plain["subject"]), (None, None))
-        names = stage_names()
+        names = Stage.known()
         for name in ("Echo", "Export", "Validate", "Reject", "Keep", "Mark"):
             self.assertIn(name, names)
         for base in ("Stage", "Source", "Plan", "PinSchema"):
             self.assertNotIn(base, names)
-        self.assertIs(stage_class("Export").__name__, "Export")
+        self.assertIs(Stage.named("Export").__name__, "Export")
         with self.assertRaises(KeyError):
-            stage_class("Source")
+            Stage.named("Source")
 
     def test_a_job_that_is_not_right_is_refused_with_every_reason_where_it_is(self):
         errors = self.errors(self.valid(stages=[{"stage": "Nope"}]))
@@ -197,15 +197,15 @@ class RegistryTest(JobsCase):
         with mock.patch.object(jobs_job, "entry_points", lambda group: [point]):
             self.assertEqual(jobs_job.scan_targets({}), [*built_in, "installed.jobs"])
         # the modules with stages are the built-in ones, the entry points, the setting
-        self.assertEqual(stage_module.load_modules({}), [stage_module.BUILTIN])
+        self.assertEqual(Stage.load_modules({}), [stage_module.BUILTIN])
         self.assertEqual(
-            stage_module.load_modules({"gracia.stages": "jobs_support jobs_support"}),
+            Stage.load_modules({"gracia.stages": "jobs_support jobs_support"}),
             [stage_module.BUILTIN, "jobs_support"],  # once each
         )
         point = SimpleNamespace(value="jobs_support:Echo")
         with mock.patch.object(stage_module, "entry_points", lambda group: [point]):
             self.assertEqual(
-                stage_module.load_modules({}), [stage_module.BUILTIN, "jobs_support"]
+                Stage.load_modules({}), [stage_module.BUILTIN, "jobs_support"]
             )
 
     def test_two_jobs_with_one_name_are_a_conflict_at_commit(self):
@@ -692,7 +692,7 @@ class ExportValidateTest(JobsCase):
         )
         self.assertEqual(self.run_job(job_id), runner.EXIT_DONE)
         files = sorted((self.jobs_dir / job_id / "00-Export").glob("batch-*.nt"))
-        records = [item for path in files for item in read_items(path)]
+        records = [item for path in files for item in JobTask.read_items(path)]
         self.assertEqual(len(records), 12)
         self.assertTrue(all(p["source"].startswith("<rec:person:") for p in records))
         self.assertEqual(records[0]["id"], "rec:person:1")

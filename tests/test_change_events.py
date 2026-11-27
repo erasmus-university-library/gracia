@@ -7,15 +7,7 @@ from pyramid.registry import Registry
 from test_etags import TYPES, EtagCase, record
 
 from gracia import store as store_module
-from gracia.change_events import (
-    BATCH,
-    ChangeEventsWorker,
-    RecordsChanged,
-    lock_dir_for,
-    process_batch,
-    process_pending,
-    repository_lock,
-)
+from gracia.change_events import BATCH, ChangeEventsWorker, RecordsChanged
 from gracia.store import fetch_one
 
 STAMP2 = "2026-06-01T00:00:00.000000Z"
@@ -267,7 +259,9 @@ class BatchCase(QueueCase):
 
     def drain(self, limit: int = BATCH) -> list[int]:
         done = []
-        while changes := process_batch(self.app, self.registry, "main", limit):
+        while changes := ChangeEventsWorker(self.app, self.registry).process_batch(
+            "main", limit
+        ):
             done.append(len(changes))
         return done
 
@@ -407,16 +401,20 @@ class BatchTest(BatchCase):
 
         self.registry.registerHandler(handler, (RecordsChanged,))
         with self.assertRaisesRegex(RuntimeError, "index is down"):
-            process_batch(self.app, self.registry, "main")
+            ChangeEventsWorker(self.app, self.registry).process_batch("main")
         self.assertEqual(self.store.pending_change_events()[0], 1)
         failing["on"] = False
-        self.assertEqual(len(process_batch(self.app, self.registry, "main")), 1)
+        self.assertEqual(
+            len(ChangeEventsWorker(self.app, self.registry).process_batch("main")), 1
+        )
         self.assertEqual(self.store.pending_change_events(), (0, None))
         # without a graph directory the events still come
         app = open_application(self, self.db)
         self.events.clear()
         self.put(record("rec:org:32"))
-        self.assertEqual(len(process_batch(app, self.registry, "main")), 1)
+        self.assertEqual(
+            len(ChangeEventsWorker(app, self.registry).process_batch("main")), 1
+        )
         self.assertEqual(len(self.events), 1)
 
 
@@ -429,12 +427,17 @@ class ByteBatchTest(BatchCase):
             0
         ]
         self.assertEqual(
-            process_pending(self.app, self.registry, max_bytes=one * 4), 10
+            ChangeEventsWorker(self.app, self.registry).process_pending(
+                max_bytes=one * 4
+            ),
+            10,
         )
         self.assertEqual([len(e.changes) for e in self.events], [4, 4, 2])
         self.events.clear()
         self.put(record("rec:org:1"), record("rec:work:101", refs=["rec:org:1"]))
-        self.assertEqual(process_pending(self.app, self.registry, max_bytes=1), 2)
+        self.assertEqual(
+            ChangeEventsWorker(self.app, self.registry).process_pending(max_bytes=1), 2
+        )
         self.assertEqual([len(e.changes) for e in self.events], [1, 1])
 
 
@@ -443,16 +446,20 @@ class ManualTest(BatchCase):
         self,
     ):
         self.put(record("rec:org:1"), record("rec:work:1", refs=["rec:org:1"]))
-        self.assertEqual(process_pending(self.app, self.registry), 2)
+        self.assertEqual(
+            ChangeEventsWorker(self.app, self.registry).process_pending(), 2
+        )
         self.assertEqual(self.store.pending_change_events(), (0, None))
         self.assertEqual(sum(len(e.changes) for e in self.events), 2)
         self.assertEqual(
-            process_pending(self.app, self.registry), 0
+            ChangeEventsWorker(self.app, self.registry).process_pending(), 0
         )  # and nothing the second time
         # the size of a batch is the size of an event
         self.events.clear()
         self.put(*[record(f"rec:work:{n}") for n in range(11, 18)])
-        self.assertEqual(process_pending(self.app, self.registry, batch=3), 7)
+        self.assertEqual(
+            ChangeEventsWorker(self.app, self.registry).process_pending(batch=3), 7
+        )
         self.assertEqual([len(e.changes) for e in self.events], [3, 3, 1])
 
     def test_a_repository_can_be_named_and_the_others_are_left(self):
@@ -461,26 +468,28 @@ class ManualTest(BatchCase):
         other.set_type_ids(TYPES)
         other.put_multi(record("rec:org:1", res="ark:/1/other/1"))
         self.put(record("rec:org:1"))
-        self.assertEqual(process_pending(self.app, self.registry, "main"), 1)
+        self.assertEqual(
+            ChangeEventsWorker(self.app, self.registry).process_pending("main"), 1
+        )
         self.assertEqual(
             (self.store.pending_change_events(), other.pending_change_events()),
             ((0, None), (1, 1)),
         )
         self.assertEqual(
-            process_pending(self.app, self.registry), 1
+            ChangeEventsWorker(self.app, self.registry).process_pending(), 1
         )  # all: the other one now
         self.assertEqual({e.repo for e in self.events}, {"main", "other"})
 
     def test_the_lock_is_waited_for_when_asked_to_and_the_locks_go_in_the_cache_directory_or_next_to_the_database(
         self,
     ):
-        with repository_lock(None, "main") as held:
+        with ChangeEventsWorker.repository_lock(None, "main") as held:
             self.assertTrue(held)
         holder = threading.Event()
         release = threading.Event()
 
         def hold():
-            with repository_lock(self.tmp / "l", "main") as got:
+            with ChangeEventsWorker.repository_lock(self.tmp / "l", "main") as got:
                 holder.set()
                 release.wait(5)
                 assert got
@@ -488,25 +497,30 @@ class ManualTest(BatchCase):
         thread = threading.Thread(target=hold)
         thread.start()
         self.assertTrue(holder.wait(5))
-        with repository_lock(self.tmp / "l", "main") as busy:
+        with ChangeEventsWorker.repository_lock(self.tmp / "l", "main") as busy:
             self.assertFalse(busy)
         threading.Timer(0.2, release.set).start()
-        with repository_lock(self.tmp / "l", "main", wait=True) as waited:
+        with ChangeEventsWorker.repository_lock(
+            self.tmp / "l", "main", wait=True
+        ) as waited:
             self.assertTrue(waited)  # it came when the other let go
         thread.join()
         self.assertEqual(
-            lock_dir_for({"gracia.cache_dir": "/c", "gracia.db": "/d/x.db"}).as_posix(),  # ty: ignore[missing-union-attribute]
+            ChangeEventsWorker.lock_dir_for(
+                {"gracia.cache_dir": "/c", "gracia.db": "/d/x.db"}
+            ).as_posix(),  # ty: ignore[missing-union-attribute]
             "/c",
         )
-        self.assertEqual(lock_dir_for({"gracia.db": "/d/x.db"}).as_posix(), "/d")  # ty: ignore[missing-union-attribute]
+        found = ChangeEventsWorker.lock_dir_for({"gracia.db": "/d/x.db"})
+        self.assertEqual(found.as_posix(), "/d")  # ty: ignore[missing-union-attribute]
         self.assertEqual(
-            lock_dir_for(  # ty: ignore[missing-union-attribute]
+            ChangeEventsWorker.lock_dir_for(  # ty: ignore[missing-union-attribute]
                 {"gracia.db": "quack:h:1", "gracia.db.file": "/e/y.db"}
             ).as_posix(),
             "/e",
         )
-        self.assertIsNone(lock_dir_for({"gracia.db": "quack:h:1"}))
-        self.assertIsNone(lock_dir_for({"gracia.db": ":memory:"}))
+        self.assertIsNone(ChangeEventsWorker.lock_dir_for({"gracia.db": "quack:h:1"}))
+        self.assertIsNone(ChangeEventsWorker.lock_dir_for({"gracia.db": ":memory:"}))
 
 
 class FanOutTest(BatchCase):

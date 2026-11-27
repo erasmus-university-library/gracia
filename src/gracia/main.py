@@ -18,16 +18,10 @@ from gracia import (
     templates,
 )
 from gracia.cache import Cache
-from gracia.change_events import (
-    BATCH,
-    BATCH_BYTES,
-    POLL,
-    ChangeEventsWorker,
-    lock_dir_for,
-)
+from gracia.change_events import BATCH, BATCH_BYTES, POLL, ChangeEventsWorker
 from gracia.database import Database
 from gracia.jobs import job as jobs_job
-from gracia.jobs.stage import load_modules
+from gracia.jobs.stage import Stage
 from gracia.security import UsersPolicy
 from gracia.types import type as type_module
 from gracia.types.application import Application
@@ -121,7 +115,7 @@ def includeme(config: Configurator) -> None:
         worker = ChangeEventsWorker(
             application,
             config.registry,
-            lock_dir=lock_dir_for(settings),
+            lock_dir=ChangeEventsWorker.lock_dir_for(settings),
             batch=int(settings.get("gracia.worker.batch") or BATCH),
             batch_bytes=int(settings.get("gracia.worker.batch_bytes") or BATCH_BYTES),
             poll=float(settings.get("gracia.worker.poll") or POLL),
@@ -198,7 +192,9 @@ def includeme(config: Configurator) -> None:
     config.include(
         "gracia.static"
     )  # the scripts and styles: served below /_static/, in the head
-    load_modules(settings)  # the stages a job can run: Luigi tasks, found by Luigi
+    Stage.load_modules(
+        settings
+    )  # the stages a job can run: Luigi tasks, found by Luigi
     for target in jobs_job.scan_targets(settings):  # the jobs a person can start: IJob
         config.scan(target)
     # the types, the predicates and the extensions: the classes that implement IRecord,
