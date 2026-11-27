@@ -23,7 +23,7 @@ class StoreStatsTest(BatchCase):
             record("rec:work:1", refs=["rec:person:1"]),
         )
 
-    def test_the_types_have_their_records_the_published_ones_the_bytes_and_the_latest_change(  # noqa: E501
+    def test_the_types_have_their_records_the_bytes_the_latest_change_and_the_pages_have_their_size(
         self,
     ):
         stats = self.store.type_stats()
@@ -44,8 +44,7 @@ class StoreStatsTest(BatchCase):
             {k: int(v) for k, v in own.items()},
         )
         self.assertIsInstance(stats["person"]["modified"], datetime.datetime)
-
-    def test_the_pages_have_their_number_and_the_size_of_what_they_are_made_of(self):
+        # the pages have their number and the size of what they are made of
         stats = self.store.etag_stats()
         self.assertEqual(stats["pages"], 4)
         self.assertEqual(
@@ -58,8 +57,21 @@ class StoreStatsTest(BatchCase):
             stats["bytes"], sum(v["bytes"] for v in self.store.type_stats().values())
         )  # shared ones count again
 
-    def test_an_empty_repository_has_nothing_to_count(self):
-        self.assertEqual(self.store.pending_summary()["rows"], 4)  # what was put above
+    def test_the_queue_is_summed_by_action_with_the_oldest_transaction_and_an_empty_one_has_nothing_to_count(
+        self,
+    ):
+        self.put(record("rec:org:1", refs=["rec:org:9"], stamp=STAMP2))
+        summary = self.store.pending_summary()
+        self.assertEqual(
+            summary["change_events"], {"insert": 4, "update": 1, "ref_update": 2}
+        )
+        self.assertEqual(
+            (summary["oldest"], summary["last"], summary["records"]), (1, 2, 4)
+        )
+        self.assertEqual(summary["rows"], 7)
+        self.assertEqual(summary["bytes"], self.store.pending_size()[1])
+        self.assertIsInstance(summary["since"], datetime.datetime)
+        # an empty repository has nothing to count
         self.store.con.execute("DELETE FROM change_events")
         summary = self.store.pending_summary()
         self.assertEqual(
@@ -74,28 +86,13 @@ class StoreStatsTest(BatchCase):
         )
         self.assertEqual(summary["change_events"], {})
 
-    def test_the_queue_is_summed_by_action_with_the_oldest_transaction_and_when_it_was(
-        self,
-    ):
-        self.put(record("rec:org:1", refs=["rec:org:9"], stamp=STAMP2))
-        summary = self.store.pending_summary()
-        self.assertEqual(
-            summary["change_events"], {"insert": 4, "update": 1, "ref_update": 2}
-        )
-        self.assertEqual(
-            (summary["oldest"], summary["last"], summary["records"]), (1, 2, 4)
-        )
-        self.assertEqual(summary["rows"], 7)
-        self.assertEqual(summary["bytes"], self.store.pending_size()[1])
-        self.assertIsInstance(summary["since"], datetime.datetime)
-
 
 class GraphCacheStatsTest(BatchCase):
     def setUp(self):
         super().setUp()
         self.put(record("rec:org:1"), record("rec:work:1", refs=["rec:org:1"]))
 
-    def test_the_graphs_of_a_repository_and_the_space_of_them(self):
+    def test_the_graphs_of_a_repository_and_every_cache_say_what_they_hold(self):
         graphs = GraphStore(self.tmp / "stats")
         self.addCleanup(graphs.close)
         etag = "0123456789abcdef"
@@ -111,8 +108,7 @@ class GraphCacheStatsTest(BatchCase):
         capped = graphs.repo_stats("main", limit=3)
         self.assertEqual((capped["entries"], capped["capped"]), (3, True))  # no further
         self.assertFalse(main["capped"])
-
-    def test_every_cache_says_what_it_holds_of_a_repository(self):
+        # every cache says what it holds of a repository
         cache = self.app.cache
         record_id = self.store.record_id_of("rec:work:1")
 
@@ -174,7 +170,9 @@ class GraphCacheStatsTest(BatchCase):
 
 
 class WorkerStatusTest(BatchCase):
-    def test_a_worker_that_was_never_started_is_not_running_and_not_in_line(self):
+    def test_a_worker_that_was_never_started_is_not_running_and_the_line_and_failures_are_in_it(
+        self,
+    ):
         worker = ChangeEventsWorker(self.app, Registry())
         self.assertEqual(
             worker.status("main"),
@@ -188,16 +186,6 @@ class WorkerStatusTest(BatchCase):
             },
         )
 
-    def test_a_running_worker_is_running_and_a_stopped_one_says_so(self):
-        worker = ChangeEventsWorker(self.app, Registry(), poll=0.05)
-        self.addCleanup(worker.stop)
-        worker.start()
-        self.assertTrue(worker.status("main")["running"])
-        worker.stop()
-        status = worker.status("main")
-        self.assertEqual((status["running"], status["stopped"]), (False, True))
-
-    def test_the_line_and_the_failures_of_a_repository_are_in_it(self):
         worker = ChangeEventsWorker(self.app, Registry())
         worker._line.extend(["main", "other"])
         worker._retry["main"] = (time.monotonic() + 20, 2)
@@ -212,8 +200,12 @@ class WorkerStatusTest(BatchCase):
             worker.status("main")["retry_in"], 0.0
         )  # the pause is over: not negative
 
-    def test_the_thread_of_the_worker_is_a_thread(self):
+    def test_a_running_worker_is_running_in_a_thread_and_a_stopped_one_says_so(self):
         worker = ChangeEventsWorker(self.app, Registry(), poll=0.05)
         self.addCleanup(worker.stop)
         worker.start()
+        self.assertTrue(worker.status("main")["running"])
         self.assertIn("gracia-worker", [t.name for t in threading.enumerate()])
+        worker.stop()
+        status = worker.status("main")
+        self.assertEqual((status["running"], status["stopped"]), (False, True))

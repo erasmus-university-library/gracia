@@ -62,7 +62,9 @@ class HtmlTableTest(DbTestCase):
         self.assertIn("@fr", page.text)  # language note
         self.assertIn("^^integer", page.text)  # datatype note
 
-    def test_nested_blank_nodes_and_collections(self):
+    def test_nested_blank_nodes_and_collections_and_a_shared_blank_node_links_to_its_section(
+        self,
+    ):
         self.load(DATA / "04_complex.ttl")
         _, out, _ = self.gracia("export", "-f", "html-table", "-u", "rec:doc:1")
         page = Page(out)
@@ -72,10 +74,7 @@ class HtmlTableTest(DbTestCase):
         )  # doc1, the part bnode, order items
         self.assertEqual(page.tags.count("ol"), 1)  # ex:order ( [..] [..] )
         self.assertEqual(page.tags.count("li"), 2)
-
-    def test_shared_blank_node_links_to_its_section(self):
-        html = html_for(DATA / "04_complex.ttl")
-        page = Page(html)
+        page = Page(html_for(DATA / "04_complex.ttl"))
         targets = [link for link in page.links if link.startswith("#b-")]
         self.assertEqual(len(targets), 2)  # ex:doc2 and ex:doc3 both point at _:shared
         self.assertEqual(len(set(targets)), 1)
@@ -100,7 +99,7 @@ class HtmlTableTest(DbTestCase):
 
 
 class TransformCommandTest(DbTestCase):
-    def test_transform_file_with_bundled_stylesheet(self):
+    def test_transform_a_file_or_stdin_with_a_bundled_stylesheet_and_a_param(self):
         self.load(DATA / "01_simple.ttl")
         _, rdfxml, _ = self.gracia("export", "-f", "rdfxml-collection")
         source = self.tmp / "in.rdf"
@@ -111,10 +110,6 @@ class TransformCommandTest(DbTestCase):
         )
         self.assertEqual(code, 0, err)
         self.assertIn("<table", out_file.read_text(encoding="utf-8"))
-
-    def test_transform_stdin_and_param(self):
-        self.load(DATA / "01_simple.ttl")
-        _, rdfxml, _ = self.gracia("export", "-f", "rdfxml-collection")
         stdin, sys.stdin = sys.stdin, io.StringIO(rdfxml)
         try:
             code, out, err = self.gracia(
@@ -126,8 +121,13 @@ class TransformCommandTest(DbTestCase):
         self.assertIn("<h1>Piped</h1>", out)
 
     def test_errors_are_clean(self):
+        self.load(DATA / "01_simple.ttl")
         source = self.tmp / "in.xml"
         source.write_text("<a/>", encoding="utf-8")
+        bad_xml = self.tmp / "bad.xml"
+        bad_xml.write_text("<not xml", encoding="utf-8")
+        sheet = self.tmp / "bad.xsl"
+        sheet.write_text("<xsl:stylesheet", encoding="utf-8")
         for args, needle in [
             (["transform", str(self.tmp / "nope.xsl"), str(source)], "nope.xsl"),
             (
@@ -135,6 +135,8 @@ class TransformCommandTest(DbTestCase):
                 "missing.xml",
             ),
             (["transform", "rdfxml-to-html.xsl", "--param", "oops"], "NAME=VALUE"),
+            (["transform", "rdfxml-to-html.xsl", str(bad_xml)], ""),
+            (["export", "-x", str(sheet)], ""),  # a bad stylesheet in an export
         ]:
             with self.subTest(args=args[1:]):
                 code, _, err = self.gracia(*args)
@@ -154,18 +156,3 @@ class TransformCommandTest(DbTestCase):
             sys.stdin = stdin
         self.assertEqual(code, 1)
         self.assertIn("no input", err)
-
-    def test_bad_xml_input(self):
-        bad = self.tmp / "bad.xml"
-        bad.write_text("<not xml", encoding="utf-8")
-        code, _, err = self.gracia("transform", "rdfxml-to-html.xsl", str(bad))
-        self.assertEqual(code, 1)
-        self.assertTrue(err.startswith("gracia:"), err)
-
-    def test_bad_stylesheet_in_export(self):
-        self.load(DATA / "01_simple.ttl")
-        sheet = self.tmp / "bad.xsl"
-        sheet.write_text("<xsl:stylesheet", encoding="utf-8")
-        code, _, err = self.gracia("export", "-x", str(sheet))
-        self.assertEqual(code, 1)
-        self.assertTrue(err.startswith("gracia:"), err)

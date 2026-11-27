@@ -56,7 +56,9 @@ class HistoryCase(SourceCase):
 
 
 class EditPageTest(HistoryCase):
-    def test_it_says_when_the_record_was_last_changed_above_the_buttons(self):
+    def test_it_says_when_the_record_was_last_changed_above_the_buttons_and_the_source_page_has_them_too(  # noqa: E501
+        self,
+    ):
         page = self.get("/test_repo/person/1/edit").text
         self.assertRegex(
             page,
@@ -70,10 +72,7 @@ class EditPageTest(HistoryCase):
             r'<a class="btn btn-outline-secondary btn-sm" '
             r'href="http://localhost/test_repo/person/1/history">History</a>',
         )
-
-    def test_the_source_page_has_them_too_and_a_new_record_and_a_user_have_no_history(
-        self,
-    ):
+        # the source page has them too, and a new record and a user have no history
         source = self.get("/test_repo/person/1/edit?source=turtle").text
         self.assertIn(">History</a>", source)
         self.assertIn(">Form Edit</a>", source)
@@ -119,7 +118,9 @@ class HistoryPageTest(HistoryCase):
             'data-editor="turtle"', page
         )  # the editor of the edit page, read only
 
-    def test_a_version_is_its_text_and_what_it_changed_since_the_one_before(self):
+    def test_a_version_is_its_text_and_what_it_changed_since_the_one_before_and_who_may_see_it(  # noqa: E501
+        self,
+    ):
         self.rename("Ada King")
         numbers = sorted(txn for txn, *_ in self.versions())
         old, new = self.version(numbers[0]), self.version(numbers[-1])
@@ -139,8 +140,6 @@ class HistoryPageTest(HistoryCase):
         self.assertEqual(
             self.status("/test_repo/person/1/history?txn=x", self.admin), 400
         )
-
-    def test_who_may_see_it(self):
         self.assertEqual(
             self.status("/test_repo/person/1/history"), 401
         )  # anonymous: log in
@@ -189,7 +188,9 @@ class RestoreTest(HistoryCase):
             'foaf:name "Ada King"', self.version(versions[1][0])["source"]
         )  # kept
 
-    def test_it_has_to_come_from_this_site_and_from_someone_who_may_edit(self):
+    def test_it_has_to_come_from_this_site_and_from_someone_who_may_edit_and_be_a_version_of_a_record_that_is_there(  # noqa: E501
+        self,
+    ):
         first = self.versions()[0][0]
         self.rename("Ada King")
         self.assertEqual(
@@ -199,10 +200,6 @@ class RestoreTest(HistoryCase):
             self.restore(first, headers={**ORIGIN}, expect_errors=True).status_int, 401
         )
         self.assertIn((FOAF + "name", "Ada King"), self.values("rec:person:1"))
-
-    def test_a_version_that_is_not_there_or_is_a_deleted_record_cannot_be_restored(
-        self,
-    ):
         self.assertEqual(self.restore(99999, expect_errors=True).status_int, 404)
         with self.application.new_store("test_repo") as store:
             store.delete(["rec:person:1"])

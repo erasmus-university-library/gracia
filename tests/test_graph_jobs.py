@@ -54,6 +54,13 @@ class GraphJobsCase(JobsCase):
 
 
 class ExportGraphsTest(GraphJobsCase):
+    def subjects(self, item) -> set:
+        return {
+            q.subject.value
+            for q in ox.parse(item["source"].encode(), format=ox.RdfFormat.N_TRIPLES)
+            if isinstance(q.subject, ox.NamedNode)
+        }
+
     def test_every_record_with_an_etag_is_a_graph_after_a_comment_with_its_etag(self):
         count, files = self.store.export_chunks(self.tmp / "out", None, graphs=True)
         self.assertEqual([f.name for f in files], ["chunk-0.trig"])
@@ -68,51 +75,15 @@ class ExportGraphsTest(GraphJobsCase):
                 item["etag"],
                 etag_of(self.application, "test_repo", record_id),
             )
-            quads = list(
-                ox.parse(item["source"].encode(), format=ox.RdfFormat.N_TRIPLES)
-            )
-            self.assertIn(
-                item["id"],
-                {q.subject.value for q in quads if isinstance(q.subject, ox.NamedNode)},
-            )
+            self.assertIn(item["id"], self.subjects(item))
         whole = ox.parse(
             files[0].read_bytes(), format=ox.RdfFormat.TRIG
         )  # and the file is TriG as a whole
         self.assertEqual(
             {str(q.graph_name) for q in whole}, {f"<{i['id']}>" for i in items}
         )
-
-    def test_a_graph_has_the_record_and_what_it_is_made_of(self):
-        _, files = self.store.export_chunks(self.tmp / "out", "person", graphs=True)
-        by_record = {i["id"]: i for i in read_graphs(files[0].read_text())}
-        subjects = lambda item: {  # noqa: E731
-            q.subject.value
-            for q in ox.parse(item["source"].encode(), format=ox.RdfFormat.N_TRIPLES)
-            if isinstance(q.subject, ox.NamedNode)
-        }
-        self.assertLessEqual(
-            {"rec:person:14", "rec:person:13", "rec:type:5"},
-            subjects(by_record["rec:person:14"]),
-        )
-        self.assertIn("rec:person:13", subjects(by_record["rec:person:13"]))
-        self.assertNotIn(
-            "rec:person:14", subjects(by_record["rec:person:13"])
-        )  # 13 is not made of 14
-        self.assertNotIn("rec:person:1", subjects(by_record["rec:person:14"]))
-
-    def test_a_type_is_chosen_and_none_is_every_type(self):
-        every, _ = self.store.export_chunks(self.tmp / "all", None, graphs=True)
-        people, _ = self.store.export_chunks(self.tmp / "people", "person", graphs=True)
-        self.assertGreater(every, people)
-        self.assertEqual(people, 14)
-        nobody, files = self.store.export_chunks(
-            self.tmp / "nobody", "nobody", graphs=True
-        )
-        self.assertEqual((nobody, files), (0, []))
-
-    def test_in_chunks_the_files_are_trig_and_all_of_the_graphs_are_there(self):
-        # (DuckDB starts a new file after 2048 rows at the earliest: a small repository
-        # is one file)
+        # in chunks the files are TriG and all of the graphs are there (DuckDB starts a
+        # new file after 2048 rows at the earliest: a small repository is one file)
         count, files = self.store.export_chunks(
             self.tmp / "chunks", None, chunk_bytes=1, graphs=True
         )
@@ -120,11 +91,32 @@ class ExportGraphsTest(GraphJobsCase):
         ids = [i["id"] for f in files for i in read_graphs(f.read_text())]
         self.assertEqual(len(ids), count)
         self.assertEqual(len(set(ids)), count)
-
-    def test_the_export_without_graphs_is_as_it_was(self):
+        # the export without graphs is as it was
         count, files = self.store.export_chunks(self.tmp / "nt", "person")
         self.assertEqual([f.name for f in files], ["chunk-0.nt"])
         self.assertEqual(count, 14)
+
+    def test_a_graph_has_the_record_and_what_it_is_made_of_and_a_type_is_chosen(self):
+        every, _ = self.store.export_chunks(self.tmp / "all", None, graphs=True)
+        people, files = self.store.export_chunks(
+            self.tmp / "people", "person", graphs=True
+        )
+        self.assertGreater(every, people)
+        self.assertEqual(people, 14)
+        nobody, none = self.store.export_chunks(
+            self.tmp / "nobody", "nobody", graphs=True
+        )
+        self.assertEqual((nobody, none), (0, []))
+        by_record = {i["id"]: i for i in read_graphs(files[0].read_text())}
+        self.assertLessEqual(
+            {"rec:person:14", "rec:person:13", "rec:type:5"},
+            self.subjects(by_record["rec:person:14"]),
+        )
+        self.assertIn("rec:person:13", self.subjects(by_record["rec:person:13"]))
+        self.assertNotIn(
+            "rec:person:14", self.subjects(by_record["rec:person:13"])
+        )  # 13 is not made of 14
+        self.assertNotIn("rec:person:1", self.subjects(by_record["rec:person:14"]))
 
     def test_the_export_job_has_an_option_for_it_and_offers_the_trig_to_download(self):
         spec = ExportJob().spec("test_repo", {"res_type": "person", "graphs": True})
@@ -160,7 +152,7 @@ class ExportQueueTest(GraphJobsCase):
             {i["id"]: i for f in files for i in read_graphs(f.read_text())},
         )
 
-    def test_every_waiting_record_is_one_graph_with_its_etag_and_the_newest_action(
+    def test_every_waiting_record_is_one_graph_with_its_etag_and_the_newest_action_and_a_deleted_one_is_empty(
         self,
     ):
         count, bound, items = self.items()
@@ -183,7 +175,7 @@ class ExportQueueTest(GraphJobsCase):
             "rec:person:13", items["rec:person:14"]["source"]
         )  # and what it is made of
 
-    def test_a_record_that_is_gone_is_an_empty_graph_marked_delete(self):
+        # a record that is gone is an empty graph marked delete
         self.store.delete(["rec:person:14"])
         _, _, items = self.items()
         gone = items["rec:person:14"]
@@ -192,7 +184,7 @@ class ExportQueueTest(GraphJobsCase):
             ("delete", "delete", ""),
         )
 
-    def test_nothing_is_exported_when_nothing_waits_and_the_rows_are_not_touched(self):
+        # nothing is exported when nothing waits, and the rows are not touched
         _, _, items = self.items()
         pending = self.store.pending_change_events()
         self.assertEqual(
@@ -206,7 +198,9 @@ class ExportQueueTest(GraphJobsCase):
 
 
 class UpdateCacheTest(GraphJobsCase):
-    def test_the_graph_of_every_record_is_kept_as_rdfxml_under_its_etag(self):
+    def test_the_graph_of_every_record_is_kept_as_rdfxml_under_its_etag_and_is_what_the_cache_makes(
+        self,
+    ):
         job_id = self.graphs()
         records = fetch_one(self.store.con.execute("SELECT count(*) FROM etags"))[0]
         self.assertEqual(self.stage(job_id, "UpdateCache")["passed"], records)
@@ -221,8 +215,7 @@ class UpdateCacheTest(GraphJobsCase):
         self.assertLessEqual({"rec:person:14", "rec:person:13"}, subjects)
         self.assertNotIn("rec:person:1", subjects)
 
-    def test_what_it_keeps_is_what_the_cache_makes_by_itself(self):
-        self.graphs()
+        # what it keeps is what the cache makes by itself
         kept = self.kept("rec:person:14")
         record_id = self.store.record_id_of("rec:person:14")
 
@@ -250,22 +243,13 @@ class UpdateCacheTest(GraphJobsCase):
         self.assertIsNotNone(self.kept("rec:person:14"))
         self.assertNotEqual(self.kept("rec:person:14"), before["rec:person:14"])
 
-    def test_with_a_chunk_size_every_record_is_kept_too(self):
+        # with a chunk size every record is kept too
         job_id = self.graphs({"chunk_bytes": 1})
         records = fetch_one(self.store.con.execute("SELECT count(*) FROM etags"))[0]
         self.assertEqual(self.stage(job_id, "UpdateCache")["passed"], records)
         self.assertIsNotNone(self.kept("rec:person:14"))
 
-    def test_without_a_cache_directory_the_job_fails_and_says_why(self):
-        self.application.cache._graph_dir = None
-        self.application.cache._graphs = None
-        job_id = self.make(
-            {"stage": "Export", "params": {"graphs": True}}, {"stage": "UpdateCache"}
-        )
-        self.assertEqual(self.run_job(job_id), runner.EXIT_FAILED)
-        self.assertIn("gracia.cache_dir", self.job(job_id)["error_msg"])
-
-    def test_the_job_of_the_repository_is_the_two_stages_and_the_administrators_only(
+    def test_the_job_of_the_repository_is_the_two_stages_for_the_administrators_and_fails_without_a_cache_directory(
         self,
     ):
         spec = UpdateCacheJob().spec("test_repo", {})
@@ -279,6 +263,12 @@ class UpdateCacheTest(GraphJobsCase):
             self.run_job(job_id), runner.EXIT_DONE, self.job(job_id)["error_msg"]
         )
         self.assertIsNotNone(self.kept("rec:person:14"))
+        # without a cache directory the job fails and says why
+        self.application.cache._graph_dir = None
+        self.application.cache._graphs = None
+        job_id = self.make(*spec["stages"])
+        self.assertEqual(self.run_job(job_id), runner.EXIT_FAILED)
+        self.assertIn("gracia.cache_dir", self.job(job_id)["error_msg"])
 
 
 class ProcessActionsJobTest(GraphJobsCase):
@@ -291,6 +281,12 @@ class ProcessActionsJobTest(GraphJobsCase):
     def test_the_job_hands_the_waiting_changes_to_the_subscribers_and_makes_the_cache(
         self,
     ):
+        spec = ProcessActionsJob().spec("test_repo", {})
+        self.assertEqual(
+            [st["stage"] for st in spec["stages"]], ["Export", "ProcessChangeEvents"]
+        )
+        self.assertTrue(spec["stages"][0]["params"]["queued"])
+        self.assertEqual(ProcessActionsJob.groups, ())  # the administrators only
         events = self.subscribe()
         self.put(
             "@prefix gracia: <https://gracia.pub/ns/> . @prefix foaf: "
@@ -322,29 +318,16 @@ class ProcessActionsJobTest(GraphJobsCase):
             self.kept("rec:person:14")
         )  # the cache was made by the batches
 
-    def test_with_nothing_waiting_the_job_is_done_at_once(self):
-        self.subscribe()
+    def test_with_nothing_waiting_the_job_is_done_at_once_and_what_is_queued_after_the_export_stays(
+        self,
+    ):
+        events = self.subscribe()
         process_pending(self.application, context.registry())
         job_id = self.make(*ProcessActionsJob().spec("test_repo", {})["stages"])
         self.assertEqual(
             self.run_job(job_id), runner.EXIT_DONE, self.job(job_id)["error_msg"]
         )
         self.assertEqual(self.stage(job_id, "Export")["batches"]["total"], 0)
-
-    def test_it_is_a_job_of_the_repository_for_the_administrators(self):
-        spec = ProcessActionsJob().spec("test_repo", {})
-        self.assertEqual(
-            [st["stage"] for st in spec["stages"]], ["Export", "ProcessChangeEvents"]
-        )
-        self.assertTrue(spec["stages"][0]["params"]["queued"])
-        self.assertEqual(ProcessActionsJob.groups, ())
-
-    def test_what_is_queued_after_the_export_stays_in_the_queue(self):
-        events = self.subscribe()
-        job_id = self.make(*ProcessActionsJob().spec("test_repo", {})["stages"])
-        self.assertEqual(
-            self.run_job(job_id), runner.EXIT_DONE, self.job(job_id)["error_msg"]
-        )
         self.put(
             "@prefix gracia: <https://gracia.pub/ns/> . @prefix foaf: "
             "<http://xmlns.com/foaf/0.1/> "

@@ -34,7 +34,10 @@ class HeadTest(JobsViewCase):
     def page(self) -> str:
         return self.web.get("/test_repo/jobs", headers=as_user("ed")).text
 
-    def test_the_site_has_one_stylesheet_and_its_scripts_in_the_head(self):
+    def test_the_site_has_one_stylesheet_and_its_scripts_in_the_head_and_every_address_is_versioned(
+        self,
+    ):
+        # the site has one stylesheet and its scripts in the head
         found = head(self.page())
         self.assertEqual(len(re.findall(r"<link rel=\"stylesheet\"", found)), 1)
         self.assertIn(
@@ -50,14 +53,26 @@ class HeadTest(JobsViewCase):
             "<script", self.page().split("</head>")[1]
         )  # none at the end of the body
 
-    def test_every_address_has_the_checksum_of_the_library_in_it(self):
+        # every address has the checksum of the library in it
         version = checksum.md5(static.library.path)
         for url in re.findall(
             r'(?:href|src)="([^"]*/_static/gracia/[^"]*)"', self.page()
         ):
             self.assertIn(f"/:version:{version}/", url)
 
-    def test_a_file_is_served_for_a_year_so_a_browser_keeps_it(self):
+        # the icon is versioned too
+        icon = must_search(r'rel="icon"[^>]*href="([^"]+)"', self.page())[1]
+        self.assertIn("/:version:", icon)
+        self.assertEqual(self.web.get(icon).status_int, 200)
+
+        # data is left alone
+        response = self.web.get("/test_repo/jobs/list", headers=as_user("ed"))
+        self.assertNotIn("_static", response.text)
+
+    def test_a_versioned_file_is_served_for_a_year_and_what_is_not_versioned_or_not_there_is_not_cached_or_found(
+        self,
+    ):
+        # a file is served for a year so a browser keeps it
         css = must_search(r'href="([^"]*bootstrap\.min\.css[^"]*)"', self.page())[1]
         response = self.web.get(css)
         self.assertEqual(response.status_int, 200)
@@ -67,32 +82,23 @@ class HeadTest(JobsViewCase):
         self.assertIn(".gracia-logo", response.text)
         self.assertIn("Bootstrap", response.text[:300])
 
-    def test_the_script_bundle_has_what_the_views_need_in_one_request(self):
+        # the script bundle has what the views need in one request
         script = must_search(r'src="([^"]*jobs\.js[^"]*)"', self.page())[1]
         response = self.web.get(script)
         self.assertEqual(response.status_int, 200)
         for part in ("bootstrap.Modal", "DOMContentLoaded", "data-progress-dialog"):
             self.assertIn(part, response.text)
 
-    def test_what_is_not_versioned_is_not_cached_for_good(self):
+        # what is not versioned is not cached for good
         response = self.web.get("/_static/gracia/css/gracia.css")
         self.assertEqual(response.status_int, 200)
         self.assertNotIn("max-age=31536000", response.headers.get("Cache-Control", ""))
 
-    def test_a_file_that_is_not_there_is_not_found(self):
+        # a file that is not there is not found
         for path in ("/_static/gracia/nope.js", "/_static/nolibrary/x.js", "/_static/"):
             self.assertEqual(
                 self.web.get(path, expect_errors=True).status_int, 404, path
             )
-
-    def test_data_is_left_alone(self):
-        response = self.web.get("/test_repo/jobs/list", headers=as_user("ed"))
-        self.assertNotIn("_static", response.text)
-
-    def test_the_icon_is_versioned_too(self):
-        icon = must_search(r'rel="icon"[^>]*href="([^"]+)"', self.page())[1]
-        self.assertIn("/:version:", icon)
-        self.assertEqual(self.web.get(icon).status_int, 200)
 
 
 class WidgetsTest(JobsCase):
@@ -114,7 +120,10 @@ class WidgetsTest(JobsCase):
 
         return deform.Form(Schema())
 
-    def test_a_widget_brings_its_scripts_after_jquery(self):
+    def test_a_widget_brings_its_scripts_after_jquery_and_a_form_of_selects_needs_only_the_common_ones(
+        self,
+    ):
+        # a widget brings its scripts after jquery
         found = [
             n for n in self.needed(self.form()) if n.endswith(".js")
         ]  # the styles come first
@@ -130,7 +139,7 @@ class WidgetsTest(JobsCase):
         )
         self.assertEqual(len(found), len(set(found)))  # each once
 
-    def test_a_form_of_selects_needs_only_what_every_form_needs(self):
+        # a form of selects needs only what every form needs
         found = self.needed(self.form(deform.widget.SelectWidget(values=[("a", "a")])))
         self.assertNotIn("pickadate/picker.js", found)
 
@@ -141,7 +150,10 @@ class WidgetsTest(JobsCase):
 
         return Form()
 
-    def test_a_file_of_a_declared_library_is_needed_and_served(self):
+    def test_a_file_of_a_declared_library_is_served_and_any_other_is_an_error_and_the_directive_is_early_only(
+        self,
+    ):
+        # a file of a declared library is needed and served
         found = self.needed(self.widgets_of(EXT / "widget.js"))
         self.assertIn("widget.js", found)
         self.assertLess(
@@ -166,7 +178,7 @@ class WidgetsTest(JobsCase):
             200,
         )
 
-    def test_a_file_in_no_library_is_an_error_that_says_what_to_do(self):
+        # a file in no library is an error that says what to do
         (self.tmp / "loose.js").write_text("1")
         with self.assertRaises(LookupError) as caught:
             self.needed(self.widgets_of(self.tmp / "loose.js"))
@@ -175,12 +187,12 @@ class WidgetsTest(JobsCase):
             [n for n in fanstatic.get_library_registry() if n.startswith("dir-")]
         )
 
-    def test_a_file_in_a_library_but_not_one_of_its_resources_is_refused(self):
+        # a file in a library but not one of its resources is refused
         with self.assertRaises(LookupError) as caught:
             self.needed(self.widgets_of(EXT / "secret.txt"))
         self.assertIn("not one of its resources", str(caught.exception))
 
-    def test_the_directive_takes_a_library_before_the_first_request_only(self):
+        # the directive takes a library before the first request only
         from pyramid.exceptions import ConfigurationExecutionError
 
         from gracia.main import make_config

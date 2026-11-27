@@ -42,7 +42,9 @@ class ValidateTest(unittest.TestCase):
         self.assertTrue(report.conforms)
         self.assertEqual(report.violations, ())
 
-    def test_violations_name_resource_property_and_constraint(self):
+    def test_violations_name_resource_property_and_constraint_also_in_a_nested_node(
+        self,
+    ):
         ds = data(
             'ex:ok a ex:Person ; ex:name "A" .\nex:bad a ex:Person ; ex:age "old" .'
         )
@@ -64,10 +66,8 @@ class ValidateTest(unittest.TestCase):
             '"', by_path[EX + "name"].message
         )  # pyrudof wraps messages in quotes
         self.assertEqual(report.errors(), report.violations)
-
-    def test_nested_blank_node_is_checked_through_sh_node(self):
         ds = data('ex:a a ex:Person ; ex:name "A" ; ex:address [ ex:zip "9000" ] .')
-        report = validate(ds, SHAPES)
+        report = validate(ds, SHAPES)  # a nested blank node is checked through sh:node
         self.assertFalse(report.conforms)
         self.assertEqual(report.violations[0].path, EX + "address")
 
@@ -80,14 +80,12 @@ class ValidateTest(unittest.TestCase):
         self.assertFalse(report.conforms)
         self.assertEqual(set(report.by_resource()), {EX + "untyped"})
         self.assertEqual({v.path for v in report.violations}, {EX + "name", EX + "age"})
-
-    def test_forced_shape_accepts_a_node_or_a_string_and_must_exist(self):
+        # a forced shape is a node or a string, and must exist
         ds = data("ex:a ex:age 3 .")
         self.assertFalse(validate(ds, SHAPES, shape=ox.NamedNode(PERSON)).conforms)
         with self.assertRaisesRegex(ValueError, "no such shape"):
             validate(ds, SHAPES, shape=EX + "NoSuchShape")
-
-    def test_forcing_a_shape_does_not_change_the_shapes_you_passed(self):
+        # and forcing a shape does not change the shapes you passed
         shapes = ox.Dataset(list(ox.parse(SHAPES.encode(), format=ox.RdfFormat.TURTLE)))
         before = len(shapes)
         validate(data("ex:a ex:age 3 ."), shapes, shape=PERSON)
@@ -110,7 +108,7 @@ class ValidateTest(unittest.TestCase):
         self.assertTrue(all(k == keys[0] for k in keys))
         self.assertEqual(len(keys[0]), 2)
 
-    def test_graph_labels_are_ignored(self):
+    def test_graph_labels_are_ignored_and_an_empty_dataset_conforms(self):
         quads = [
             ox.Quad(
                 ox.NamedNode(REC["a"]),
@@ -128,11 +126,9 @@ class ValidateTest(unittest.TestCase):
         self.assertTrue(
             validate(ox.Dataset(quads), SHAPES).conforms
         )  # one graph: name is there
-
-    def test_empty_dataset_conforms(self):
         self.assertTrue(validate(ox.Dataset(), SHAPES).conforms)
 
-    def test_validation_error_carries_the_report(self):
+    def test_a_validation_error_carries_the_report(self):
         report = validate(data("ex:a a ex:Person ."), SHAPES)
         error = ValidationError(report)
         self.assertIs(error.report, report)

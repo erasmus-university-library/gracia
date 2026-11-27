@@ -1,4 +1,8 @@
+import atexit
+import shutil
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 
 import duckdb
@@ -37,13 +41,60 @@ BUNDLED = {  # the types of gracia that are on schema.org, by slug
         WorkRecord,
     )
 }
+FIXTURES = Path(__file__).parent / "fixtures"
 FOAF_PERSON = ContentType(
     name="Person",
     slug="person",
     class_uri="http://xmlns.com/foaf/0.1/Person",
     schema="person-minimal-01.ttl",
-    doc="person-schemaorg-01.xsl",
+    doc="person-unittest-01.xsl",
+    assets=f"{FIXTURES}/foaf/",
 )  # the person of the foaf profiles: the tests of the forms and the hooks use it
+
+
+SHAPE_PREFIXES = """
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix dash: <http://datashapes.org/dash#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix gracia: <https://gracia.pub/ns/> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix ex: <http://example.org/> .
+"""
+_SHAPE_DIRS = Path(tempfile.mkdtemp(prefix="gracia_test_shapes_"))
+atexit.register(shutil.rmtree, _SHAPE_DIRS, ignore_errors=True)
+_SHAPE_TYPES: dict[tuple, ContentType] = {}
+
+
+def shape_type(
+    shape: str,
+    *,
+    name: str = "Thing",
+    slug: str = "thing",
+    class_uri: str = "http://example.org/Thing",
+    doc: str | None = None,
+) -> ContentType:
+    """A content type on a shape that the test writes itself, so that the test does not
+    depend on the shapes of a preset. `shape` is Turtle (the prefixes in `SHAPE_PREFIXES`
+    are added) with a `sh:NodeShape` that has `sh:targetClass <class_uri>`. The file is
+    made once for a process, in a directory that stays the same for the same shape, so
+    that a database made on it can be reused (`conftest.prepared`)."""
+    key = (shape, name, slug, class_uri, doc)
+    if key not in _SHAPE_TYPES:
+        folder = _SHAPE_DIRS / f"{len(_SHAPE_TYPES)}"
+        (folder / "shacl").mkdir(parents=True)
+        schema = f"{slug}-unittest-01.ttl"
+        (folder / "shacl" / schema).write_text(SHAPE_PREFIXES + shape)
+        _SHAPE_TYPES[key] = ContentType(
+            name=name,
+            slug=slug,
+            class_uri=class_uri,
+            schema=schema,
+            doc=doc,
+            assets=f"{folder}/",
+        )
+    return _SHAPE_TYPES[key]
 
 
 def fake_type(sql_hooks=(), property_roles=(), slug: str = "thing", number: int = 5):

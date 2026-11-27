@@ -62,7 +62,9 @@ class TypeIndexTest(PagesCase):
             response.text,
         )
 
-    def test_it_is_page_one_with_the_newest_records_and_says_which_page_it_is(self):
+    def test_it_is_page_one_with_the_newest_records_the_last_page_the_oldest_and_a_page_that_is_not_there_is_not_found(  # noqa: E501
+        self,
+    ):
         got = self.get("/test_repo/person/", self.admin)
         self.assertEqual((got.status_int, got.content_type), (200, "text/html"))
         labels = self.labels(got)
@@ -75,10 +77,6 @@ class TypeIndexTest(PagesCase):
         self.assertEqual(labels[:2], ["(Unnamed)", "Person 55"])
         self.assertIn("Page 1 of 3", got.text)
         self.assertIn("47 published, 0 not published", got.text)
-
-    def test_the_last_page_has_the_oldest_records_and_links_back_to_the_newer_ones(
-        self,
-    ):
         got = self.get("/test_repo/person/?page=3", self.admin)
         labels = self.labels(got)
         self.assertEqual(
@@ -93,6 +91,19 @@ class TypeIndexTest(PagesCase):
         self.assertRegex(
             got.text, r'<span class="page-link">Older</span>'
         )  # nothing older: not a link
+        for query in ("?page=0", "?page=4", "?page=-1", "?page=abc", "?page="):
+            with self.subTest(query=query):
+                self.assertEqual(
+                    self.get("/test_repo/person/" + query, self.admin).status_int, 404
+                )
+        # the records of a type are json when asked and html by default
+        got = self.client().get(
+            "/test_repo/person/", headers={**self.admin, "Accept": "application/json"}
+        )
+        self.assertEqual(got.content_type, "application/json")
+        self.assertEqual(len(got.json["records"]), 47)
+        got = self.client().get("/test_repo/person/", headers=self.admin)
+        self.assertEqual(got.content_type, "text/html")
 
     def test_the_links_are_the_page_numbers_near_the_page_with_gaps(self):
         self.add("".join(person(n) for n in range(60, 200)))  # 187 records: 10 pages
@@ -104,14 +115,9 @@ class TypeIndexTest(PagesCase):
             r'page-item active">\s*<a class="page-link" href="[^"]*\?page=5">5<',
         )
 
-    def test_a_page_that_is_not_there_is_not_found(self):
-        for query in ("?page=0", "?page=4", "?page=-1", "?page=abc", "?page="):
-            with self.subTest(query=query):
-                self.assertEqual(
-                    self.get("/test_repo/person/" + query, self.admin).status_int, 404
-                )
-
-    def test_a_record_that_is_not_published_is_for_those_who_may_edit(self):
+    def test_a_record_that_is_not_published_is_for_those_who_may_edit_and_labels_are_text_and_add_is_for_those_who_may_add(  # noqa: E501
+        self,
+    ):
         self.add(person(100, "Hidden Hannah", published=False))
         admin = self.get("/test_repo/person/", self.admin)
         self.assertIn("Hidden Hannah", admin.text)
@@ -120,20 +126,14 @@ class TypeIndexTest(PagesCase):
         self.assertEqual(public.status_int, 200)
         self.assertNotIn("Hidden Hannah", public.text)
         self.assertIn("47 records", public.text)
-
-    def test_the_labels_are_text_and_an_unnamed_record_says_so(self):
         self.add(person(101, "<b>bold</b> & co"))
         self.add(person(102, "").replace('gracia:label "" ;', ""))
         text = self.get("/test_repo/person/", self.admin).text
         self.assertIn("&lt;b&gt;bold&lt;/b&gt; &amp; co", text)
         self.assertNotIn("<b>bold</b>", text)
         self.assertIn("(Unnamed)", text)
-
-    def test_add_is_for_those_who_may_add(self):
-        self.assertIn(
-            "/test_repo/person/add", self.get("/test_repo/person/", self.admin).text
-        )
-        self.assertNotIn("/test_repo/person/add", self.get("/test_repo/person/").text)
+        self.assertIn("/test_repo/person/add", text)
+        self.assertNotIn("/test_repo/person/add", public.text)
 
     def test_the_page_comes_from_etags_when_there_are_some_and_from_records_when_not_the_same_either_way(  # noqa: E501
         self,
@@ -148,15 +148,6 @@ class TypeIndexTest(PagesCase):
             self.assertGreater(store.count_etags(), 40)
         after = self.labels(self.get("/test_repo/person/?page=2", self.admin))
         self.assertEqual(before, after)
-
-    def test_the_records_of_a_type_are_json_when_asked_and_html_by_default(self):
-        got = self.client().get(
-            "/test_repo/person/", headers={**self.admin, "Accept": "application/json"}
-        )
-        self.assertEqual(got.content_type, "application/json")
-        self.assertEqual(len(got.json["records"]), 47)
-        got = self.client().get("/test_repo/person/", headers=self.admin)
-        self.assertEqual(got.content_type, "text/html")
 
 
 class RecordPageTest(PagesCase):
@@ -200,7 +191,9 @@ class RecordPageTest(PagesCase):
         )  # a type with no key information has no table
         self.assertNotIn('class="lead"', got.text)
 
-    def test_the_key_information_is_a_table_under_the_names_of_the_shape(self):
+    def test_the_key_information_is_a_table_under_the_names_of_the_shape_with_links_a_text_description_and_no_row_for_what_is_missing(  # noqa: E501
+        self,
+    ):
         text = self.page().text
         rows = re.findall(r'<th scope="row" class="w-25">([^<]*)</th>', text)
         self.assertEqual(
@@ -209,34 +202,28 @@ class RecordPageTest(PagesCase):
         self.assertRegex(
             text, r'<a href="mailto:bob@example.org">mailto:bob@example.org</a>'
         )
-
-    def test_a_record_is_a_link_and_an_address_that_is_not_a_web_one_is_only_text(self):
-        text = self.page().text
+        # a record is a link and an address that is not a web one is only text
         self.assertRegex(
             text,
             r'<a href="http://localhost/test_repo/person/1">ark:/99999/ir/person/1</a>',
         )
         self.assertIn("javascript:alert(1)", text)
         self.assertNotIn('href="javascript:', text)
-
-    def test_the_description_is_the_property_with_that_role_and_is_text(self):
-        text = self.page().text
+        # the description is the property with that role, and is text
         self.assertRegex(
             text, r'<p class="lead">Dr Bob, &lt;i&gt;physician&lt;/i&gt;</p>'
         )
         self.assertNotIn("<i>physician</i>", text)
-
-    def test_a_property_the_record_does_not_have_has_no_row(self):
         roles = [*self.ROLES, ("key_info", FOAF + "homepage", 5)]
         self.assertEqual(
             len(re.findall(r'<th scope="row"', self.page(roles=roles).text)), 3
         )
 
-    def test_edit_is_a_link_for_those_who_may_edit(self):
+    def test_edit_is_a_link_for_those_who_may_edit_and_the_credentials_of_a_user_are_not_a_row(  # noqa: E501
+        self,
+    ):
         self.assertIn("/test_repo/person/2/edit", self.page().text)
         self.assertNotIn("/test_repo/person/2/edit", self.page(anonymous=True).text)
-
-    def test_the_credentials_of_a_user_are_not_a_row(self):
         got = self.client().get("/test_repo/user/1", headers={**HTML, **self.admin})
         self.assertEqual(got.status_int, 200)
         self.assertIsNone(re.search(r"scrypt|\$argon|pbkdf", got.text))

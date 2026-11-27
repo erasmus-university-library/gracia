@@ -31,7 +31,7 @@ class HistoryTest(DbTestCase):
             "txn_id, record_id"
         ).fetchall()
 
-    def test_every_write_is_a_transaction_with_the_next_number_and_a_row_for_each_record(  # noqa: E501
+    def test_every_write_is_a_transaction_with_the_next_number_and_a_delete_leaves_a_tombstone(
         self,
     ):
         s = self.store
@@ -49,11 +49,8 @@ class HistoryTest(DbTestCase):
         )
         self.assertEqual(s.last_transaction(), 2)
 
-    def test_a_delete_is_a_transaction_and_leaves_a_tombstone(self):
-        s = self.store
-        s.put_multi(thing(1))
         s.delete(["rec:thing:1"])
-        self.assertEqual(self.rows()[-1], (2, "rec:thing:1", True, ""))
+        self.assertEqual(self.rows()[-1], (3, "rec:thing:1", True, ""))
 
     def test_a_write_that_is_refused_leaves_no_history_and_gives_its_number_back(self):
         s = self.store
@@ -90,7 +87,9 @@ class HistoryTest(DbTestCase):
         s.con.rollback()
         self.assertEqual(s.last_transaction(), 4)
 
-    def test_the_changes_after_a_number_in_the_order_of_the_transactions(self):
+    def test_the_changes_after_a_number_are_in_the_order_of_the_transactions_and_a_rewrite_is_one_only_when_it_changes_something(
+        self,
+    ):
         s = self.store
         s.put_multi(thing(1))
         s.put_multi(thing(2))
@@ -101,9 +100,7 @@ class HistoryTest(DbTestCase):
         self.assertEqual(s.changes_since(3), [])
         self.assertEqual(s.changes_since(0, limit=1), [(1, "rec:thing:1", False)])
 
-    def test_a_rewrite_is_a_transaction_only_when_it_changes_something(self):
-        s = self.store
-        s.put_multi(thing(1))
+        s.put_multi(thing(1))  # it comes back: transaction 4
         s.configure(
             lambda: [
                 fake_type(
@@ -112,11 +109,11 @@ class HistoryTest(DbTestCase):
                 )
             ]
         )
-        self.assertEqual(s.rederive("thing"), ["rec:thing:1"])
-        self.assertEqual(s.last_transaction(), 2)
+        self.assertEqual(s.rederive("thing"), ["rec:thing:1", "rec:thing:2"])
+        self.assertEqual(s.last_transaction(), 5)
         self.assertEqual(s.rederive("thing"), [])
         self.assertEqual(
-            s.last_transaction(), 2
+            s.last_transaction(), 5
         )  # nothing changed: no transaction, no row
 
     def test_writers_at_once_get_numbers_in_the_order_of_their_commits_and_none_twice(

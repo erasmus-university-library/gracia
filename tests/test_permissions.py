@@ -52,13 +52,14 @@ class PermissionsCase(EditCase):
 
 
 class EditorsTest(PermissionsCase):
-    def test_editors_edit_and_add_ordinary_records(self):
+    def test_editors_edit_and_add_ordinary_records_and_cannot_touch_users_or_groups_and_admins_can_do_all_of_it(  # noqa: E501
+        self,
+    ):
         for path in ("/test_repo/person/1/edit", "/test_repo/person/add"):
             self.assertTrue(self.can(path, "group:editor"), path)
             self.assertFalse(self.can(path), path)  # the public may not
             self.assertFalse(self.can(path, "group:somebody-else"), path)
 
-    def test_editors_cannot_touch_users_or_groups(self):
         for path in (
             "/test_repo/user/1/edit",
             "/test_repo/user/add",
@@ -71,7 +72,6 @@ class EditorsTest(PermissionsCase):
         ):
             self.assertFalse(self.can(path, "group:editor"), path)
 
-    def test_admins_can_do_all_of_it(self):
         for path in (
             "/test_repo/person/1/edit",
             "/test_repo/user/1/edit",
@@ -90,7 +90,9 @@ class SpecialPermissionsTest(PermissionsCase):
             patched.enter_context(mock.patch.object(classes[name], "acl", entries))
         return patched
 
-    def test_super_edit_alone_opens_the_users_and_nothing_else(self):
+    def test_super_edit_alone_opens_the_users_and_nothing_else_and_edit_is_not_enough(
+        self,
+    ):
         grant = [
             (Allow, "group:useradmin", ["view", "super_edit"]),
             *UserRecord.acl,
@@ -103,11 +105,8 @@ class SpecialPermissionsTest(PermissionsCase):
                 self.can("/test_repo/person/1/edit", "group:useradmin")
             )  # not `edit`
             self.assertFalse(self.can("/test_repo/manage", "group:useradmin"))
-
-    def test_edit_is_not_enough_for_users(self):
         # even where an ACL gives editors everything on the users' type, the edit view
-        # of a
-        # user asks for super_edit, which `edit` does not include
+        # of a user asks for super_edit, which `edit` does not include
         grant = [
             (Allow, "group:editor", ["view", "edit", "add"]),
             *UserRecord.acl,
@@ -161,13 +160,22 @@ class NeverPublicTest(PermissionsCase):
         "/test_repo/group/1",
     )
 
-    def test_users_and_groups_are_closed_to_the_public_and_to_everybody_else(self):
+    def test_users_and_groups_are_closed_to_the_public_and_to_everybody_else_and_the_rest_stays_public(
+        self,
+    ):
         for path in self.PRIVATE:
             for who in ((), ("group:editor",), ("user:someone",), ("group:other",)):
                 self.assertFalse(self.can(path, *who), (path, who))
             self.assertTrue(self.can(path, "group:admin"), path)
+        self.assertTrue(
+            self.can("/test_repo/")
+        )  # the repository and the ordinary types
+        self.assertTrue(self.can("/test_repo/person"))  # stay public
+        self.assertTrue(self.can("/test_repo/person/1"))
 
-    def test_the_type_records_that_describe_them_are_closed_too(self):
+    def test_the_type_records_that_describe_them_are_closed_too_and_the_type_list_does_not_name_them(  # noqa: E501
+        self,
+    ):
         for path in (
             "/test_repo/type/1",
             "/test_repo/type/3",
@@ -181,7 +189,6 @@ class NeverPublicTest(PermissionsCase):
         )  # Type itself and other types stay public
         self.assertTrue(self.can("/test_repo/type/5"))
 
-    def test_the_type_list_does_not_name_them_to_the_public(self):
         public = (
             self.client()
             .get("/test_repo/type", headers={**as_(), "Accept": "application/json"})
@@ -212,18 +219,11 @@ class NeverPublicTest(PermissionsCase):
         self.assertFalse(self.can("/test_repo/user/1"))
         self.assertFalse(self.can("/test_repo/user/1", "group:editor"))
 
-    def test_the_repository_itself_and_ordinary_types_stay_public(self):
-        self.assertTrue(self.can("/test_repo/"))
-        self.assertTrue(self.can("/test_repo/person"))
-        self.assertTrue(self.can("/test_repo/person/1"))
-
 
 class ManagersTest(PermissionsCase):
-    def test_managers_edit_and_add_like_editors(self):
+    def test_managers_edit_and_add_like_editors_and_add_and_change_and_make_users(self):
         for path in ("/test_repo/person/1/edit", "/test_repo/person/add"):
             self.assertTrue(self.can(path, "group:manager"), path)
-
-    def test_managers_add_and_change_users(self):
         for path in (
             "/test_repo/user",
             "/test_repo/user/1",
@@ -231,6 +231,12 @@ class ManagersTest(PermissionsCase):
             "/test_repo/user/add",
         ):
             self.assertTrue(self.can(path, "group:manager"), path)
+        web = self.client()
+        form = web.get("/test_repo/user/add", headers=as_("group:manager")).forms[0]
+        form["userid"], form["password"] = "made-by-manager", "long enough pw"
+        self.assertEqual(
+            form.submit("save", headers=as_("group:manager")).status_int, 302
+        )
 
     def test_managers_cannot_touch_groups_or_the_repository(self):
         for path in (
@@ -245,23 +251,6 @@ class ManagersTest(PermissionsCase):
         # the type record of the users follows the ACL of the users: managers may read
         # it
         self.assertTrue(self.can("/test_repo/type/3", "group:manager"))
-
-    def test_editors_still_cannot_touch_users(self):
-        for path in (
-            "/test_repo/user",
-            "/test_repo/user/1/edit",
-            "/test_repo/user/add",
-        ):
-            self.assertFalse(self.can(path, "group:editor"), path)
-
-    def test_a_manager_can_make_a_user_but_not_a_group(self):
-        web = self.client()
-        form = web.get("/test_repo/user/add", headers=as_("group:manager")).forms[0]
-        form["userid"], form["password"] = "made-by-manager", "long enough pw"
-        self.assertEqual(
-            form.submit("save", headers=as_("group:manager")).status_int, 302
-        )
-        self.assertEqual(self.can("/test_repo/group/add", "group:manager"), False)
 
 
 class TheClosedNodesDoNotAnswerForUnknownThingsTest(PermissionsCase):
@@ -288,12 +277,12 @@ class TheClosedNodesDoNotAnswerForUnknownThingsTest(PermissionsCase):
                 self.assertEqual(answers[0], answers[1], (known, unknown, who))
                 self.assertEqual(answers[0], public, (known, who))
 
-    def test_for_those_who_may_see_them_unknown_is_still_404(self):
+    def test_for_those_who_may_see_them_unknown_is_still_404_and_public_things_are_404_for_everybody(  # noqa: E501
+        self,
+    ):
         self.assertEqual(self.status("/test_repo/user/99", "group:admin"), 404)
         self.assertEqual(self.status("/test_repo/user/99", "group:manager"), 404)
         self.assertEqual(self.status("/test_repo/group/99", "group:admin"), 404)
-
-    def test_public_things_are_404_for_everybody(self):
         self.assertEqual(self.status("/test_repo/person/99"), 404)
         self.assertEqual(self.status("/test_repo/nope"), 404)
         self.assertEqual(self.status("/nope/"), 404)

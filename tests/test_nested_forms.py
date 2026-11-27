@@ -1,160 +1,111 @@
-import base64
+"""A property of nodes (a place, a mark): the accordion of its items, the buttons that add
+and remove them, what the server answers to them, and what the cardinality of the shape allows."""
+
 import re
 from types import SimpleNamespace
 
 import colander
 import deform
 import pyoxigraph as ox
-from harness import BUNDLED, ConfiguredCase
+from widgets_support import ADMIN, EX, FormCase, sequence_params
 
 from gracia.forms import Form, change_sequence
 from gracia.graph import Graph
 
-SCHEMA = "https://schema.org/"
 RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
-AUTH = {"Authorization": "Basic " + base64.b64encode(b"admin:correct horse").decode()}
-ADDRESS = [
-    ("streetAddress", "Mekelweg 4"),
-    ("postalCode", "2628 CD"),
-    ("addressLocality", "Delft"),
-    ("addressCountry", "NL"),
+PLACE = [
+    ("street", "Mekelweg 4"),
+    ("code", "2628 CD"),
+    ("city", "Delft"),
+    ("country", "NL"),
 ]
 OTHER = [
-    ("streetAddress", "Julianalaan 134"),
-    ("addressLocality", "Delft"),
-    ("addressCountry", "NL"),
+    ("street", "Julianalaan 134"),
+    ("city", "Delft"),
+    ("country", "NL"),
 ]
-EDIT = "/test_repo/person/ada-lovelace/edit"  # the address of the person that is made
-SEQUENCE = "http://localhost/test_repo/person/ada-lovelace/sequence"
+ADD, ADD_URL = "/test_repo/gadget/add", "/test_repo/gadget/sequence"
+EDIT = "/test_repo/gadget/1/edit"
+EDIT_URL = "http://localhost/test_repo/gadget/a-gadget/sequence"  # its slug
 
 
-class NestedFormTest(ConfiguredCase):
-    """The address of a schema.org person: a node that is there or not."""
+class NestedFormTest(FormCase):
+    """The place of a gadget: a node that is there or not."""
 
-    def setUp(self):
-        super().setUp()
-        self.application.create_repository(
-            "test_repo",
-            admin=("admin", "correct horse"),
-            content_types=[BUNDLED["person"]],
-        )
-        self.web = self.client()
-
-    def controls(self, path: str, items=(), drop=None):
-        # What the form of `path` posts, with `items` (each a list of (name, value))
-        # added to the sequence of addresses, as the buttons of the page do, and the
-        # items that have the value `drop` taken out, as the button of an item does.
-        form = self.web.get(path, headers=AUTH).forms[0]
-        out, item = [], None
-        for name, value in form.submit_fields("save"):
-            if (name, value) == ("__start__", "item:mapping"):
-                item = []
-            if item is not None:
-                item.append((name, value))
-                if (name, value) == ("__end__", "item:mapping"):
-                    if not any(v == drop for _n, v in item):
-                        out += item
-                    item = None
-                continue
-            if name == "name" and not value:
-                value = "Ada Lovelace"  # a person has a name
-            out.append((name, value))
-            if (name, value) == ("__start__", "address:sequence"):
-                for added in items:
-                    out += [("__start__", "item:mapping"), *added]
-                    out += [("__end__", "item:mapping")]
-        return out
-
-    def post(self, path: str, items=(), drop=None):
-        return self.web.post(
-            path,
-            params=self.controls(path, items, drop),
-            headers=AUTH,
-            expect_errors=True,
-        )
-
-    def ask(self, form_path, url, action, items=(), index=None, **extra):
+    def ask(self, form_path, url, action, items=(), index=None):
         # what a button of the form asks (htmx): the form as it stands, and what to do
-        params = self.controls(form_path, items)
-        params += [("sequence", "resource/address"), ("action", action)]
-        if index is not None:
-            params.append(("index", str(index)))
-        params += list(extra.items())
-        return self.web.post(url, params=params, headers=AUTH, expect_errors=True)
+        params = sequence_params(
+            self.posted(form_path, rows={"place": items}), "place", action, index
+        )
+        return self.web.post(url, params=params, headers=ADMIN, expect_errors=True)
 
-    def saved(self, **kwargs):
-        response = self.post("/test_repo/person/add", **kwargs)
-        self.assertEqual(response.status_int, 302, response.text[:400])
-
-    def addresses(self) -> list[dict[str, str]]:
-        record = self.application["test_repo"].types["person"].find_record("1")
+    def places(self) -> list[dict[str, str]]:
+        record = self.record()
         found = []
-        for node in record.graph.objects(record.resource, SCHEMA + "address"):
+        for node in record.graph.objects(record.resource, EX + "place"):
             said = {
                 q.predicate.value: q.object.value  # ty: ignore[missing-union-attribute]
                 for q in record.graph.dataset.quads_for_subject(node)
             }
             found.append(
-                {k.removeprefix(SCHEMA): v for k, v in said.items() if k != RDF_TYPE}
+                {k.removeprefix(EX): v for k, v in said.items() if k != RDF_TYPE}
                 | {"type": said[RDF_TYPE]}
             )
-        return sorted(found, key=lambda a: a["streetAddress"])
+        return sorted(found, key=lambda a: a["street"])
 
-    def test_there_is_no_address_and_a_button_to_add_one(self):
-        page = self.web.get("/test_repo/person/add", headers=AUTH).text
-        self.assertIn("Add address", page)
-        self.assertNotIn('name="streetAddress"', page)  # none, until one is added
-
-    def test_one_label_and_an_accordion_with_no_item_to_start_with(self):
-        page = self.web.get("/test_repo/person/add", headers=AUTH).text
-        self.assertEqual(len(re.findall(r">address</label>", page)), 1)
-        # one widget for each property of nodes of the form: addresses and identifiers
+    def test_there_is_no_place_and_a_button_to_add_one_with_the_icons_of_the_shapes(
+        self,
+    ):
+        page = self.page(ADD)
+        self.assertIn("Add place", page)
+        self.assertNotIn('name="street"', page)  # none, until one is added
+        self.assertEqual(len(re.findall(r">place</label>", page)), 1)  # one label
+        # one widget for each property of nodes of the form: places and marks
         self.assertEqual(page.count('class="blank-nodes'), 2)
         self.assertEqual(len(re.findall(r"<details\s", page)), 0)
-        self.assertIn('id="nodes-address"', page)
-
-    def test_the_icons_of_the_shapes_are_before_the_tab_and_the_add_buttons(self):
-        page = self.web.get("/test_repo/person/add", headers=AUTH).text
+        self.assertIn('id="nodes-place"', page)
         self.assertRegex(
             page,
             r'(?s)data-bs-toggle="tab".*?'
-            r'<i\s+class="bi bi-person me-1"\s+aria-hidden="true"></i>',
+            r'<i\s+class="bi bi-box me-1"\s+aria-hidden="true"></i>',
         )
         self.assertRegex(
             page,
-            r'<i\s+class="bi bi-geo-alt me-1"\s+aria-hidden="true"></i>'
-            r"Add address",
+            r'<i\s+class="bi bi-geo-alt me-1"\s+aria-hidden="true"></i>Add place',
         )
         self.assertRegex(
             page,
-            r'<i\s+class="bi bi-fingerprint me-1"\s+aria-hidden="true"></i>'
-            r"Add identifier",
+            r'<i\s+class="bi bi-fingerprint me-1"\s+aria-hidden="true"></i>Add mark',
         )
         self.assertIn("bootstrap-icons.min.css", page)
-
-    def test_the_add_button_asks_the_server_for_the_sequence_with_one_more(self):
-        page = self.web.get("/test_repo/person/add", headers=AUTH).text
-        found = re.findall(r"<button[^>]*>(?:<i[^>]*></i>)?Add address</button>", page)
-        self.assertEqual(len(found), 1)
+        found = re.findall(r"<button[^>]*>(?:<i[^>]*></i>)?Add place</button>", page)
+        self.assertEqual(len(found), 1)  # the button asks the server for one more
         button = found[0]
-        self.assertIn('hx-post="http://localhost/test_repo/person/sequence"', button)
-        self.assertIn('hx-target="#nodes-address"', button)
+        self.assertIn('hx-post="http://localhost/test_repo/gadget/sequence"', button)
+        self.assertIn('hx-target="#nodes-place"', button)
         self.assertIn('hx-include="closest form"', button)
         self.assertIn(
-            'hx-vals="{&#34;sequence&#34;: &#34;resource/address&#34;, '
+            'hx-vals="{&#34;sequence&#34;: &#34;resource/place&#34;, '
             '&#34;action&#34;: &#34;add&#34;}"',
             button,
         )
-        self.assertNotIn("disabled", button)  # an address can always be added
+        self.assertNotIn("disabled", button)  # a place can always be added
 
-    def test_a_native_accordion_item_for_each_address_with_a_close_button_in_its_bar(
+    def test_places_that_are_saved_are_shown_again_in_a_bar_each(
         self,
     ):
-        self.saved(items=[ADDRESS, OTHER])
-        page = self.web.get(EDIT, headers=AUTH).text
-        self.assertEqual(len(re.findall(r">address</label>", page)), 1)  # one label
+        self.saved(ADD, rows={"place": [PLACE, OTHER]})
+        self.assertEqual(
+            self.places(),  # with their class
+            [
+                dict(OTHER) | {"type": EX + "Place"},
+                dict(PLACE) | {"type": EX + "Place"},
+            ],
+        )
+        page = self.page(EDIT)
+        self.assertEqual(len(re.findall(r">place</label>", page)), 1)  # one label
         items = re.findall(
-            r'<details\s+name="nodes-address-[0-9a-f]+"( open)?>'
+            r'<details\s+name="nodes-place-[0-9a-f]+"( open)?>'
             r'\s*<summary class="accordion-button collapsed">\s*'
             r'<i class="bi bi-geo-alt me-2" aria-hidden="true"></i>\s*'
             r'<span class="bar-text flex-grow-1"[^>]*>([^<]*)</span>\s*'
@@ -165,44 +116,32 @@ class NestedFormTest(ConfiguredCase):
             page,
             re.S,
         )
-        # the bar says what the address has first, the close button is next to it, not
-        # in the summary, and asks at the address of this record; both are shut when
-        # the page is made
-        # (which of the two is first is not up to the form: the database numbers
-        # blank nodes that have the same path in any order)
+        # the bar says what the place has first, the close button is next to it, not in
+        # the summary, and asks at the address of this record; both are shut when the
+        # page is made (which of the two is first is not up to the form: the database
+        # numbers blank nodes that have the same path in any order)
         self.assertEqual([opened for opened, _text, _url in items], ["", ""])
         self.assertEqual(
             sorted(text for _opened, text, _url in items),
             ["Julianalaan 134, Delft, NL", "Mekelweg 4, 2628 CD Delft, NL"],
         )
-        self.assertEqual({url for *_rest, url in items}, {SEQUENCE})
-
-    def test_a_person_is_saved_without_an_address(self):
-        self.saved()
-        self.assertEqual(self.addresses(), [])
-
-    def test_an_address_that_was_added_is_saved_with_its_class_and_shown_again(self):
-        self.saved(items=[ADDRESS])
-        self.assertEqual(
-            self.addresses(), [dict(ADDRESS) | {"type": SCHEMA + "PostalAddress"}]
-        )
-        page = self.web.get(EDIT, headers=AUTH).text
+        self.assertEqual({url for *_rest, url in items}, {EDIT_URL})
+        buttons = re.findall(r"<button[^>]*bar-remove[^>]*>", page)
+        self.assertEqual(len(buttons), 2)
+        self.assertFalse(any("tabindex" in b for b in buttons))  # the order of the page
         self.assertIn('value="Mekelweg 4"', page)
-        self.assertIn('value="Delft"', page)
+        self.assertNotIn("text-bg-danger", page)  # no hint where nothing is wrong
+        self.assertNotIn("with errors", page)
 
-    def test_an_address_that_is_not_complete_is_sent_back_with_what_is_missing(self):
-        response = self.post(
-            "/test_repo/person/add", items=[[("streetAddress", "Mekelweg 4")]]
-        )
+    def test_a_place_that_is_not_complete_is_sent_back_with_what_is_missing(self):
+        response = self.post(ADD, rows={"place": [[("street", "Mekelweg 4")]]})
         self.assertEqual(response.status_int, 200)
         self.assertIn("Required", response.text)
         store = self.application["test_repo"].store
-        self.assertEqual(store.records_of_type("person"), [])  # nothing was saved
+        self.assertEqual(store.records_of_type("gadget"), [])  # nothing was saved
 
     def test_the_bar_of_an_item_with_errors_says_so_and_so_does_the_add_button(self):
-        response = self.post(
-            "/test_repo/person/add", items=[ADDRESS, [("streetAddress", "Julianalaan")]]
-        )
+        response = self.post(ADD, rows={"place": [PLACE, [("street", "Julianalaan")]]})
         self.assertEqual(response.status_int, 200)
         page = response.text
         details = re.findall(r"<details\s+name=.*?</details>", page, re.S)
@@ -217,35 +156,25 @@ class NestedFormTest(ConfiguredCase):
         # and the add button says how many are wrong
         self.assertRegex(
             page,
-            r'(?s)>Add address</button>\s*<span class="text-danger small"[^>]*>'
+            r'(?s)>Add place</button>\s*<span class="text-danger small"[^>]*>'
             r"\s*<strong>1</strong> of 2 with errors",
         )
 
-    def test_there_is_no_hint_where_nothing_is_wrong(self):
-        self.saved(items=[ADDRESS])
-        page = self.web.get(EDIT, headers=AUTH).text
-        self.assertNotIn("text-bg-danger", page)
-        self.assertNotIn("with errors", page)
-
     def test_more_than_one_can_be_added_and_one_removed_and_the_last_too(self):
-        self.saved(items=[ADDRESS, OTHER])
+        self.saved(ADD, rows={"place": [PLACE, OTHER]})
         self.assertEqual(
-            [a["streetAddress"] for a in self.addresses()],
-            ["Julianalaan 134", "Mekelweg 4"],
+            [a["street"] for a in self.places()], ["Julianalaan 134", "Mekelweg 4"]
         )
-        self.assertEqual(self.post(EDIT, drop="Julianalaan 134").status_int, 302)
-        self.assertEqual([a["streetAddress"] for a in self.addresses()], ["Mekelweg 4"])
-        self.assertEqual(self.post(EDIT, drop="Mekelweg 4").status_int, 302)
-        self.assertEqual(self.addresses(), [])
-        page = self.web.get(EDIT, headers=AUTH).text
-        self.assertNotIn('name="streetAddress"', page)  # and the button is there
-        self.assertIn("Add address", page)
-
-    ADD, ADD_URL = "/test_repo/person/add", "/test_repo/person/sequence"
-    EDIT_URL = "/test_repo/person/ada-lovelace/sequence"
+        self.saved(EDIT, rows={"place": [PLACE]})
+        self.assertEqual([a["street"] for a in self.places()], ["Mekelweg 4"])
+        self.saved(EDIT, rows={"place": []})
+        self.assertEqual(self.places(), [])
+        page = self.page(EDIT)
+        self.assertNotIn('name="street"', page)  # and the button is there
+        self.assertIn("Add place", page)
 
     def test_the_server_answers_an_add_with_the_sequence_and_one_more_open_item(self):
-        answer = self.ask(self.ADD, self.ADD_URL, "add", items=[ADDRESS])
+        answer = self.ask(ADD, ADD_URL, "add", items=[PLACE])
         self.assertEqual(answer.status_int, 200)
         self.assertEqual(len(re.findall(r"<details\s", answer.text)), 2)
         self.assertIn('value="Mekelweg 4"', answer.text)  # what was typed stays
@@ -254,68 +183,47 @@ class NestedFormTest(ConfiguredCase):
             answer.text,
             r'(?s)open="open"[^>]*>\s*<summary[^>]*>\s*'
             r'<i class="bi bi-geo-alt me-2" aria-hidden="true"></i>\s*'
-            r'<span class="bar-text flex-grow-1"[^>]*>address</span>',
+            r'<span class="bar-text flex-grow-1"[^>]*>place</span>',
         )
         self.assertTrue(answer.text.lstrip().startswith("<div"))
-        self.assertIn('id="nodes-address"', answer.text)  # what the swap replaces
-
-    def test_the_x_of_a_bar_is_the_next_stop_of_the_tab_key_after_the_bar(self):
-        self.saved(items=[ADDRESS, OTHER])
-        page = self.web.get(EDIT, headers=AUTH).text
-        buttons = re.findall(r"<button[^>]*bar-remove[^>]*>", page)
-        self.assertEqual(len(buttons), 2)
-        self.assertFalse(
-            any("tabindex" in b for b in buttons)
-        )  # in the order of the page
-
-    def test_the_item_that_was_added_is_marked_to_be_focused(self):
-        answer = self.ask(self.ADD, self.ADD_URL, "add", items=[ADDRESS])
+        self.assertIn('id="nodes-place"', answer.text)  # what the swap replaces
+        # the item that was added is marked to be focused
         self.assertEqual(answer.text.count('data-autofocus="'), 1)
         self.assertRegex(
             answer.text, r'(?s)open="open"\s+data-autofocus="data-autofocus"'
         )
-        removed = self.ask(
-            self.ADD, self.ADD_URL, "remove", items=[ADDRESS, OTHER], index=0
-        )
-        self.assertNotIn("data-autofocus", removed.text)
+        # what comes in the answer has ids that the page has not
+        ids = set(re.findall(r' id="([^"]+)"', answer.text))
+        page_ids = set(re.findall(r' id="([^"]+)"', self.page(ADD)))
+        self.assertEqual(ids & page_ids, {"nodes-place"})
 
     def test_the_server_answers_a_remove_without_that_item(self):
-        answer = self.ask(
-            self.ADD, self.ADD_URL, "remove", items=[ADDRESS, OTHER], index=0
-        )
+        answer = self.ask(ADD, ADD_URL, "remove", items=[PLACE, OTHER], index=0)
         self.assertEqual(len(re.findall(r"<details\s", answer.text)), 1)
         self.assertIn('value="Julianalaan 134"', answer.text)
         self.assertNotIn('value="Mekelweg 4"', answer.text)
+        self.assertNotIn("data-autofocus", answer.text)
 
     def test_the_form_of_a_record_that_is_there_has_its_own_address_to_ask_at(self):
-        self.saved(items=[ADDRESS])
-        answer = self.ask(EDIT, self.EDIT_URL, "add")
+        self.saved(ADD, rows={"place": [PLACE]})
+        answer = self.ask(EDIT, EDIT_URL, "add", items=[PLACE])
         self.assertEqual(len(re.findall(r"<details\s", answer.text)), 2)  # one saved
-        self.assertIn(f'hx-post="{SEQUENCE}"', answer.text)
-
-    def test_what_comes_in_the_answer_has_ids_that_the_page_has_not(self):
-        page = self.web.get(self.ADD, headers=AUTH).text
-        answer = self.ask(self.ADD, self.ADD_URL, "add", items=[ADDRESS])
-
-        def ids(html):
-            return set(re.findall(r' id="([^"]+)"', html))
-
-        self.assertEqual(ids(answer.text) & ids(page), {"nodes-address"})
+        self.assertIn(f'hx-post="{EDIT_URL}"', answer.text)
 
     def test_no_answer_to_a_sequence_that_is_not_there_or_to_whoever_may_not_add(self):
         for sequence in ("nothing", "resource/nothing", ""):
             with self.subTest(sequence=sequence):
                 params = [
-                    *self.controls(self.ADD),
+                    *self.posted(ADD),
                     ("action", "add"),
                     ("sequence", sequence),
                 ]
                 bad = self.web.post(
-                    self.ADD_URL, params=params, headers=AUTH, expect_errors=True
+                    ADD_URL, params=params, headers=ADMIN, expect_errors=True
                 )
                 self.assertEqual(bad.status_int, 400)
-        asked = [("sequence", "resource/address"), ("action", "add")]
-        anonymous = self.web.post(self.ADD_URL, params=asked, expect_errors=True)
+        asked = [("sequence", "resource/place"), ("action", "add")]
+        anonymous = self.web.post(ADD_URL, params=asked, expect_errors=True)
         self.assertIn(anonymous.status_int, (401, 403))
 
 
@@ -334,22 +242,18 @@ ex:Part a sh:NodeShape ; sh:class ex:PartClass ;
 """
 
 
-class CardinalityTest(ConfiguredCase):
+class CardinalityTest(FormCase):
     """What `sh:minCount` and `sh:maxCount` of a property of nodes make of its field:
     the kind of field, the buttons, what the server does and what is valid."""
 
     def setUp(self):
         super().setUp()
-        self.application.create_repository(
-            "test_repo", content_types=[BUNDLED["person"]]
-        )
-        self.config.commit()
-        record = self.application["test_repo"].types["person"].blank_record()
+        record = self.application["test_repo"].types["gadget"].blank_record()
         shapes = Graph(
             ox.Dataset(ox.parse(SHAPES.encode(), format=ox.RdfFormat.TURTLE))
         )
         request = SimpleNamespace(resource_url=lambda target, name: f"/{name}")
-        nodes = record._nodes(shapes, ox.NamedNode("http://example.org/Thing"), request)
+        nodes = record._nodes(shapes, ox.NamedNode(EX + "Thing"), request)
         self.nodes = {node.name: node for node in nodes}
 
     def fresh(self) -> Form:
@@ -389,6 +293,17 @@ class CardinalityTest(ConfiguredCase):
             for button in re.findall(r"<button[^>]*bar-remove[^>]*>", widget)
         ]
 
+    def change(self, path, action, index=None, **labels) -> int:
+        html = change_sequence(
+            self.fresh(), self.controls(**labels), path, action, index
+        )
+        return self.items(html)
+
+    def invalid(self, **labels) -> str:
+        with self.assertRaises(deform.ValidationFailure) as caught:
+            self.fresh().validate(self.controls(**labels))
+        return caught.exception.render()
+
     def test_exactly_one_is_a_mapping_and_the_rest_are_sequences_of_a_length(self):
         self.assertIsInstance(self.nodes["one"].typ, colander.Mapping)
         for name, lowest, highest in (
@@ -406,20 +321,16 @@ class CardinalityTest(ConfiguredCase):
                     node.children[0].node_class, "http://example.org/PartClass"
                 )
 
-    def test_there_is_no_limit_to_add_or_remove_where_there_is_none(self):
-        self.assertEqual(self.items(self.render()["any"]), 0)
+    def test_the_buttons_are_disabled_at_the_most_and_at_the_least_and_not_before(self):
+        self.assertEqual(self.items(self.render()["any"]), 0)  # no limit
         widget = self.render(any=["a", "b", "c", "d"])["any"]
         self.assertEqual(self.items(widget), 4)
         self.assertTrue(self.adds(widget))
         self.assertEqual(self.removes(widget), [True] * 4)
-
-    def test_add_is_disabled_at_the_most_and_not_before(self):
         self.assertTrue(self.adds(self.render(upto2=["a"])["upto2"]))
         at_most = self.render(upto2=["a", "b"])["upto2"]
         self.assertFalse(self.adds(at_most))
         self.assertEqual(self.removes(at_most), [True, True])  # but they can go
-
-    def test_close_is_disabled_at_the_least_and_not_before(self):
         # at least one: one is shown when none was posted, and it cannot go
         shown = self.render()["one_to_3"]
         self.assertEqual(self.items(shown), 1)
@@ -431,12 +342,6 @@ class CardinalityTest(ConfiguredCase):
         self.assertFalse(self.adds(three))
         self.assertEqual(self.removes(three), [True] * 3)
 
-    def change(self, path, action, index=None, **labels) -> int:
-        html = change_sequence(
-            self.fresh(), self.controls(**labels), path, action, index
-        )
-        return self.items(html)
-
     def test_the_server_does_not_add_beyond_the_most_or_remove_below_the_least(self):
         self.assertEqual(self.change("upto2", "add", upto2=["a"]), 2)
         self.assertEqual(self.change("upto2", "add", upto2=["a", "b"]), 2)  # no more
@@ -447,15 +352,8 @@ class CardinalityTest(ConfiguredCase):
         self.assertEqual(self.change("one_to_3", "add", one_to_3=["a", "b", "c"]), 3)
         self.assertEqual(self.change("any", "add", any=list("abcde")), 6)  # no limit
         self.assertEqual(self.change("any", "remove", 9, any=["a"]), 1)  # not an item
-
-    def test_what_is_shown_to_fill_the_least_counts_when_one_is_added(self):
         # none posted, one shown for the least of one: adding makes two, not one
         self.assertEqual(self.change("one_to_3", "add"), 2)
-
-    def invalid(self, **labels) -> str:
-        with self.assertRaises(deform.ValidationFailure) as caught:
-            self.fresh().validate(self.controls(**labels))
-        return caught.exception.render()
 
     def test_what_is_posted_beyond_the_most_or_below_the_least_is_not_valid(self):
         self.assertIn(

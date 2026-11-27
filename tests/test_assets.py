@@ -44,7 +44,7 @@ class JoinTest(unittest.TestCase):
 
 
 class SchemaNameTest(unittest.TestCase):
-    def test_a_schema_file_of_the_type(self):
+    def test_a_schema_file_of_the_type_is_found_and_anything_else_is_refused(self):
         for name in (
             "person-full-03.ttl",
             "person-minimal-01.ttl",
@@ -55,7 +55,6 @@ class SchemaNameTest(unittest.TestCase):
                 f"gracia:assets/shacl/{name}",
             )
 
-    def test_anything_else_is_refused(self):
         for name in (
             None,
             "",
@@ -89,13 +88,14 @@ class ShapeLoadingTest(unittest.TestCase):
     def shape(self, schema="thing-full-01.ttl", class_uri=THING):
         return assets.shape(f"{self.dir}/", schema, class_uri, "thing")
 
-    def test_the_shape_of_a_class_is_found_by_its_target_class(self):
+    def test_the_shape_of_a_class_is_found_by_its_target_class_also_for_the_types_that_come_with_gracia(
+        self,
+    ):
         self.write()
         data, node = self.shape()
         self.assertEqual(node, ox.NamedNode("urn:test:Shape"))
         self.assertGreater(len(data), 0)
 
-    def test_the_types_that_come_with_gracia_have_their_schemas_in_their_packages(self):
         for slug, name, class_uri in (
             ("repository", "Repository", uri.REPOSITORY_CLASS),
             ("type", "Type", uri.TYPE_CLASS),
@@ -132,7 +132,7 @@ class ShapeLoadingTest(unittest.TestCase):
                 assets.shape("no.such.package:x/", "thing-full-01.ttl", THING, "thing")
             )
 
-    def test_a_changed_file_is_read_again_and_an_unchanged_one_is_not_parsed_twice(
+    def test_a_changed_file_is_read_again_an_unchanged_one_is_not_parsed_twice_and_a_directory_is_not_an_asset(
         self,
     ):
         path = self.write(label="First")
@@ -147,7 +147,6 @@ class ShapeLoadingTest(unittest.TestCase):
         ]
         self.assertEqual(names, ["Second"])
 
-    def test_a_directory_is_not_an_asset(self):
         with self.assertRaises(FileNotFoundError):
             assets.resolve(str(self.dir))
 
@@ -169,12 +168,13 @@ class ProfilesTest(unittest.TestCase):
         data, _ = assets.shape(f"{self.dir}/", schema, THING, "thing")
         return next(q.object.value for q in data if q.predicate.value.endswith("#name"))
 
-    def test_the_schema_a_type_names_is_the_one_it_uses(self):
+    def test_the_schema_a_type_names_is_the_one_it_uses_and_sets_the_version_of_the_type(
+        self,
+    ):
         self.assertEqual(self.label("thing-full-01.ttl"), "Full, first revision")
         self.assertEqual(self.label("thing-full-02.ttl"), "Full, second revision")
         self.assertEqual(self.label("thing-minimal-01.ttl"), "Minimal")
 
-    def test_switching_schema_changes_the_version_of_the_type(self):
         prefix = f"{self.dir}/"
         versions = {
             name: assets.version(prefix, name, "thing")
@@ -198,7 +198,6 @@ class ProfilesTest(unittest.TestCase):
             versions["thing-full-01.ttl"],
         )
 
-    def test_a_schema_that_does_not_exist_leaves_only_the_stylesheet(self):
         prefix = f"{self.dir}/"
         self.assertEqual(assets.version(prefix, "thing-full-09.ttl", "thing"), "")
         (self.dir / "view.xsl").write_text("view")
@@ -233,10 +232,11 @@ class OverrideTest(unittest.TestCase):
         data, _ = assets.shape("base_types:thing/", "thing-full-01.ttl", THING, "thing")
         return next(q.object.value for q in data if q.predicate.value.endswith("#name"))
 
-    def test_the_original_without_an_override(self):
+    def test_an_override_replaces_a_file_and_the_rest_falls_through_and_the_original_is_left(
+        self,
+    ):
         self.assertEqual(self.label(), "Base")
 
-    def test_an_override_replaces_a_file_and_the_rest_falls_through(self):
         config = Configurator()
         config.override_asset("base_types:thing/", "custom_types:thing/")
         config.commit()
@@ -261,7 +261,9 @@ class InfoTest(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.dir = Path(self._tmp.name)
 
-    def test_checksum_size_and_media_type_of_a_file(self):
+    def test_checksum_size_and_media_type_of_a_file_follow_it_and_are_not_computed_twice(
+        self,
+    ):
         (self.dir / "shape.ttl").write_text("<a> <b> <c> .")
         item = assets.info(f"{self.dir}/shape.ttl")
         self.assertEqual(
@@ -277,9 +279,6 @@ class InfoTest(unittest.TestCase):
             assets.info(f"{self.dir}/other.bin").media_type, "application/octet-stream"
         )
 
-    def test_the_checksum_follows_the_file_and_is_not_computed_twice_for_one_version(
-        self,
-    ):
         path = self.dir / "shape.ttl"
         path.write_text("one")
         first = assets.info(f"{self.dir}/shape.ttl")
@@ -292,7 +291,7 @@ class InfoTest(unittest.TestCase):
         self.assertNotEqual(second.checksum, first.checksum)
         self.assertEqual(second.size, 4)
 
-    def test_a_directory_has_one_version_that_follows_every_file(self):
+    def test_a_directory_has_one_version_that_follows_every_declared_file(self):
         prefix, schema = f"{self.dir}/", "thing-full-01.ttl"
         (self.dir / "shacl").mkdir()
 
@@ -314,7 +313,6 @@ class InfoTest(unittest.TestCase):
         (self.dir / "view.xsl").unlink()
         self.assertEqual(version(), only_shape)  # a file went
 
-    def test_files_that_are_not_declared_are_not_part_of_it(self):
         (self.dir / "view.xsl").write_text("view")
         before = assets.version(f"{self.dir}/")
         (self.dir / "notes.txt").write_text("anything")
@@ -361,7 +359,9 @@ class TypeVersionTest(WebCase):
 
 
 class ListCommandTest(DbTestCase):
-    def test_it_lists_each_file_the_types_use_once(self):
+    def test_it_lists_each_file_the_types_use_once_a_missing_repository_is_an_error_and_sync_is_gone(
+        self,
+    ):
         self.create_repositories("test_repo", "archive")
         code, out, err = self.gracia("assets", "list")
         self.assertEqual(code, 0, err)
@@ -376,12 +376,10 @@ class ListCommandTest(DbTestCase):
             line = next(entry for entry in lines if entry.endswith(spec))
             self.assertRegex(line, r"^md5:[0-9a-f]{32}  +\d+  text/turtle +")
 
-    def test_a_named_repository_that_does_not_exist_is_an_error(self):
         self.create_repositories("test_repo")
         code, _, err = self.gracia("assets", "list", "nope")
         self.assertEqual(code, 1)
         self.assertIn("nope", err)
 
-    def test_the_old_sync_command_is_gone(self):
         with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
             cli.main(["assets", "sync"])

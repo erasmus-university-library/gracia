@@ -10,9 +10,8 @@ from typing import ClassVar
 
 import colander
 import pyoxigraph as ox
+from schemaorg.cases import ADA, ADMIN, DELFT, POSTING, WORK, ReferenceCase
 from support import must_search, uri_select
-from test_dates import ADMIN, POSTING
-from test_reference import ADA, DELFT, WORK, ReferenceCase
 
 from gracia import forms, uri
 from gracia.graph import Graph
@@ -90,12 +89,13 @@ class ContributorCase(ReferenceCase):
 
 
 class RoleFormTest(ContributorCase):
-    def test_the_work_has_contributors_to_add_as_blank_nodes(self):
+    def test_a_contributor_has_a_role_to_choose_by_name_with_the_icon_of_the_shape_and_a_reference(
+        self,
+    ):
         page = self.web.get(WORK, headers=ADMIN).text
         self.assertIn('id="nodes-contributor"', page)
         self.assertIn("Add contributor", page)
 
-    def test_a_contributor_has_a_role_to_choose_by_name_and_a_reference(self):
         row = self.added_row()
         select = uri_select(row, "roleName")
         self.assertEqual([v for v, _ in select.items], ["", *[ROLE + r for r in ROLES]])
@@ -105,7 +105,6 @@ class RoleFormTest(ContributorCase):
         self.assertEqual(labels[ROLE + "Funder"], "Funder")
         self.assertIn('class="reference input-group', row)
 
-    def test_every_role_has_the_icon_the_shape_gives_it(self):
         row = self.added_row()
         icons = dict(re.findall(r'data-value="([^"]+)"[^>]*data-icon="([^"]*)"', row))
         self.assertEqual(icons[ROLE + "Funder"], "cash-coin")
@@ -130,12 +129,13 @@ class FollowTest(ContributorCase):
         found = must_search(r'data-follow="([^"]*)"', row)
         return json.loads(html.unescape(found[1]))
 
-    def test_the_reference_follows_the_role_next_to_it(self):
+    def test_the_reference_follows_the_role_a_person_or_an_organization_and_a_new_record_of_it(
+        self,
+    ):
         follow = self.follow()
         self.assertEqual(follow["name"], "roleName")
         self.assertEqual(set(follow["map"]), {ROLE + r for r in ROLES})
 
-    def test_a_person_for_the_roles_of_people_and_an_organization_for_the_others(self):
         found = self.follow()["map"]
         for role in ROLES:
             with self.subTest(role=role):
@@ -151,7 +151,6 @@ class FollowTest(ContributorCase):
                     self.assertEqual(len(classes), 6)
                     self.assertIn(SCHEMA + "CollegeOrUniversity", classes)
 
-    def test_a_new_one_is_a_record_of_the_type_that_the_role_is_for(self):
         found = self.follow()["map"]
         funder, advisor = found[ROLE + "Funder"], found[ROLE + "ThesisAdvisor"]
         self.assertEqual([n["label"] for n in funder["new"]], ["Organization"])
@@ -182,16 +181,16 @@ class SaveTest(ContributorCase):
         )
         self.assertEqual(work.validate(), [])
 
-    def test_a_work_needs_no_contributors(self):
-        self.assertEqual(self.post_work().status_int, 302)
-        self.assertEqual(self.roles_of(self.work_graph()), [])
+        self.assertEqual(self.post_work().status_int, 302)  # none is needed
+        self.assertEqual(self.roles_of(self.work_graph(2)), [])
 
-    def test_a_role_needs_somebody_it_is_for(self):
+    def test_a_role_needs_somebody_it_is_for_and_a_role_that_is_none_of_them_is_refused(
+        self,
+    ):
         response = self.post_work([("Funder", "")])
         self.assertEqual(response.status_int, 200)
         self.assertIn("Required", response.text)
 
-    def test_a_role_that_is_none_of_them_is_refused(self):
         params = []
         for field, value in self.fields(WORK, [ADA]):
             if (field, value) == ("__end__", "resource:mapping"):
@@ -209,7 +208,9 @@ class SaveTest(ContributorCase):
         )
         self.assertEqual(response.status_int, 200)
 
-    def test_the_form_shows_the_role_and_the_label_of_who_it_is_for(self):
+    def test_the_form_shows_the_role_and_the_label_of_who_it_is_for_and_the_bar_not_the_uris(
+        self,
+    ):
         self.post_work([("Funder", DELFT)])
         page = self.web.get("/refs/work/1/edit", headers=ADMIN).text
         select = uri_select(page, "roleName")
@@ -217,7 +218,6 @@ class SaveTest(ContributorCase):
         tags = re.findall(r"<input[^>]*reference-input[^>]*>", page)
         self.assertTrue(any('value="Delft University"' in t for t in tags))
 
-    def test_the_bar_of_the_contributor_says_the_role_and_the_name_not_the_uris(self):
         self.post_work([("Funder", DELFT)])
         page = self.web.get("/refs/work/1/edit", headers=ADMIN).text
         bar = must_search(
@@ -246,23 +246,14 @@ class OnlyForTest(ContributorCase):
         "DegreeGrantor": "Degree grantor",
     }
 
-    def test_the_roles_of_a_thesis_are_for_a_thesis(self):
+    def test_the_roles_of_a_thesis_are_for_a_thesis_and_the_other_roles_for_every_work(
+        self,
+    ):
         for role in THESIS_ROLES:
             with self.subTest(role=role):
                 response = self.post_work([(role, whom(role))], "Thesis")
                 self.assertEqual(response.status_int, 302, response.text[:300])
 
-    def test_a_work_that_is_not_a_thesis_is_refused_them(self):
-        for role in THESIS_ROLES:
-            for kind in ("Book", "ScholarlyArticle", "Dataset"):
-                with self.subTest(role=role, kind=kind):
-                    response = self.post_work([(role, whom(role))], kind)
-                    self.assertEqual(response.status_int, 200)
-                    self.assertIn(
-                        f"{self.LABELS[role]} is only for Thesis", response.text
-                    )
-
-    def test_the_other_roles_are_for_every_work(self):
         others = [r for r in ROLES if r not in THESIS_ROLES]
         self.assertEqual(
             others,
@@ -280,7 +271,18 @@ class OnlyForTest(ContributorCase):
                 response = self.post_work([(role, whom(role))], "Book")
                 self.assertEqual(response.status_int, 302, response.text[:300])
 
-    def test_a_record_that_says_so_in_its_source_is_refused_by_the_shape_too(self):
+    def test_a_work_that_is_not_a_thesis_is_refused_them_and_so_is_a_record_by_the_shape(
+        self,
+    ):
+        for role in THESIS_ROLES:
+            for kind in ("Book", "ScholarlyArticle", "Dataset"):
+                with self.subTest(role=role, kind=kind):
+                    response = self.post_work([(role, whom(role))], kind)
+                    self.assertEqual(response.status_int, 200)
+                    self.assertIn(
+                        f"{self.LABELS[role]} is only for Thesis", response.text
+                    )
+
         for role in THESIS_ROLES:
             with self.subTest(role=role):
                 self.post_work([(role, whom(role))], "Thesis", name=f"Thesis {role}")
@@ -332,9 +334,7 @@ class ShapeSaysTest(unittest.TestCase):
       ) .
     """
 
-    def test_the_alternatives_of_a_shape_say_what_a_reference_points_at_by_a_value(
-        self,
-    ):
+    def test_the_alternatives_of_a_shape_say_what_a_reference_points_at(self):
         graph = self.graph(self.ROLE_SHAPE)
         prop = self.prop(graph, EX + "Role", SCHEMA + "contributor")
         found = forms.class_follow(graph, ox.NamedNode(EX + "Role"), prop)
@@ -350,7 +350,6 @@ class ShapeSaysTest(unittest.TestCase):
             },
         )
 
-    def test_the_shapes_it_can_point_at_are_those_of_all_the_alternatives(self):
         graph = self.graph(self.ROLE_SHAPE)
         shape = ox.NamedNode(EX + "Role")
         prop = self.prop(graph, EX + "Role", SCHEMA + "contributor")
@@ -362,12 +361,11 @@ class ShapeSaysTest(unittest.TestCase):
             forms.reference_shapes(graph, prop), []
         )  # the property says none
 
-    def test_a_property_the_alternatives_do_not_say_anything_of_follows_nothing(self):
         graph = self.graph(self.ROLE_SHAPE)
         prop = self.prop(graph, EX + "Role", SCHEMA + "roleName")
         self.assertIsNone(forms.class_follow(graph, ox.NamedNode(EX + "Role"), prop))
 
-    def test_alternatives_of_another_kind_are_left_alone(self):
+    def test_the_alternatives_of_a_shape_say_for_which_resources_a_value_is(self):
         graph = self.graph(
             """
             ex:Kind a sh:NodeShape ;
@@ -381,20 +379,6 @@ class ShapeSaysTest(unittest.TestCase):
         self.assertIsNone(forms.class_follow(graph, shape, prop))
         self.assertEqual(forms.only_for_rules(graph, shape), {})
 
-    WORK_SHAPE = """
-    ex:Work a sh:NodeShape ;
-      sh:or ( [ sh:property [ sh:path rdf:type ; sh:hasValue schema:Thesis ] ]
-              [ sh:property [ sh:path ( schema:contributor schema:roleName ) ;
-                              sh:not [ sh:hasValue role:ThesisAdvisor ] ] ] ) ;
-      sh:or ( [ sh:property [ sh:path rdf:type ; sh:hasValue schema:Book ] ]
-              [ sh:property [ sh:path rdf:type ; sh:hasValue schema:Report ] ]
-              [ sh:property [ sh:path ( schema:contributor schema:roleName ) ;
-                              sh:not [ sh:in ( role:Editor role:Expert ) ] ] ] ) .
-    """
-
-    def test_a_value_that_a_resource_has_or_the_path_has_not_is_for_those_resources(
-        self,
-    ):
         rules = forms.only_for_rules(
             self.graph(self.WORK_SHAPE), ox.NamedNode(EX + "Work")
         )
@@ -408,6 +392,17 @@ class ShapeSaysTest(unittest.TestCase):
                 }
             },
         )
+
+    WORK_SHAPE = """
+    ex:Work a sh:NodeShape ;
+      sh:or ( [ sh:property [ sh:path rdf:type ; sh:hasValue schema:Thesis ] ]
+              [ sh:property [ sh:path ( schema:contributor schema:roleName ) ;
+                              sh:not [ sh:hasValue role:ThesisAdvisor ] ] ] ) ;
+      sh:or ( [ sh:property [ sh:path rdf:type ; sh:hasValue schema:Book ] ]
+              [ sh:property [ sh:path rdf:type ; sh:hasValue schema:Report ] ]
+              [ sh:property [ sh:path ( schema:contributor schema:roleName ) ;
+                              sh:not [ sh:in ( role:Editor role:Expert ) ] ] ] ) .
+    """
 
     def test_the_work_shape_does_not_use_terms_of_its_own_for_any_of_this(self):
         text = (
@@ -438,45 +433,43 @@ class MenuInARowTest(unittest.TestCase):
     def rule(self, selector: str) -> str:
         return must_search(re.escape(selector) + r"\s*\{([^}]*)\}", self.css)[1]
 
-    def test_the_accordion_does_not_clip_while_a_menu_is_open_in_it(self):
+    def test_a_menu_in_a_row_is_let_out_of_the_accordion_while_it_is_open(self):
         found = self.rule(".blank-nodes > .accordion:has(.dropdown-menu.show)")
         self.assertIn("overflow: visible", found)
 
-    def test_the_row_that_has_a_menu_open_is_over_what_comes_after_it(self):
         found = self.rule(".blank-node:has(.dropdown-menu.show)")
         self.assertRegex(found, r"z-index:\s*\d+")
         self.assertGreater(
             int(must_search(r"z-index:\s*(\d+)", found)[1]), 6
         )  # the icon of a reference
 
-    def test_the_accordion_clips_when_no_menu_is_open(self):
         self.assertIn("overflow: hidden", self.rule(".blank-nodes > .accordion"))
 
 
 class DefaultRoleTest(ContributorCase):
     """A new contributor is a Contributor: nothing has to be chosen for it to work."""
 
-    def test_a_new_contributor_has_the_role_contributor_chosen(self):
+    def test_a_new_contributor_is_a_contributor_who_can_be_a_person_or_an_organization(
+        self,
+    ):
         select = uri_select(self.added_row(), "roleName")
         self.assertEqual(select.chosen, ROLE + "Contributor")
         self.assertEqual(select.selected, 1)
         self.assertIn('<span class="uri-select-label">Contributor</span>', select.html)
 
-    def test_a_contributor_with_no_more_said_can_be_a_person_or_an_organization(self):
         for who in (ADA, DELFT):
             with self.subTest(who=who):
                 self.assertEqual(self.post_work([("Contributor", who)]).status_int, 302)
         for work in (1, 2):
             self.assertEqual(self.work_graph(work).validate(), [])
 
-    def test_the_role_that_was_saved_is_the_one_that_is_shown_again(self):
+    def test_the_role_that_was_saved_is_shown_again_and_can_be_taken_away(self):
         self.post_work([("Funder", DELFT)])
         page = self.web.get("/refs/work/1/edit", headers=ADMIN).text
         self.assertEqual(
             uri_select(page, "roleName").chosen, ROLE + "Funder"
         )  # not the default
 
-    def test_the_role_can_still_be_taken_away_and_then_it_is_asked_for(self):
         response = self.post_work([("", ADA)])
         self.assertEqual(response.status_int, 200)
         select = uri_select(response.text, "roleName")
@@ -504,7 +497,7 @@ class ErrorMessageTest(ContributorCase):
             params.append((field, "" if field == "type" else value))
         return self.web.post(WORK, params=params, headers=POSTING, expect_errors=True)
 
-    def test_the_type_the_role_and_the_reference_each_have_their_message(self):
+    def test_the_message_of_a_wrong_field_is_shown_whatever_the_widget(self):
         page = self.failed().text
         for label in ("type", "role", "contributor"):
             with self.subTest(label=label):
@@ -515,9 +508,6 @@ class ErrorMessageTest(ContributorCase):
                 self.assertRegex(item, r'<p class="invalid-feedback"[^>]*>\s*Required')
                 self.assertIn("is-invalid", item)
 
-    def test_the_message_is_the_next_element_of_the_widget_that_has_the_wrong_input(
-        self,
-    ):
         item = must_search(
             r"(?s)<label[^>]*>role</label>(?:\s*<!--.*?-->)?\s*"
             r'<div class="uri-select dropdown">.*?</ul>\s*</div>\s*'
@@ -526,14 +516,6 @@ class ErrorMessageTest(ContributorCase):
         )
         self.assertTrue(item)
 
-    def css(self):
-        return (
-            Path(forms.__file__).parent / "assets" / "static" / "css" / "gracia.css"
-        ).read_text()
-
-    def test_the_style_shows_the_message_of_a_widget_that_has_its_input_in_a_wrapper(
-        self,
-    ):
         rule = must_search(
             r"([^{}]*:has\(\.is-invalid\) ~ p\.invalid-feedback)\s*\{([^}]*)\}",
             self.css(),
@@ -541,6 +523,11 @@ class ErrorMessageTest(ContributorCase):
         for wrapper in (".uri-select", ".reference", ".date-input"):
             self.assertIn(wrapper, rule[1])
         self.assertIn("display: block", rule[2])
+
+    def css(self):
+        return (
+            Path(forms.__file__).parent / "assets" / "static" / "css" / "gracia.css"
+        ).read_text()
 
 
 class NodeErrorTest(ContributorCase):
@@ -560,13 +547,14 @@ class NodeErrorTest(ContributorCase):
         )[1]
         return re.split(r'(?=<div\s+class="accordion-item blank-node")', mid)[1:]
 
-    def test_the_node_that_has_the_role_is_marked_with_errors_and_is_open(self):
+    def test_the_node_that_has_the_role_is_marked_and_open_with_the_message_at_the_role(
+        self,
+    ):
         rows = self.nodes(self.failing([("ThesisSupervisor", ADA)]))
         self.assertEqual(len(rows), 1)
         self.assertIn('class="badge text-bg-danger me-3">errors</span>', rows[0])
         self.assertRegex(rows[0], r"<details\s[^>]*\bopen[\s>]")
 
-    def test_the_message_is_under_the_role_and_says_what_the_role_is_for(self):
         row = self.nodes(self.failing([("ThesisSupervisor", ADA)]))[0]
         found = must_search(
             r'(?s)<label[^>]*>role</label>.*?<p[^>]*class="invalid-feedback"[^>]*>'
@@ -577,7 +565,9 @@ class NodeErrorTest(ContributorCase):
         toggle = must_search(r"<button[^>]*uri-select-toggle[^>]*>", row)[0]
         self.assertIn("is-invalid", toggle)
 
-    def test_only_the_nodes_that_are_wrong_have_the_error(self):
+    def test_only_the_nodes_that_are_wrong_have_the_error_and_the_list_counts_them(
+        self,
+    ):
         rows = self.nodes(
             self.failing(
                 [
@@ -595,7 +585,6 @@ class NodeErrorTest(ContributorCase):
         said = [re.findall(r"is only for ([A-Za-z]+)", row) for row in rows]
         self.assertEqual(said, [[], ["Thesis"], [], ["Thesis"]])
 
-    def test_the_list_says_how_many_of_the_nodes_are_wrong(self):
         page = self.failing([("Funder", DELFT), ("CoSupervisor", ADA)])
         self.assertIn("<strong>1</strong> of 2 with errors", page)
 
@@ -620,7 +609,6 @@ class NodeErrorTest(ContributorCase):
             ("roleName", "Thesis advisor is only for Thesis"),
         )
 
-    def test_a_form_that_is_right_has_no_error(self):
         self.assertEqual(
             self.post_work([("ThesisAdvisor", ADA)], "Thesis").status_int, 302
         )
@@ -641,13 +629,12 @@ class DialogOnDialogTest(unittest.TestCase):
     def css(self):
         return (self.static / "css" / "gracia.css").read_text()
 
-    def test_a_dialog_that_opens_in_a_form_says_so_to_the_page_around_it(self):
+    def test_a_dialog_in_a_form_says_so_and_the_page_around_it_dims_the_header(self):
         script = self.script()
         self.assertIn('postMessage({ gracia: "dialog", open }', script)
         self.assertRegex(script, r"tellParent\(true\)")
         self.assertRegex(script, r"tellParent\(false\)")
 
-    def test_the_page_around_it_dims_the_header_of_its_dialog_while_that_is_so(self):
         script = self.script()
         self.assertIn('said.gracia === "dialog"', script)
         self.assertIn('classList.toggle("covered"', script)
@@ -655,7 +642,7 @@ class DialogOnDialogTest(unittest.TestCase):
             'classList.remove("covered")', script
         )  # when it closes, or the form is new
 
-    def test_the_header_is_light_and_blurred_as_the_backdrop_of_the_dialog_is(self):
+    def test_the_styles_of_the_dialogs_and_the_bar_of_a_node_with_an_error(self):
         css = self.css()
         header = must_search(
             r"\.modal\.covered \.modal-header::after\s*\{([^}]*)\}", css
@@ -663,12 +650,10 @@ class DialogOnDialogTest(unittest.TestCase):
         self.assertIn("rgba(255, 255, 255", header)
         self.assertIn("backdrop-filter: blur(", header)
 
-    def test_the_backdrop_of_every_dialog_is_white_and_blurs(self):
         found = must_search(r"\n\.modal-backdrop\s*\{([^}]*)\}", self.css())[1]
         self.assertIn("--bs-backdrop-bg: rgba(255, 255, 255", found)
         self.assertIn("backdrop-filter: blur(", found)
 
-    def test_a_dialog_has_a_shadow_that_a_theme_can_set(self):
         css = self.css()
         found = must_search(r"\n\.modal\s*\{([^}]*)\}", css)[1]
         self.assertRegex(
@@ -678,7 +663,6 @@ class DialogOnDialogTest(unittest.TestCase):
         applied = must_search(r"\n\.modal-content\s*\{([^}]*)\}", css)[1]
         self.assertIn("box-shadow: var(--bs-modal-box-shadow)", applied)
 
-    def test_a_node_with_an_error_is_red_at_its_bar(self):
         css = self.css()
         found = must_search(
             r"\.blank-node:has\(> details > summary \.badge\.text-bg-danger\)"

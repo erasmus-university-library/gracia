@@ -13,11 +13,12 @@
 
   How it is made: the root template applies the templates of the mode "doc" to the node of each record.
   This stylesheet has the template for every record (`rec:`): the fields every doc has. A type adds fields
-  in a stylesheet of its own (`doc/doc-<profile>-<revision>.xsl`, named by its `gracia:docTemplate`) that
-  imports this one, with a template for the records of the type, that is, for the uri that starts with
+  in a stylesheet of its own (`xslt/doc/<type>-<profile>-<revision>.xsl`, named by its `gracia:docTemplate`).
+  The stylesheet of a repository imports this one first and then the doc of each type, so a doc does not
+  import it (a copy of it inside each doc would have a higher import precedence than the docs before it);
+  a doc has a template for the records of the type, that is, for the uri that starts with
   `rec:<slug>:`, which asks for the doc this one makes (`xsl:next-match`) and adds to it:
 
-    <xsl:import href="type:type/xslt/doc/record-base-01.xsl"/>
     <xsl:template match="/rdf:RDF/*[starts-with(@rdf:about, 'rec:person:')]" mode="doc" as="map(*)">
       <xsl:variable name="base" as="map(*)"><xsl:next-match/></xsl:variable>
       <xsl:sequence select="map:merge(($base, map { 'given_name': ... }))"/>

@@ -15,7 +15,9 @@ EX = "http://example.org/"
 
 
 class ModelTest(DbTestCase):
-    def test_the_columns_are_strings_and_a_list(self):
+    def test_the_columns_are_strings_and_a_list_and_bnodes_are_numbered_per_resource(
+        self,
+    ):
         self.load(DATA / "05_shared.ttl")
         with open_store(self.db) as store:
             types = dict(
@@ -23,14 +25,6 @@ class ModelTest(DbTestCase):
                     "SELECT column_name, column_type FROM (DESCRIBE triples)"
                 ).fetchall()
             )
-        self.assertEqual(list(types), ["s", "loc", "p", "o", "lit", "lang", "dt"])
-        for column in ("s", "p", "o", "lit", "lang", "dt"):
-            self.assertEqual(types[column], "VARCHAR", column)
-        self.assertEqual(types["loc"], "VARCHAR[]")
-
-    def test_bnodes_are_numbered_per_resource(self):
-        self.load(DATA / "05_shared.ttl")
-        with open_store(self.db) as store:
             rows = store.con.execute(
                 "SELECT s, list(DISTINCT x) FROM (SELECT s, unnest(loc) AS x FROM "
                 "triples) "
@@ -42,6 +36,10 @@ class ModelTest(DbTestCase):
                     "WHERE NOT starts_with(x, '_:') AND NOT starts_with(x, 'http')"
                 )
             )[0]
+        self.assertEqual(list(types), ["s", "loc", "p", "o", "lit", "lang", "dt"])
+        for column in ("s", "p", "o", "lit", "lang", "dt"):
+            self.assertEqual(types[column], "VARCHAR", column)
+        self.assertEqual(types["loc"], "VARCHAR[]")
         self.assertTrue(rows)
         for _s, bnodes in rows:
             # numbered _:1, _:2, ... without gaps inside each resource
@@ -50,7 +48,9 @@ class ModelTest(DbTestCase):
             )
         self.assertEqual(others, 0)  # every other entry of loc is a predicate uri
 
-    def test_the_top_level_rows_have_an_empty_loc_and_nested_ones_an_even_loc(self):
+    def test_the_top_level_rows_have_an_empty_loc_and_nested_ones_an_even_loc_and_a_long_list_stays_whole(
+        self,
+    ):
         self.load(
             self.write(
                 "a.ttl",
@@ -69,8 +69,6 @@ class ModelTest(DbTestCase):
                 (EX + "u", [EX + "q", "_:1", EX + "t", "_:2"]),
             ],
         )
-
-    def test_long_list_is_not_truncated(self):
         self.load(DATA / "06_long_list.ttl")
         items = [
             t
@@ -118,13 +116,8 @@ class SortTest(DbTestCase):
                 )[0],
                 0,
             )
-
-    def test_the_command(self):
-        self.load(
-            self.write("a.ttl", '<rec:thing:2> ex:p "1" .\n<rec:thing:1> ex:p "2" .\n')
-        )
         code, out, err = self.gracia("sort")
-        self.assertEqual((code, out.strip()), (0, "sorted 2 rows"), err)
+        self.assertEqual((code, out.strip()), (0, f"sorted {len(before)} rows"), err)
 
 
 class MergeDeleteTest(DbTestCase):
@@ -137,7 +130,7 @@ class MergeDeleteTest(DbTestCase):
                 )
             )[0]
 
-    def test_merge_replaces_whole_resources_only(self):
+    def test_merge_replaces_whole_resources_only_and_never_deletes_other_ones(self):
         self.load(
             self.write(
                 "a.ttl",
@@ -155,19 +148,20 @@ class MergeDeleteTest(DbTestCase):
         self.assertEqual(self.resource_rows(REC["b"]), 1)  # untouched
         self.assertEqual(self.resource_rows(REC["c"]), 1)  # new
 
-    def test_merge_is_idempotent(self):
-        path = self.write("a.ttl", '<rec:thing:1> ex:p "1" ; ex:q [ ex:r "x" ] .\n')
+    def test_loading_replaces_whole_resources_only_and_is_idempotent_and_has_no_add_only_mode(
+        self,
+    ):
+        path = self.write("c.ttl", '<rec:thing:9> ex:q [ ex:r "x" ] .\n')
         self.load(path)
         before = self.export_json()
         self.load(path)
         self.assertEqual(before.count('"value"'), self.export_json().count('"value"'))
-
-    def test_merge_never_deletes_other_resources(self):
-        self.load(
-            self.write("a.ttl", '<rec:thing:1> ex:p "1" .\n<rec:thing:2> ex:p "2" .\n')
-        )
-        self.load(self.write("b.ttl", '<rec:thing:1> ex:p "3" .\n'))
-        self.assertEqual(self.resource_rows(REC["b"]), 1)
+        self.assertEqual(self.resource_rows(EX + "unknown"), 0)
+        with self.assertRaises(
+            SystemExit
+        ) as raised:  # the flag is gone: it is not a choice any more
+            self.gracia("import", "--merge", str(path))
+        self.assertEqual(raised.exception.code, 2)
 
     def test_delete_resource(self):
         self.load(
@@ -183,17 +177,6 @@ class MergeDeleteTest(DbTestCase):
         self.assertEqual(self.resource_rows(REC["a"]), 0)
         self.assertEqual(self.resource_rows(REC["b"]), 1)
         self.assertNotIn("unknown", out)
-
-    def test_loading_a_resource_again_replaces_it_there_is_no_load_that_only_adds(self):
-        path = self.write("a.ttl", '<rec:thing:1> ex:q [ ex:r "x" ] .\n')
-        self.load(path)
-        self.load(path)
-        self.assertEqual(self.resource_rows(REC["a"]), 1)
-        with self.assertRaises(
-            SystemExit
-        ) as raised:  # the flag is gone: it is not a choice any more
-            self.gracia("import", "--merge", str(path))
-        self.assertEqual(raised.exception.code, 2)
 
     def test_failed_load_rolls_back(self):
         self.load(self.write("a.ttl", '<rec:thing:1> ex:p "1" .\n'))
@@ -218,7 +201,7 @@ class MergeDeleteTest(DbTestCase):
 
 
 class CliTest(DbTestCase):
-    def test_strict_refuses_warnings(self):
+    def test_strict_refuses_warnings_and_a_shared_bnode_is_only_one(self):
         code, _, err = self.gracia(
             "import", "--strict", str(DATA / "cycles" / "cycle.ttl")
         )
@@ -228,13 +211,11 @@ class CliTest(DbTestCase):
             self.assertEqual(
                 fetch_one(store.con.execute("SELECT count(*) FROM triples"))[0], 0
             )
-
-    def test_shared_bnode_is_only_a_warning(self):
         code, _, err = self.gracia("import", str(DATA / "05_shared.ttl"))
-        self.assertEqual(code, 0)
+        self.assertEqual(code, 0)  # a shared bnode is only a warning
         self.assertIn("parents", err)
 
-    def test_export_formats(self):
+    def test_export_formats_one_resource_and_an_unknown_format(self):
         self.load(DATA / "01_simple.ttl")
         for fmt, needle in [
             ("turtle", "rec:book:1"),
@@ -249,15 +230,15 @@ class CliTest(DbTestCase):
                 code, out, err = self.gracia("export", "-f", fmt)
                 self.assertEqual(code, 0, err)
                 self.assertIn(needle, out)
-
-    def test_export_one_resource(self):
-        self.load(DATA / "01_simple.ttl")
         code, out, _ = self.gracia("export", "-f", "ntriples", "-u", REC["alice"])
         self.assertEqual(code, 0)
         self.assertIn("Alice", out)
         self.assertNotIn("The Title", out)
         code, out, _ = self.gracia("export", "-f", "ntriples", "-u", EX + "nobody")
         self.assertEqual(out.strip(), "")
+        code, _, err = self.gracia("export", "-f", "nonsense")
+        self.assertEqual(code, 1)
+        self.assertIn("unknown format", err)
 
     def test_missing_database_is_not_created(self):
         for args in (["export"], ["delete", REC["a"]], ["prefixes"]):
@@ -266,12 +247,6 @@ class CliTest(DbTestCase):
                 self.assertEqual(code, 1)
                 self.assertIn("no such database", err)
                 self.assertFalse(self.db.exists())
-
-    def test_unknown_format_is_an_error(self):
-        self.load(DATA / "01_simple.ttl")
-        code, _, err = self.gracia("export", "-f", "nonsense")
-        self.assertEqual(code, 1)
-        self.assertIn("unknown format", err)
 
 
 class FailOnce:

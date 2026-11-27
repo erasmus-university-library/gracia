@@ -69,14 +69,31 @@ class WebCase(unittest.TestCase):
 
 
 class RepositoryEndpointsTest(WebCase):
-    def test_the_root_lists_the_repositories(self):
+    def test_the_root_lists_the_repositories_and_the_ones_created_later_are_served_at_once(
+        self,
+    ):
+        # the root lists the repositories
         web = self.client()
         self.assertEqual(web.get("/").json, {"repositories": []})
         self.application.create_repository("test_repo")
         self.application.create_repository("archive")
         self.assertEqual(web.get("/").json, {"repositories": ["archive", "test_repo"]})
 
-    def test_an_existing_repository_answers_200(self):
+        # repositories created later are served at once
+        web = self.client()
+        self.assertEqual(web.get("/later/", expect_errors=True).status_int, 404)
+        self.application.create_repository("later")
+        self.assertEqual(web.get("/later/").status_int, 200)
+
+        # an application can open its own database
+        app = make_app({"gracia.db": ":memory:"})
+        self.addCleanup(shutdown, app.registry)
+        self.assertEqual(TestApp(app).get("/").json, {"repositories": []})
+
+    def test_a_repository_answers_200_with_the_figures_of_its_own_data_with_or_without_the_slash(
+        self,
+    ):
+        # an existing repository answers 200
         self.application.create_repository("test_repo")
         response = self.client().get(
             "/test_repo/", headers={"Accept": "application/json"}
@@ -88,7 +105,7 @@ class RepositoryEndpointsTest(WebCase):
             body["rows"], 0
         )  # a new repository holds its resource and shape
 
-    def test_the_figures_follow_the_data_of_that_repository_only(self):
+        # the figures follow the data of that repository only
         self.application.create_repository("test_repo")
         self.application.create_repository("archive")
         with self.application.new_store("test_repo") as store:
@@ -103,19 +120,7 @@ class RepositoryEndpointsTest(WebCase):
             + 1,
         )
 
-    def test_an_unknown_repository_is_404_and_creates_nothing(self):
-        response = self.client().get("/nope/", expect_errors=True)
-        self.assertEqual(response.status_int, 404)
-        self.assertEqual(response.json, {"error": "not_found", "path": "/nope/"})
-        self.assertEqual(self.application.list_repositories(), [])
-
-    def test_ids_that_are_not_valid_repository_ids_are_404(self):
-        web = self.client()
-        for path in ("/Bad-ID/", "/1abc/", "/a.b/", "/x%20y/", "/docs/", "/api/"):
-            with self.subTest(path=path):
-                self.assertEqual(web.get(path, expect_errors=True).status_int, 404)
-
-    def test_the_trailing_slash_is_optional(self):
+        # the trailing slash is optional
         self.application.create_repository("test_repo")
         web = self.client()
         self.assertEqual(
@@ -123,22 +128,26 @@ class RepositoryEndpointsTest(WebCase):
             web.get("/test_repo/", headers={"Accept": "application/json"}).json,
         )
 
-    def test_repositories_created_later_are_served_at_once(self):
-        web = self.client()
-        self.assertEqual(web.get("/later/", expect_errors=True).status_int, 404)
-        self.application.create_repository("later")
-        self.assertEqual(web.get("/later/").status_int, 200)
+    def test_an_unknown_or_invalid_repository_is_404_and_creates_nothing_and_only_get_is_served(
+        self,
+    ):
+        # an unknown repository is 404 and creates nothing
+        response = self.client().get("/nope/", expect_errors=True)
+        self.assertEqual(response.status_int, 404)
+        self.assertEqual(response.json, {"error": "not_found", "path": "/nope/"})
+        self.assertEqual(self.application.list_repositories(), [])
 
-    def test_only_get_is_served(self):
+        # ids that are not valid repository ids are 404
+        web = self.client()
+        for path in ("/Bad-ID/", "/1abc/", "/a.b/", "/x%20y/", "/docs/", "/api/"):
+            with self.subTest(path=path):
+                self.assertEqual(web.get(path, expect_errors=True).status_int, 404)
+
+        # only get is served
         self.application.create_repository("test_repo")
         self.assertEqual(
             self.client().post("/test_repo/", expect_errors=True).status_int, 404
         )
-
-    def test_an_application_can_open_its_own_database(self):
-        app = make_app({"gracia.db": ":memory:"})
-        self.addCleanup(shutdown, app.registry)
-        self.assertEqual(TestApp(app).get("/").json, {"repositories": []})
 
 
 class RepositoryApiTest(WebCase):
@@ -148,7 +157,10 @@ class RepositoryApiTest(WebCase):
         self.application.create_repository("archive")
         self.settings["gracia.security_policy"] = HeaderPolicy()  # ty: ignore[invalid-assignment]
 
-    def test_every_repository_has_an_api_document(self):
+    def test_every_repository_has_an_api_document_that_is_json_unless_a_browser_asks_for_html_and_is_never_public(
+        self,
+    ):
+        # every repository has an api document
         web = self.client()
         for repo in ("test_repo", "archive"):
             with self.subTest(repo=repo):
@@ -167,7 +179,7 @@ class RepositoryApiTest(WebCase):
                     ["/", "/api", "/{type}", "/{type}/{number}"],
                 )
 
-    def test_a_browser_gets_the_document_as_a_page_a_program_gets_json(self):
+        # a browser gets the document as a page a program gets json
         web = self.client()
         page = web.get(
             "/test_repo/api",
@@ -185,19 +197,19 @@ class RepositoryApiTest(WebCase):
         asked = web.get("/test_repo/api", headers={"Accept": "application/json"})
         self.assertIn("application/json", asked.content_type)
 
-    def test_an_unknown_repository_has_no_api(self):
+        # an unknown repository has no api
         self.assertEqual(
             self.client().get("/nope/api", expect_errors=True).status_int, 404
         )
 
-    def test_the_document_is_never_shared_through_a_public_cache(self):
+        # the document is never shared through a public cache
         response = self.client().get(
             "/test_repo/api", headers={"Accept": "application/json"}
         )
         self.assertEqual(response.headers["Cache-Control"], "private")
         self.assertIn("Authorization", response.headers["Vary"])
 
-    def test_the_api_is_json_unless_a_browser_asks_for_html(self):
+        # the api is json unless a browser asks for html
         web = self.client()
         for headers in ({}, {"Accept": "*/*"}, {"Accept": "application/json"}):
             got = web.get("/test_repo/api", headers=headers)
@@ -241,8 +253,8 @@ class RepositoryApiTest(WebCase):
             web.get("/test_repo/stats", headers={"X-User": "admin"}).status_int, 200
         )
 
-    def test_a_view_without_a_permission_still_needs_one(self):
-
+    def test_a_view_without_a_permission_still_needs_one_and_forbidden_is_json(self):
+        # a view without a permission still needs one
         class NobodyViews(HeaderPolicy):
             def permits(self, request, context, permission):
                 return permission != "view" and super().permits(
@@ -261,7 +273,7 @@ class RepositoryApiTest(WebCase):
             403,
         )
 
-    def test_forbidden_is_json(self):
+        # forbidden is json
         config = make_config(self.settings)
 
         config.add_view(
@@ -277,8 +289,10 @@ class RepositoryApiTest(WebCase):
 
 
 class ExtensionTest(WebCase):
-    def test_an_extension_package_is_one_more_include(self):
-
+    def test_an_extension_package_is_one_more_include_and_the_including_config_overrides_it(
+        self,
+    ):
+        # an extension package is one more include
         def includeme(config):  # what `gracia_statistics.includeme` would be
             config.add_view(
                 lambda request: {"n": 3},
@@ -300,7 +314,7 @@ class ExtensionTest(WebCase):
             ],
         )
 
-    def test_an_including_config_overrides_what_an_included_package_registered(self):
+        # an including config overrides what an included package registered
         self.application.create_repository("test_repo")
         config = make_config(self.settings)
         config.add_api_operation("/api", "Our own description of the document")

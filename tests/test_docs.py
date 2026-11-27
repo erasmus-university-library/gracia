@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 import pyoxigraph as ox
-from harness import BUNDLED, etag_of, graph_of, open_application
+from harness import FOAF_PERSON, etag_of, graph_of, open_application
 from pyramid.registry import Registry
 from test_web import WebCase
 
@@ -63,7 +63,7 @@ class DocsCase(WebCase):
         self.application.create_repository(
             "test_repo",
             admin=ADMIN,
-            content_types=[BUNDLED["person"]],
+            content_types=[FOAF_PERSON],
         )
         self.cache = self.application.cache
         self.put(ADA, THING, USER)
@@ -93,7 +93,9 @@ class DocsCase(WebCase):
 
 
 class DocTest(DocsCase):
-    def test_every_doc_has_the_fields_of_the_base(self):
+    def test_a_type_with_no_template_has_the_doc_of_the_base_and_the_text_is_literals_only(
+        self,
+    ):
         doc = self.doc("rec:thing:1")
         self.assertEqual(
             doc,
@@ -108,6 +110,18 @@ class DocTest(DocsCase):
                 "published": False,
             },  # no modified: it has none, and a field with no value is left out
         )
+        self.put(
+            '<rec:thing:2> a g:Record ; g:label "x" ; g:resource [ <http://ex/p> '
+            '"words" ; '
+            "<http://ex/q> <ark:/1/thing/9> ] .\n"
+        )
+        text = self.doc("rec:thing:2")["text"]
+        self.assertEqual(
+            text, "words"
+        )  # a link points at a record: not words to search for
+        user = self.doc("rec:user:7")  # and a credential is never in it
+        self.assertNotIn("SECRETHASH", json.dumps(user))
+        self.assertIn("Ed", user["text"])
 
     def test_a_type_adds_its_fields_to_the_ones_of_the_base(self):
         doc = self.doc("rec:person:1")
@@ -120,6 +134,11 @@ class DocTest(DocsCase):
         self.assertEqual(
             doc["text"], "Ada Ada Lovelace Lovelace"
         )  # sorted, distinct values
+        repository = self.library()  # the type record names the doc template
+        self.assertEqual(
+            repository.types["person"].doc_template, "person-unittest-01.xsl"
+        )
+        self.assertIn("given_name", self.person_doc(repository))
 
     def test_the_rdf_types_are_in_the_doc_whichever_way_the_xml_says_them(self):
         """RDF/XML says one type as the name of an element and the others as properties,
@@ -159,20 +178,6 @@ class DocTest(DocsCase):
                 )
                 self.assertEqual(found["rec:person:1"].get("resource_type"), expected)
 
-    def test_a_record_of_a_type_with_no_template_has_the_doc_of_the_base_only(self):
-        self.assertNotIn("given_name", self.doc("rec:thing:1"))
-
-    def test_the_text_is_the_literals_of_the_resource_and_not_its_links(self):
-        self.put(
-            '<rec:thing:2> a g:Record ; g:label "x" ; g:resource [ <http://ex/p> '
-            '"words" ; '
-            "<http://ex/q> <ark:/1/thing/9> ] .\n"
-        )
-        text = self.doc("rec:thing:2")["text"]
-        self.assertEqual(
-            text, "words"
-        )  # a link points at a record: not words to search for
-
     def test_a_repository_with_no_types_has_the_base_docs(self):
         with self.application.new_store("test_repo") as store:
             store.con.execute("DELETE FROM triples WHERE s = 'rec:repository:1'")
@@ -180,12 +185,9 @@ class DocTest(DocsCase):
         self.application.cache.docs.drop("test_repo")
         self.assertEqual(self.doc("rec:thing:1")["slug"], "gear")
 
-    def test_the_text_never_has_a_credential(self):
-        doc = self.doc("rec:user:7")
-        self.assertNotIn("SECRETHASH", json.dumps(doc))
-        self.assertIn("Ed", doc["text"])
-
-    def test_one_run_makes_the_docs_of_records_of_many_types(self):
+    def test_one_run_makes_the_docs_of_many_types_and_a_record_not_in_the_input_is_an_error(
+        self,
+    ):
         ids = {u: self.rid(u) for u in ("rec:person:1", "rec:thing:1")}
         with self.application.new_store("test_repo") as store:
             xml = store.get_multi(
@@ -195,13 +197,8 @@ class DocTest(DocsCase):
         self.assertEqual(set(made), set(ids))
         self.assertIn("given_name", made["rec:person:1"])
         self.assertNotIn("given_name", made["rec:thing:1"])
-
-    def test_a_record_that_is_not_in_the_input_is_an_error_and_the_others_are_made(
-        self,
-    ):
-        xml = graph_of(self.application, "test_repo", self.rid("rec:thing:1"))
         made = self.cache.docs.bulk_update(
-            self.library(), {"rec:thing:1": 1, "rec:thing:99": 2}, xml
+            self.library(), {"rec:thing:1": ids["rec:thing:1"], "rec:thing:99": 2}, xml
         )
         self.assertIn("error", made["rec:thing:99"])
         self.assertNotIn("error", made["rec:thing:1"])
@@ -223,13 +220,6 @@ class DocTest(DocsCase):
             self.assertNotIn("given_name", doc)  # the doc of the base
             self.assertEqual(doc["type"], "person")
 
-    def test_the_type_record_names_the_doc_template(self):
-        repository = self.library()
-        self.assertEqual(
-            repository.types["person"].doc_template, "person-schemaorg-01.xsl"
-        )
-        self.assertIn("given_name", self.person_doc(repository))
-
 
 class DocCacheTest(DocsCase):
     def make_counter(self):
@@ -238,14 +228,11 @@ class DocCacheTest(DocsCase):
         docs.bulk_update = lambda *a, **k: (calls.append(1), real(*a, **k))[1]
         return calls
 
-    def test_a_doc_is_made_once_and_kept(self):
+    def test_a_doc_is_made_once_and_kept_until_the_record_changes(self):
         calls = self.make_counter()
         first = self.doc("rec:person:1")
         self.assertEqual(self.doc("rec:person:1"), first)
         self.assertEqual(len(calls), 1)
-
-    def test_a_changed_record_has_a_new_doc(self):
-        self.doc("rec:person:1")
         changed = ADA.replace(
             '"Ada Lovelace" ; foaf:givenName "Ada"',
             '"Ada King" ; foaf:givenName "Augusta"',
@@ -268,6 +255,8 @@ class DocCacheTest(DocsCase):
         self.assertIsNone(store.get("test_repo", rid, etag, "0123456789abcdef"))
         self.assertIsNone(store.get("test_repo", rid, "f" * 16, fingerprint))
         self.assertEqual(len(calls), 1)
+        self.cache.forget("test_repo", [rid])  # a deleted record loses its doc
+        self.assertIsNone(store.get("test_repo", rid, etag, fingerprint))
 
     def test_a_doc_that_cannot_be_made_is_not_kept(self):
         with self.application["test_repo"] as repository:
@@ -283,15 +272,6 @@ class DocCacheTest(DocsCase):
         with app["test_repo"] as repository:
             doc = repository.store.get_doc("rec:thing:1")
         self.assertEqual(doc["slug"], "gear")
-
-    def test_a_deleted_record_loses_its_doc(self):
-        self.doc("rec:thing:1")
-        rid = self.rid("rec:thing:1")
-        self.cache.forget("test_repo", [rid])
-        etag = etag_of(self.application, "test_repo", rid)
-        self.assertIsNone(
-            self.cache.docs.get("test_repo", rid, etag, self.compiled().fingerprint)
-        )
 
     def test_the_compiled_stylesheet_is_kept_until_the_repository_is_written(self):
         first = self.compiled()
@@ -312,7 +292,9 @@ class WorkerTest(DocsCase):
         process_pending(self.application, registry)
         return events
 
-    def test_the_docs_of_a_batch_are_in_the_event_and_in_the_cache(self):
+    def test_the_docs_of_a_batch_are_in_the_event_and_the_cache_and_the_view_serves_them(
+        self,
+    ):
         events = self.run_worker()
         docs_ = {}
         for event in events:
@@ -324,9 +306,6 @@ class WorkerTest(DocsCase):
         etag = etag_of(self.application, "test_repo", rid)
         kept = self.cache.docs.get("test_repo", rid, etag, self.compiled().fingerprint)
         self.assertEqual(json.loads(kept), docs_["rec:person:1"])  # ty: ignore[invalid-argument-type]
-
-    def test_the_view_then_serves_what_the_worker_made(self):
-        self.run_worker()
         calls = []
         real = self.cache.docs.bulk_update
         self.cache.docs.bulk_update = lambda *a, **k: (calls.append(1), real(*a, **k))[
@@ -352,29 +331,16 @@ class WorkerTest(DocsCase):
 
 
 class DocViewTest(DocsCase):
-    def test_the_doc_of_a_record_as_json_for_who_may_manage(self):
+    def test_the_doc_of_a_record_as_json_for_who_may_manage_and_nobody_else(self):
         got = self.client().get("/test_repo/person/1/doc", headers=basic(*ADMIN))
         self.assertEqual(got.status_int, 200)
         self.assertEqual(got.content_type, "application/json")
         self.assertEqual(got.json["record"], "rec:person:1")
         self.assertEqual(got.json["family_name"], "Lovelace")
-
-    def test_nobody_else_sees_it(self):
-        web = self.client()
         self.assertIn(
-            web.get("/test_repo/person/1/doc", status="*").status_int, (401, 403)
+            self.client().get("/test_repo/person/1/doc", status="*").status_int,
+            (401, 403),
         )
-
-
-class DocTemplateFieldTest(DocsCase):
-    def test_the_edit_form_of_a_type_has_a_select_of_the_files_in_doc(self):
-        page = (
-            self.client()
-            .get("/test_repo/person/manage", headers={**basic(*ADMIN), **HTML})
-            .text
-        )
-        self.assertIn('name="docTemplate"', page)
-        self.assertIn("person-schemaorg-01.xsl", page)
 
 
 class SwitchingDocTemplateTest(DocsCase):
@@ -421,26 +387,39 @@ class SwitchingDocTemplateTest(DocsCase):
                 )
             store.put_multi(ox.Dataset(quads))
 
-    def test_the_form_with_no_template_gives_the_doc_of_the_base(self):
+    def test_the_form_with_no_template_gives_the_doc_of_the_base_and_can_be_saved_again(
+        self,
+    ):
+        page = self.client().get(
+            "/test_repo/person/manage", headers={**basic(*ADMIN), **HTML}
+        )
+        self.assertIn('name="docTemplate"', page.text)  # a select of the files in doc
+        self.assertIn("person-unittest-01.xsl", page.text)
         self.assertIn("given_name", self.doc("rec:person:1"))
         self.assertEqual(self.post("").status_int, 302)
         self.assertIsNone(self.template())
         self.assertNotIn(
             "given_name", self.doc("rec:person:1")
         )  # the stylesheets are compiled again
+        saved = self.post("person-unittest-01.xsl")  # the page works after a save
+        self.assertEqual(saved.status_int, 302)
+        self.assertTrue(
+            saved.headers["Location"].endswith("/test_repo/person/manage?tab=settings")
+        )
+        self.assertEqual(self.template(), "person-unittest-01.xsl")
 
     def test_a_template_written_to_the_type_record_is_used_and_taken_away_again(self):
         self.write(None)
         self.assertNotIn("given_name", self.doc("rec:person:1"))
-        self.write("person-schemaorg-01.xsl")
-        self.assertEqual(self.template(), "person-schemaorg-01.xsl")
+        self.write("person-unittest-01.xsl")
+        self.assertEqual(self.template(), "person-unittest-01.xsl")
         self.assertIn("given_name", self.doc("rec:person:1"))
 
     def test_a_name_that_is_not_a_file_is_refused(self):
         self.assertEqual(
             self.post("person-evil-09.xsl", force=True).status_int, 200
         )  # the form again, with the error
-        self.assertEqual(self.template(), "person-schemaorg-01.xsl")
+        self.assertEqual(self.template(), "person-unittest-01.xsl")
 
 
 class CompiledTest(unittest.TestCase):
@@ -466,11 +445,17 @@ class CompiledTest(unittest.TestCase):
             other = xslt.Compiled(top)
             self.addCleanup(other.close)
             self.assertEqual(other.transform("<a/>"), "two")
+        a = xslt.Compiled(self.SHEET.format("<xsl:template match='/'/>"))
+        b = xslt.Compiled(self.SHEET.format("<xsl:template match='/'>x</xsl:template>"))
+        self.addCleanup(a.close)
+        self.addCleanup(b.close)
+        self.assertNotEqual(a.fingerprint, b.fingerprint)  # it follows the stylesheet
 
-    def test_runs_in_many_threads_take_turns(self):
+    def test_runs_in_many_threads_take_turns_and_have_their_own_parameters(self):
         compiled = xslt.Compiled(
             self.SHEET.format(
-                '<xsl:output method="text"/><xsl:param name="p"/><xsl:template '
+                '<xsl:output method="text"/><xsl:param name="p" '
+                "select=\"'none'\"/><xsl:template "
                 'match="/"><xsl:value-of select="$p"/></xsl:template>'
             )
         )
@@ -486,18 +471,7 @@ class CompiledTest(unittest.TestCase):
         [t.join() for t in threads]
         self.assertEqual(len(got), 300)
         self.assertTrue(all(str(n) == out for n, out in got))
-
-    def test_the_parameters_of_a_run_are_not_the_ones_of_the_run_before(self):
-        compiled = xslt.Compiled(
-            self.SHEET.format(
-                '<xsl:output method="text"/><xsl:param name="p" '
-                "select=\"'none'\"/><xsl:template "
-                'match="/"><xsl:value-of select="$p"/></xsl:template>'
-            )
-        )
-        self.addCleanup(compiled.close)
-        self.assertEqual(compiled.transform("<a/>", {"p": "one"}), "one")
-        self.assertEqual(compiled.transform("<a/>"), "none")  # not "one"
+        self.assertEqual(compiled.transform("<a/>"), "none")  # not the run before
 
     def test_it_is_only_ever_touched_by_one_thread_whoever_asks(self):
         compiled = xslt.Compiled(
@@ -527,7 +501,7 @@ class CompiledTest(unittest.TestCase):
         )
         self.assertEqual(xslt.owner().thread.name, "saxon")
 
-    def test_an_error_on_the_owner_thread_reaches_the_caller(self):
+    def test_an_error_reaches_the_caller_and_a_closed_one_says_so(self):
         with self.assertRaises(xslt.XsltError):
             xslt.Compiled("<xsl:stylesheet")
         compiled = xslt.Compiled(
@@ -539,6 +513,10 @@ class CompiledTest(unittest.TestCase):
         self.addCleanup(compiled.close)
         with self.assertRaises(xslt.XsltError):
             compiled.transform("<a/>")
+        closed = xslt.Compiled(self.SHEET.format("<xsl:template match='/'/>"))
+        closed.close()
+        with self.assertRaises(xslt.XsltError):
+            closed.transform("<a/>")
 
     def test_a_fatal_signal_says_what_every_thread_was_doing(self):
         import os
@@ -569,41 +547,6 @@ class CompiledTest(unittest.TestCase):
         self.assertIn("Fatal Python error: Segmentation fault", done.stderr)
         self.assertIn("in tantivy_say", done.stderr)  # what the other thread was doing
 
-    def test_a_closed_one_says_so(self):
-        compiled = xslt.Compiled(self.SHEET.format("<xsl:template match='/'/>"))
-        compiled.close()
-        with self.assertRaises(xslt.XsltError):
-            compiled.transform("<a/>")
-
-    def test_the_fingerprint_follows_the_stylesheet_and_its_imports(self):
-        a = xslt.Compiled(self.SHEET.format("<xsl:template match='/'/>"))
-        b = xslt.Compiled(self.SHEET.format("<xsl:template match='/'>x</xsl:template>"))
-        self.addCleanup(a.close)
-        self.addCleanup(b.close)
-        self.assertNotEqual(a.fingerprint, b.fingerprint)
-
-
-class ManagePageAfterSaveTest(DocsCase):
-    def test_the_page_and_a_second_save_work_after_a_save(self):
-        web = self.client()
-        headers = {**basic(*ADMIN), **HTML}
-        for template in ("", "person-schemaorg-01.xsl"):
-            page = web.get("/test_repo/person/manage", headers=headers)
-            self.assertEqual(page.status_int, 200)
-            form = page.forms[
-                "form-type-settings"
-            ]  # the page has its form: it is not the page of the record
-            form["docTemplate"] = template
-            saved = form.submit(
-                "save", headers={**basic(*ADMIN), "Origin": "http://localhost:80"}
-            )
-            self.assertEqual(saved.status_int, 302)
-            self.assertTrue(
-                saved.headers["Location"].endswith(
-                    "/test_repo/person/manage?tab=settings"
-                )
-            )
-
 
 class SchemaModeTest(DocsCase):
     def offered(self) -> dict[str, dict]:
@@ -616,8 +559,8 @@ class SchemaModeTest(DocsCase):
 
     def test_the_base_fields_are_for_every_type_and_a_type_adds_its_own(self):
         found = self.offered()
-        everyone = {"repository", "type", "user", "group", "person"}
-        for name in (
+        everyone = set(self.library().types)
+        base = {
             "record_id",
             "record",
             "type",
@@ -628,28 +571,12 @@ class SchemaModeTest(DocsCase):
             "resource_type",
             "published",
             "modified",
-        ):
+        }
+        for name in base:
             self.assertEqual(set(found[name]["types"]), everyone, name)
         self.assertEqual(found["given_name"]["types"], ["person"])
         self.assertEqual(found["family_name"]["types"], ["person"])
-        self.assertEqual(
-            {f for f in found} - {"given_name", "family_name"},
-            {
-                "record_id",
-                "record",
-                "type",
-                "slug",
-                "label",
-                "text",
-                "resource_uri",
-                "resource_type",
-                "published",
-                "modified",
-            },
-        )
-
-    def test_a_field_says_what_the_index_needs_to_know(self):
-        found = self.offered()
+        self.assertEqual(set(found) - {"given_name", "family_name"}, base)
         self.assertEqual(
             {k: v for k, v in found["record_id"].items() if k != "types"},
             {
@@ -660,7 +587,7 @@ class SchemaModeTest(DocsCase):
                 "fast": True,
                 "tokenizer": "default",
             },
-        )
+        )  # what the index needs to know
         self.assertEqual(
             (
                 found["slug"]["tokenizer"],
@@ -671,12 +598,12 @@ class SchemaModeTest(DocsCase):
         )
         self.assertNotIn("conflict", found["label"])
 
-    def test_a_type_without_a_template_has_the_base_fields_only(self):
+    def test_a_type_without_a_template_has_the_base_fields_only_and_docs_stay_in_them(
+        self,
+    ):
         found = self.cache.docs.schema(self.library(), ["thing"])
         self.assertNotIn("given_name", {f["name"] for f in found})
         self.assertEqual({tuple(f["types"]) for f in found}, {("thing",)})
-
-    def test_what_the_docs_have_is_what_the_schema_says(self):
         declared = set(self.offered())
         for record in ("rec:person:1", "rec:thing:1", "rec:user:7"):
             self.assertLessEqual(set(self.doc(record)), declared, record)

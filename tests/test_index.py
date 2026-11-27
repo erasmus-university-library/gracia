@@ -68,7 +68,7 @@ class IndexCase(EditCase):
 
 
 class DependenciesTest(IndexCase):
-    def test_the_records_a_page_is_made_of_through_resource_uris_and_record_uris_and_a_cycle(  # noqa: E501
+    def test_the_records_a_page_is_made_of_through_both_uris_stops_at_the_depth_and_leaves_out_the_deleted(
         self,
     ):
         with self.store() as store:
@@ -83,7 +83,6 @@ class DependenciesTest(IndexCase):
         self.assertNotIn("rec:person:4", found)
         self.assertTrue(all(isinstance(when, datetime) for when in found.values()))
 
-    def test_it_stops_at_the_depth_it_is_given(self):
         with self.store() as store:
             self.assertEqual(
                 {"rec:person:1", "rec:person:2"}
@@ -93,7 +92,6 @@ class DependenciesTest(IndexCase):
             self.assertNotIn("rec:person:3", store.dependencies("rec:person:1", 1))
             self.assertIn("rec:person:3", store.dependencies("rec:person:1", 2))
 
-    def test_a_deleted_record_is_not_one_and_a_record_that_is_not_there_has_none(self):
         with self.store() as store:
             store.delete(["rec:person:3"])
             self.assertNotIn("rec:person:3", store.dependencies("rec:person:1"))
@@ -108,7 +106,9 @@ class IndexViewTest(IndexCase):
             expect_errors=True,
         )
 
-    def test_it_is_rdfxml_of_the_record_and_the_records_it_is_made_of(self):
+    def test_it_is_nested_rdfxml_of_the_record_and_the_records_it_is_made_of_the_record_first(
+        self,
+    ):
         got = self.index()
         self.assertEqual(got.status_int, 200)
         self.assertEqual(got.content_type, "application/rdf+xml")
@@ -119,7 +119,6 @@ class IndexViewTest(IndexCase):
         }
         self.assertEqual(names, {"Ada", "Bob", "Cy"})  # not Dan: nothing leads to him
 
-    def test_it_is_nested_and_the_record_the_page_is_about_comes_first(self):
         for number, name in ((2, "Bob"), (3, "Cy"), (1, "Ada")):
             got = self.index(f"/test_repo/person/{number}")
             self.assertEqual(got.status_int, 200)
@@ -158,14 +157,9 @@ class IndexViewTest(IndexCase):
             "https://gracia.pub/ns/UserShape", users
         )  # and a user's page has its own
 
-    def test_the_etag_follows_the_schema_files_of_the_types_on_the_page(self):
-        first = self.index("/test_repo/person/2").headers["ETag"]
-        schema = Path(self.person_assets) / "shacl" / "person-unittest-01.ttl"
-        schema.write_text(schema.read_text() + "\n# a change\n")
-        self.assertNotEqual(self.index("/test_repo/person/2").headers["ETag"], first)
-        self.assertEqual(self.index("/test_repo/person/2").status_int, 200)
-
-    def test_the_etag_changes_with_what_the_page_is_made_of_and_with_nothing_else(self):
+    def test_the_etag_follows_what_the_page_is_made_of_and_nothing_else_and_the_browser_gets_not_modified(
+        self,
+    ):
         first = self.index().headers["ETag"]
         self.assertRegex(first, r'^"[0-9a-f]{16}"$')
         self.assertEqual(self.index().headers["ETag"], first)  # nothing changed
@@ -174,23 +168,29 @@ class IndexViewTest(IndexCase):
         self.rename(3, "Cyrus")  # two steps away from it
         self.assertNotEqual(self.index().headers["ETag"], first)
 
-    def test_what_the_browser_has_is_answered_with_not_modified_and_nothing_built(self):
         etag = self.index().headers["ETag"]
         got = self.index(**{"If-None-Match": etag})
         self.assertEqual(got.status_int, 304)
         self.assertEqual(got.body, b"")
         self.assertEqual(got.headers["ETag"], etag)
-        self.rename(3, "Cyrus")
+        self.rename(3, "Cyrus II")
         self.assertEqual(
             self.index(**{"If-None-Match": etag}).status_int, 200
         )  # it changed
 
-    def test_json_is_still_there_for_whoever_asks_for_it(self):
+        first = self.index("/test_repo/person/2").headers["ETag"]
+        schema = Path(self.person_assets) / "shacl" / "person-unittest-01.ttl"
+        schema.write_text(schema.read_text() + "\n# a change\n")
+        self.assertNotEqual(self.index("/test_repo/person/2").headers["ETag"], first)
+        self.assertEqual(self.index("/test_repo/person/2").status_int, 200)
+
+    def test_json_is_still_there_the_credentials_of_a_user_are_not_in_it_and_a_missing_record_is_not_found(
+        self,
+    ):
         got = self.index(**JSON)
         self.assertEqual(got.content_type, "application/json")
         self.assertIn("resource_uri", got.json)
 
-    def test_the_credentials_of_a_user_are_not_in_it(self):
         got = self.index("/test_repo/user/1")
         self.assertEqual(got.status_int, 200)
         self.assertNotIn(
@@ -198,5 +198,4 @@ class IndexViewTest(IndexCase):
         )  # (the shape of a user names the property)
         self.assertIsNone(re.search(r"scrypt|\$argon|pbkdf", got.text))
 
-    def test_a_record_that_is_not_there_is_not_found(self):
         self.assertEqual(self.index("/test_repo/person/99").status_int, 404)

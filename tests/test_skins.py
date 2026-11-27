@@ -127,7 +127,9 @@ class SkinTest(PagesCase):
         path.write_text(text)
         return str(path)
 
-    def test_the_type_and_the_record_are_in_the_layout_of_the_site(self):
+    def test_the_type_and_the_record_are_in_the_layout_of_the_site_and_a_page_in_a_frame_has_no_header_and_no_footer(  # noqa: E501
+        self,
+    ):
         for path, title in (
             ("/test_repo/person/", "Person"),
             ("/test_repo/person/7", "Bob"),
@@ -146,6 +148,10 @@ class SkinTest(PagesCase):
             self.assertRegex(
                 text, r"(?s)<head>.*\.css.*</head>"
             )  # the styles are in it
+        text = self.get("/test_repo/person/7?embed=1", self.admin).text
+        self.assertNotIn("<header", text)  # a page in a frame has no header or footer
+        self.assertNotIn("<footer", text)
+        self.assertIn('<main class="container-fluid px-4 py-4">', text)
 
     def test_the_pages_are_html5_and_are_indented(self):
         self.add("".join(person(n) for n in range(10, 40)))
@@ -174,7 +180,9 @@ class SkinTest(PagesCase):
             self.assertRegex(text, r'<html lang="en">')
             self.assertGreater(len(text.splitlines()), 15, path)  # not one line
 
-    def test_the_manage_page_has_its_panes_as_fragments_and_a_debug_view(self):
+    def test_the_manage_page_has_its_panes_as_fragments_and_the_debug_views_show_the_input_and_the_output(  # noqa: E501
+        self,
+    ):
         text = self.get("/test_repo/manage?debug=input", self.admin).text
         document = ET.fromstring(text)
         names = [f.get("name") for f in document.findall("fragments/fragment")]
@@ -183,19 +191,11 @@ class SkinTest(PagesCase):
         page = self.get("/test_repo/manage", self.admin).text
         self.assertIn('id="tab-types"', page)
         self.assertIn('id="types-table"', page)
-
-    def test_the_output_of_a_page_shows_the_html_as_it_is_in_the_response(self):
         got = self.get("/test_repo/person/7?debug=output", self.admin)
         self.assertEqual(got.headers["Content-Type"], "text/plain; charset=UTF-8")
         self.assertIn("<response>", got.text)  # as the writer wrote it
         self.assertIn('<html lang="en">', got.text)
         self.assertNotIn("&lt;", got.text)
-
-    def test_a_page_in_a_frame_has_no_header_and_no_footer(self):
-        text = self.get("/test_repo/person/7?embed=1", self.admin).text
-        self.assertNotIn("<header", text)
-        self.assertNotIn("<footer", text)
-        self.assertIn('<main class="container-fluid px-4 py-4">', text)
 
     def test_what_a_repository_has_of_its_own_is_what_its_pages_are_made_of(self):
         repository = self.repository()
@@ -251,7 +251,9 @@ class SkinTest(PagesCase):
             "- http://r/person/1 http://x.org/|true|true",  # - : javascript: is no link
         )
 
-    def test_the_pages_say_what_they_are_made_of_to_who_manages_them(self):
+    def test_the_pages_say_what_they_are_made_of_to_who_manages_them_and_the_record_is_given_no_credentials(  # noqa: E501
+        self,
+    ):
         text = self.get("/test_repo/person/?debug=1", self.admin).text
         self.assertIn("skin/type.xslt", text)  # the page
         self.assertIn("skin/layout.xslt", text)  # and what it is put in
@@ -275,10 +277,7 @@ class SkinTest(PagesCase):
         site = document.find("site")
         assert site is not None
         self.assertEqual(site.get("home"), "http://localhost/test_repo/")
-
-    def test_the_record_is_given_the_properties_of_its_shape_and_never_the_credentials(
-        self,
-    ):
+        # the record is given the properties of its shape and never the credentials
         document = ET.fromstring(
             self.get("/test_repo/user/1?debug=input", self.admin).text
         )

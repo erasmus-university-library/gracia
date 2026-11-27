@@ -18,14 +18,15 @@ class PrefixCase(DbTestCase):
 
 
 class PrefixSettingsTest(PrefixCase):
-    def test_a_new_repository_has_the_default_prefixes(self):
+    def test_a_new_repository_has_the_default_prefixes_and_they_can_be_set_and_removed(
+        self,
+    ):
         self.assertEqual(
             self.prefixes(), {p["prefix"]: p["namespace"] for p in DEFAULT_PREFIXES}
         )
         for name in ("rdf", "rdfs", "dc", "foaf", "gracia"):
             self.assertIn(name, self.prefixes())
 
-    def test_list_set_remove(self):
         self.run_in("prefixes", "my=http://my.org/")
         self.assertEqual(self.prefixes()["my"], "http://my.org/")
         code, _, _ = self.run_in("prefixes", "--remove", "my")
@@ -38,7 +39,6 @@ class PrefixSettingsTest(PrefixCase):
         self.assertEqual(code, 1)
         self.assertIn("invalid prefix", err)
 
-    def test_a_removed_default_stays_removed(self):
         self.run_in("prefixes", "--remove", "skos")
         self.assertNotIn("skos", self.prefixes())
 
@@ -51,18 +51,18 @@ class PrefixSettingsTest(PrefixCase):
 
 
 class ImportTest(PrefixCase):
-    def test_import_adds_the_declared_prefixes_once(self):
+    def test_import_adds_the_declared_prefixes_once_never_rebinds_one_and_does_not_store_the_default(
+        self,
+    ):
         self.run_in("import", str(DATA / "01_simple.ttl"))
         self.assertEqual(self.prefixes()["ex"], "http://example.org/")
 
-    def test_import_never_rebinds_a_prefix(self):
         self.run_in("prefixes", "ex=http://elsewhere.org/")
         code, _, err = self.run_in("import", str(DATA / "01_simple.ttl"))
         self.assertEqual(code, 0, err)
         self.assertIn("prefix 'ex'", err)
         self.assertEqual(self.prefixes()["ex"], "http://elsewhere.org/")
 
-    def test_default_prefix_is_not_stored(self):
         path = self.write(
             "d.ttl", '@prefix : <http://default.org/> .\n<rec:thing:1> :p "x" .\n'
         )
@@ -71,14 +71,13 @@ class ImportTest(PrefixCase):
 
 
 class OutputTest(PrefixCase):
-    def test_turtle_declares_only_used_prefixes(self):
+    def test_turtle_declares_only_used_prefixes_and_the_cli_option_overrides(self):
         self.run_in("import", str(DATA / "01_simple.ttl"))
         _, out, _ = self.run_in("export", "-f", "turtle")
         self.assertIn("@prefix ex:", out)
         self.assertNotIn("@prefix foaf:", out)
         self.assertIn("rec:book:1", out)
 
-    def test_cli_prefix_option_overrides(self):
         self.run_in("import", str(DATA / "01_simple.ttl"))
         _, out, _ = self.run_in(
             "export", "-f", "turtle", "-p", "ex=http://nowhere.org/"

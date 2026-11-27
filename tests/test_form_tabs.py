@@ -1,3 +1,5 @@
+"""The tabs of a form: the mapping of the resource, and the loose fields of the record."""
+
 import re
 import unittest
 
@@ -44,11 +46,22 @@ class TabsTest(unittest.TestCase):
         self.assertNotIn('name="subject"', pane(html, 0))
         self.assertIn('name="subject"', pane(html, 1))
         self.assertIn("tab-pane active", pane(html, 0))
+        data = self.form().validate(
+            [
+                ("__start__", "resource:mapping"),
+                ("name", "Ada"),
+                ("__end__", "resource:mapping"),
+                ("subject", "http://x"),
+            ]
+        )  # a valid post comes back in the shape of the schema
+        self.assertEqual(data, {"subject": "http://x", "resource": {"name": "Ada"}})
 
     def test_without_tabs_it_is_the_plain_form_that_lays_out_horizontally(self):
         html = Form(Record(), buttons=("save",)).render({})
         self.assertNotIn("nav-tabs", html)
         self.assertIn("form-horizontal", html)
+        plain = Form(colander.SchemaNode(colander.Mapping())).render({})
+        self.assertIn('autocomplete="off"', plain)  # no back-filling by the browser
 
     def test_a_tab_with_an_error_is_the_open_one_and_is_marked(self):
         form = self.form()
@@ -65,24 +78,3 @@ class TabsTest(unittest.TestCase):
         self.assertIn("tab-pane active", pane(html, 1))
         self.assertIn("This tab has an error", html)
         self.assertEqual(html.count("This tab has an error"), 1)
-
-    def test_a_valid_post_comes_back_in_the_shape_of_the_schema(self):
-        data = self.form().validate(
-            [
-                ("__start__", "resource:mapping"),
-                ("name", "Ada"),
-                ("__end__", "resource:mapping"),
-                ("subject", "http://x"),
-            ]
-        )
-        self.assertEqual(data, {"subject": "http://x", "resource": {"name": "Ada"}})
-
-
-class AutocompleteTest(unittest.TestCase):
-    def test_forms_do_not_let_the_browser_put_back_what_was_typed(self):
-        import colander
-
-        from gracia.forms import Form
-
-        html = Form(colander.SchemaNode(colander.Mapping())).render({})
-        self.assertIn('autocomplete="off"', html)

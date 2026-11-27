@@ -11,7 +11,9 @@ from gracia.utils.validate import validate_ark
 
 
 class ModelTest(unittest.TestCase):
-    def test_the_ark_of_a_record_is_made_from_its_type_and_number(self):
+    def test_the_ark_of_a_record_is_made_from_its_type_and_number_and_the_settings_are_letters_and_digits(  # noqa: E501
+        self,
+    ):
         self.assertEqual(
             uri.default_resource_uri("rec:person:34"), "ark:/99999/ir/person/34"
         )
@@ -19,14 +21,10 @@ class ModelTest(unittest.TestCase):
             uri.default_resource_uri("rec:person:34", "12345", "x"),
             "ark:/12345/x/person/34",
         )
-
-    def test_what_is_not_a_record_is_named_with_a_fragment(self):
-        self.assertEqual(
+        self.assertEqual(  # what is not a record is named with a fragment
             uri.default_resource_uri("rec:repository:test_repo"),
             "rec:repository:test_repo#resource",
         )
-
-    def test_the_settings_are_letters_and_digits(self):
         self.assertEqual(validate_ark("12345", "ir"), ("12345", "ir"))
         for naan, root in (
             ("", "ir"),
@@ -57,14 +55,13 @@ class RepositoryTest(WebCase):
             ).fetchall()
         return dict(rows)
 
-    def test_a_new_repository_has_the_test_authority_and_ir(self):
+    def test_a_new_repository_has_the_test_authority_and_ir_and_the_system_records_get_their_arks_and_the_types_their_classes(  # noqa: E501
+        self,
+    ):
         self.application.create_repository("test_repo", admin=ADMIN)
         self.assertEqual(
             self.settings_of("test_repo"), {"naan": "99999", "root_prefix": "ir"}
         )
-
-    def test_the_system_records_get_their_arks_and_the_types_their_classes(self):
-        self.application.create_repository("test_repo", admin=ADMIN)
         self.assertEqual(
             self.resource_uris("test_repo"),
             {
@@ -81,7 +78,12 @@ class RepositoryTest(WebCase):
             },
         )
 
-    def test_a_repository_can_be_made_with_its_own_authority(self):
+    def test_a_repository_can_be_made_with_its_own_authority_wrong_settings_make_nothing_and_a_type_added_later_is_its_class(  # noqa: E501
+        self,
+    ):
+        with self.assertRaises(ValueError):
+            self.application.create_repository("test_repo", ark=("99999", "a/b"))
+        self.assertFalse(self.application.has_repository("test_repo"))
         self.application.create_repository(
             "test_repo", admin=ADMIN, ark=("12345", "lib")
         )
@@ -91,14 +93,6 @@ class RepositoryTest(WebCase):
         self.assertEqual(
             self.resource_uris("test_repo")["rec:user:1"], "ark:/12345/lib/user/1"
         )
-
-    def test_wrong_settings_make_nothing(self):
-        with self.assertRaises(ValueError):
-            self.application.create_repository("test_repo", ark=("99999", "a/b"))
-        self.assertFalse(self.application.has_repository("test_repo"))
-
-    def test_a_type_added_later_is_published_as_its_class_not_as_an_ark(self):
-        self.application.create_repository("test_repo", ark=("12345", "lib"))
         node = self.application["test_repo"]
         self.addCleanup(node.close)
         person = FOAF_PERSON
@@ -113,12 +107,12 @@ class ResolveTest(EditCase):
     def get(self, path, **kw):
         return self.client().get(path, headers=self.admin, expect_errors=True, **kw)
 
-    def test_the_ark_of_a_record_goes_to_the_record(self):
+    def test_the_ark_of_a_record_goes_to_the_record_and_what_is_not_there_is_not_found(
+        self,
+    ):
         response = self.get("/test_repo/ark:/99999/ir/person/1")
         self.assertEqual(response.status_int, 302)
         self.assertEqual(response.location, "http://localhost/test_repo/person/1/")
-
-    def test_what_is_not_there_is_not_found(self):
         for ark in (
             "99999/ir/person/99",  # no such record
             "99999/ir/nothing/1",  # no such type

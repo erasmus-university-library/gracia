@@ -28,7 +28,9 @@ class ImportHooksTest(DbTestCase):
         self.assertEqual(code, 0, err)
         return out
 
-    def test_an_imported_record_gets_its_label_and_its_ark(self):
+    def test_an_imported_record_gets_its_label_and_its_ark_a_given_resource_uri_is_kept_and_importing_again_changes_nothing(
+        self,
+    ):
         code, _, err = self.gracia("-r", "lib", "import", str(self.records))
         self.assertEqual(code, 0, err)
         first = self.export("rec:person:1")
@@ -37,12 +39,17 @@ class ImportHooksTest(DbTestCase):
             "<https://gracia.pub/ns/resource_uri> <ark:/99999/ir/person/1>", first
         )
 
-    def test_a_resource_uri_that_was_given_is_kept(self):
         self.gracia("-r", "lib", "import", str(self.records))
         second = self.export("rec:person:2")
         self.assertIn("<https://orcid.org/0000-0002>", second)
         self.assertNotIn("ark:/99999/ir/person/2", second)
         self.assertIn('<https://gracia.pub/ns/label> "Grace Hopper"', second)
+
+        self.gracia("-r", "lib", "import", str(self.records))
+        before = self.normalised(self.export("rec:person:1"))
+        code, _, err = self.gracia("-r", "lib", "import", str(self.records))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.normalised(self.export("rec:person:1")), before)
 
     def test_what_is_not_a_record_is_refused(self):
         other = self.tmp / "other.ttl"
@@ -53,13 +60,6 @@ class ImportHooksTest(DbTestCase):
         self.assertEqual(code, 1)
         self.assertIn("only records are stored", err)
         self.assertIn("http://example.org/other", err)
-
-    def test_importing_again_changes_nothing(self):
-        self.gracia("-r", "lib", "import", str(self.records))
-        before = self.normalised(self.export("rec:person:1"))
-        code, _, err = self.gracia("-r", "lib", "import", str(self.records))
-        self.assertEqual(code, 0, err)
-        self.assertEqual(self.normalised(self.export("rec:person:1")), before)
 
     @staticmethod
     def normalised(text: str) -> list[str]:

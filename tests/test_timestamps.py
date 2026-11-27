@@ -71,7 +71,7 @@ class TimesCase(WebCase):
 
 
 class StampsTest(TimesCase):
-    def test_a_new_record_has_both_times_in_utc_and_they_are_the_columns_of_records(
+    def test_a_new_record_has_both_times_in_utc_a_change_moves_modified_at_and_a_save_that_changes_nothing_does_not(
         self,
     ):
         self.add_person()
@@ -88,7 +88,6 @@ class StampsTest(TimesCase):
             self.triples("rec:person:1", uri.MODIFIED_AT),
         )
 
-    def test_a_change_moves_modified_at_and_keeps_created_at(self):
         self.add_person()
         before = self.row("rec:person:1")
         time.sleep(0.01)
@@ -99,7 +98,6 @@ class StampsTest(TimesCase):
         [(text, _)] = self.triples("rec:person:1", uri.MODIFIED_AT)
         self.assertEqual(naive_utc(text), after["modified_at"])
 
-    def test_a_save_that_changes_nothing_is_no_modification(self):
         self.add_person()
         before = self.row("rec:person:1")
         time.sleep(0.01)
@@ -127,7 +125,9 @@ class ModifiedAtIsNeverGivenTest(TimesCase):
     def modified(self, number: int = 7):
         return self.row(f"rec:person:{number}")["modified_at"]
 
-    def test_a_new_record_gets_the_time_of_the_write_whatever_its_text_says(self):
+    def test_modified_at_is_the_time_of_the_write_whatever_the_text_says_and_never_goes_back(
+        self,
+    ):
         for number, given in (
             (7, "2001-01-01T00:00:00.000000Z"),
             (8, "2999-01-01T00:00:00.000000Z"),
@@ -140,7 +140,6 @@ class ModifiedAtIsNeverGivenTest(TimesCase):
             [(text, _)] = self.triples(f"rec:person:{number}", uri.MODIFIED_AT)
             self.assertEqual(naive_utc(text), self.modified(number))
 
-    def test_a_change_moves_it_up_whatever_its_text_says(self):
         self.import_person("Ada", "2001-01-01T00:00:00.000000Z")
         first = self.modified()
         time.sleep(0.01)
@@ -155,14 +154,12 @@ class ModifiedAtIsNeverGivenTest(TimesCase):
         self.assertGreater(third, second)
         self.assertLess(abs((third - datetime.utcnow()).total_seconds()), 60)  # ty: ignore[deprecated]
 
-    def test_a_text_that_changes_nothing_keeps_the_time_whatever_it_says(self):
         self.import_person("Ada", "2001-01-01T00:00:00.000000Z")
         first = self.modified()
         time.sleep(0.01)
         self.import_person("Ada", "2999-01-01T00:00:00.000000Z")
         self.assertEqual(self.modified(), first)
 
-    def test_a_record_deleted_and_made_again_is_not_modified_earlier_than_it_was(self):
         self.import_person("Ada", "2001-01-01T00:00:00.000000Z")
         first = self.modified()
         self.application["test_repo"].store.delete(["rec:person:7"])
@@ -172,7 +169,9 @@ class ModifiedAtIsNeverGivenTest(TimesCase):
 
 
 class IsPublishedTest(TimesCase):
-    def test_it_is_true_until_the_checkbox_is_unchecked(self):
+    def test_is_published_is_true_until_the_checkbox_is_unchecked_and_when_there_is_none(
+        self,
+    ):
         self.add_person()
         self.assertEqual(
             self.triples("rec:person:1", uri.IS_PUBLISHED), [("true", XSD + "boolean")]
@@ -186,7 +185,6 @@ class IsPublishedTest(TimesCase):
         self.edit_person(1, is_published=True)
         self.assertIs(self.row("rec:person:1")["is_published"], True)
 
-    def test_a_record_that_says_nothing_of_it_is_published(self):
         self.add_person()
         with self.application.new_store("test_repo") as store:
             store.con.execute(
@@ -197,7 +195,6 @@ class IsPublishedTest(TimesCase):
             self.row("rec:person:1")["is_published"], True
         )  # the column's default too
 
-    def test_the_form_has_a_checkbox(self):
         page = self.web.get("/test_repo/person/add", headers=ADMIN).text
         self.assertRegex(
             page, r'type="checkbox"\s+name="is_published"[^>]*checked'
@@ -205,7 +202,9 @@ class IsPublishedTest(TimesCase):
 
 
 class TimezoneTest(TimesCase):
-    def test_the_settings_tab_has_a_drop_down_of_zones_that_can_be_empty(self):
+    def test_the_settings_tab_has_a_drop_down_of_zones_choosing_stores_the_name_and_a_wrong_one_is_refused(
+        self,
+    ):
         page = self.web.get("/test_repo/manage?tab=settings", headers=ADMIN).text
         select = must_search(r'<select name="timezone".*?</select>', page, re.S)[0]
         self.assertIn('<option selected value="">(none: UTC)</option>', select)
@@ -213,10 +212,17 @@ class TimezoneTest(TimesCase):
         self.assertIn('<option value="Europe/Amsterdam">Amsterdam</option>', select)
         self.assertNotIn('value="US/Eastern"', select)
 
-    def test_choosing_a_zone_stores_its_name_and_empty_removes_it(self):
         self.set_timezone("Europe/Amsterdam")
         self.assertEqual(self.triples_of_repository(), ["Europe/Amsterdam"])
         self.set_timezone("")
+        self.assertEqual(self.triples_of_repository(), [])
+
+        form = self.web.get("/test_repo/manage?tab=settings", headers=ADMIN).forms[
+            "form-repository-settings"
+        ]
+        form["timezone"].force_value("Mars/Olympus")
+        response = form.submit("save", headers=POSTING)
+        self.assertEqual(response.status_int, 200)
         self.assertEqual(self.triples_of_repository(), [])
 
     def triples_of_repository(self):
@@ -226,15 +232,6 @@ class TimezoneTest(TimesCase):
             ox.NamedNode("rec:repository:1"), ox.NamedNode(uri.RESOURCE)
         )
         return [o.value for o in data.objects(content, ox.NamedNode(uri.TIMEZONE))]
-
-    def test_a_name_that_is_not_a_zone_is_refused(self):
-        form = self.web.get("/test_repo/manage?tab=settings", headers=ADMIN).forms[
-            "form-repository-settings"
-        ]
-        form["timezone"].force_value("Mars/Olympus")
-        response = form.submit("save", headers=POSTING)
-        self.assertEqual(response.status_int, 200)
-        self.assertEqual(self.triples_of_repository(), [])
 
 
 class RepositoryZoneTest(TimesCase):

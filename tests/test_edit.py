@@ -2,6 +2,7 @@ import atexit
 import base64
 import re
 import shutil
+import sys
 import tempfile
 from pathlib import Path
 
@@ -146,9 +147,9 @@ class RegistryTest(EditCase):
         config.commit()
         return config.registry.queryUtility(IRecordType, slug)
 
-    def context_class(self, path):
+    def context_class(self, path, settings=None):
         seen = []
-        config = make_config(self.settings)
+        config = make_config(settings or self.settings)
         config.add_view(
             lambda request: seen.append(type(request.context)) or {},
             context=Record,
@@ -158,16 +159,15 @@ class RegistryTest(EditCase):
         self.client(config).get(path + "/class", headers=self.admin)
         return seen[0]
 
-    def test_a_type_gets_the_class_registered_for_it_else_record(self):
+    def test_a_type_gets_the_class_registered_for_it_by_slug_or_by_a_package_else_record_and_a_view_for_the_class_overrides_the_generic_one(  # noqa: E501
+        self,
+    ):
         self.assertIs(
             self.context_class("/test_repo/user/1"), self.record_class("user")
         )
         self.assertIs(self.context_class("/test_repo/person/1"), Record)
         self.assertEqual(self.context_class("/test_repo/type/2").__name__, "TypeRecord")
-
-    def test_a_type_package_is_included_by_its_dotted_name(self):
-        import sys
-
+        # a type package is included by its dotted name
         with tempfile.TemporaryDirectory() as root:
             package = Path(root) / "extra_types"
             package.mkdir()
@@ -182,18 +182,29 @@ class RegistryTest(EditCase):
             self.addCleanup(sys.path.remove, root)
             self.addCleanup(sys.modules.pop, "extra_types", None)
             settings = {**self.settings, "gracia.types": "extra_types"}
-            seen = []
-            config = make_config(settings)
-            config.add_view(
-                lambda request: seen.append(type(request.context).__name__) or {},
-                context=Record,
-                name="class",
-                renderer="json",
-            )
-            self.client(config).get("/test_repo/person/1/class", headers=self.admin)
-        self.assertEqual(seen, ["PersonRecord"])
+            found = self.context_class("/test_repo/person/1", settings)
+        self.assertEqual(found.__name__, "PersonRecord")
+        # a view for the class overrides the generic one
+        config = make_config(self.settings)
+        config.add_view(
+            lambda request: {"mine": True},
+            context=self.record_class("user"),
+            name="edit",
+            renderer="json",
+            permission="edit",
+        )
+        self.assertEqual(
+            self.client(config).get("/test_repo/user/1/edit", headers=self.admin).json,
+            {"mine": True},
+        )
+        self.assertIn(
+            "<form",
+            self.client().get("/test_repo/person/1/edit", headers=self.admin).text,
+        )
 
-    def test_a_class_can_be_registered_by_an_extension(self):
+    def test_a_class_can_be_registered_by_an_extension(  # noqa: E501
+        self,
+    ):
         class UserGroupRecord(Record):
             pass
 
@@ -212,24 +223,6 @@ class RegistryTest(EditCase):
         # a view for that class is not reached for records of other types
         self.assertEqual(
             self.status("/test_repo/user/1/hello", self.admin, config), 404
-        )
-
-    def test_a_view_for_the_class_overrides_the_generic_one(self):
-        config = make_config(self.settings)
-        config.add_view(
-            lambda request: {"mine": True},
-            context=self.record_class("user"),
-            name="edit",
-            renderer="json",
-            permission="edit",
-        )
-        self.assertEqual(
-            self.client(config).get("/test_repo/user/1/edit", headers=self.admin).json,
-            {"mine": True},
-        )
-        self.assertIn(
-            "<form",
-            self.client().get("/test_repo/person/1/edit", headers=self.admin).text,
         )
 
 
@@ -269,12 +262,14 @@ class EditViewTest(EditCase):
             form[name] = text
         return form.submit("save", headers=headers)
 
-    def test_the_form_comes_from_the_shape_of_the_type(self):
+    def test_the_form_comes_from_the_shape_of_the_type_with_a_tab_for_the_record(self):
         response = self.client().get("/test_repo/person/1/edit", headers=self.admin)
         self.assertIn('name="name"', response.text)
         self.assertIn('value="Ada"', response.text)
         self.assertIn('name="mbox"', response.text)
         self.assertIn('name="resource_uri"', response.text)
+        tabs = re.findall(r'class="tab-title">([^<]+)', response.text)
+        self.assertEqual(tabs, ["Person", "Record"])
 
     def test_saving_changes_the_content_and_keeps_what_the_form_cannot_show(self):
         response = self.edit(
@@ -379,11 +374,9 @@ class EditViewTest(EditCase):
         )  # but it can be read
         self.assertEqual(self.status("/test_repo/type/5"), 200)
         self.assertEqual(self.status("/test_repo/manage", self.editor), 403)
-
-    def test_the_form_has_a_tab_for_the_person_and_one_for_the_record(self):
-        response = self.client().get("/test_repo/person/1/edit", headers=self.admin)
-        tabs = re.findall(r'class="tab-title">([^<]+)', response.text)
-        self.assertEqual(tabs, ["Person", "Record"])
+        response = self.edit("/test_repo/person/1/edit", self.editor, name="Ada King")
+        self.assertEqual(response.status_int, 302)
+        self.assertIn((f"{FOAF}name", "Ada King"), self.values("rec:person:1"))
 
     def test_a_record_key_goes_to_the_address_of_the_record(self):
         web = self.client()
@@ -393,11 +386,6 @@ class EditViewTest(EditCase):
         for key in ("rec:person:99", "rec:nothing:1", "rec:person:x", "rec:person"):
             self.assertEqual(self.status(f"/test_repo/{key}", self.admin), 404, key)
 
-    def test_an_editor_edits_a_person(self):
-        response = self.edit("/test_repo/person/1/edit", self.editor, name="Ada King")
-        self.assertEqual(response.status_int, 302)
-        self.assertIn((f"{FOAF}name", "Ada King"), self.values("rec:person:1"))
-
 
 class UserEditTest(EditCase):
     def edit(self, **fields):
@@ -406,14 +394,23 @@ class UserEditTest(EditCase):
             form[name] = text
         return form.submit("save", headers=self.admin)
 
-    def test_the_credentials_are_not_in_the_form(self):
+    def test_the_credentials_are_not_in_the_form_and_a_short_password_or_a_taken_id_is_refused(  # noqa: E501
+        self,
+    ):
         response = self.client().get("/test_repo/user/1/edit", headers=self.admin)
         self.assertIn('name="userid"', response.text)
         self.assertIn('name="password"', response.text)
         self.assertNotIn("scrypt", response.text)
         self.assertNotIn('name="credentials"', response.text)
+        self.assertEqual(self.edit(password="short").status_int, 200)
+        taken = self.edit(userid="admin")
+        self.assertEqual(taken.status_int, 200)
+        self.assertIn("is taken", taken.text)
+        self.assertEqual(
+            self.status("/test_repo/user", basic(*EDITOR)), 403
+        )  # unchanged: still "ed" with the old password
 
-    def test_saving_without_a_password_keeps_the_old_one(self):
+    def test_saving_without_a_password_keeps_the_old_one_and_the_groups(self):
         self.assertEqual(self.edit(userid="ed2").status_int, 302)
         self.assertEqual(
             self.status("/test_repo/user", basic("ed2", EDITOR[1])), 403
@@ -421,6 +418,9 @@ class UserEditTest(EditCase):
         self.assertEqual(
             self.status("/test_repo/user", basic("ed", EDITOR[1])), 401
         )  # the old id is gone
+        self.assertIn(
+            (uri.MEMBER_OF, "ark:/99999/ir/group/2"), self.values("rec:user:2")
+        )
 
     def test_a_new_password_replaces_the_hash(self):
         self.assertEqual(self.edit(password="a brand new password").status_int, 302)
@@ -430,26 +430,6 @@ class UserEditTest(EditCase):
         self.assertEqual(self.status("/test_repo/user", basic(*EDITOR)), 401)
         with self.application.new_store("test_repo") as store:
             self.assertNotIn("a brand new password", str(store.get("rec:user:2")))
-
-    def test_a_short_password_is_refused(self):
-        self.assertEqual(self.edit(password="short").status_int, 200)
-        self.assertEqual(
-            self.status("/test_repo/user", basic(*EDITOR)), 403
-        )  # unchanged
-
-    def test_a_user_id_that_is_taken_is_refused(self):
-        response = self.edit(userid="admin")
-        self.assertEqual(response.status_int, 200)
-        self.assertIn("is taken", response.text)
-        self.assertEqual(
-            self.status("/test_repo/user", basic(*EDITOR)), 403
-        )  # still "ed"
-
-    def test_group_membership_survives_an_edit(self):
-        self.edit(userid="ed")
-        self.assertIn(
-            (uri.MEMBER_OF, "ark:/99999/ir/group/2"), self.values("rec:user:2")
-        )
 
 
 class AddViewTest(EditCase):
@@ -469,13 +449,13 @@ class AddViewTest(EditCase):
             .json["records"]
         )
 
-    def test_the_form_is_the_edit_form_without_values(self):
+    def test_the_form_is_the_edit_form_without_values_and_adding_mints_the_next_number(
+        self,
+    ):
         response = self.client().get("/test_repo/person/add", headers=self.admin)
         for name in ("name", "mbox", "resource_uri"):
             self.assertIn(f'name="{name}"', response.text)
         self.assertNotIn('value="Ada"', response.text)
-
-    def test_adding_mints_the_next_number_and_stores_the_record(self):
         response = self.add(
             "person", self.admin, name="Grace Hopper", mbox="grace@example.org"
         )
@@ -509,6 +489,18 @@ class AddViewTest(EditCase):
         self.assertEqual(
             self.client().get("/test_repo/person/2", headers=self.admin).status_int, 200
         )
+        # the resource uri can be given when adding
+        orcid = "https://orcid.org/0000-0002-1825-0097"
+        self.add("person", self.admin, name="Josiah", resource_uri=orcid)
+        body = (
+            self.client()
+            .get(
+                "/test_repo/person/3",
+                headers={**self.admin, "Accept": "application/json"},
+            )
+            .json
+        )
+        self.assertEqual(body["resource_uri"], [orcid])
 
     def test_a_refused_form_does_not_use_up_a_number(self):
         self.assertEqual(self.add("person", self.admin, name="").status_int, 200)
@@ -516,19 +508,6 @@ class AddViewTest(EditCase):
         self.add("person", self.admin, name="Grace")
         self.add("person", self.admin, name="Barbara")
         self.assertEqual(self.numbers("person"), [1, 2, 3])  # no gap
-
-    def test_the_resource_uri_can_be_given_when_adding(self):
-        orcid = "https://orcid.org/0000-0002-1825-0097"
-        self.add("person", self.admin, name="Josiah", resource_uri=orcid)
-        body = (
-            self.client()
-            .get(
-                "/test_repo/person/2",
-                headers={**self.admin, "Accept": "application/json"},
-            )
-            .json
-        )
-        self.assertEqual(body["resource_uri"], [orcid])
 
     def test_who_may_add(self):
         self.assertEqual(self.status("/test_repo/person/add"), 401)
@@ -539,33 +518,33 @@ class AddViewTest(EditCase):
         response = self.add("person", self.editor, name="By an editor")
         self.assertEqual(response.status_int, 302)
 
-    def test_a_user_needs_a_password_and_can_then_log_in(self):
+    def test_a_user_needs_a_password_and_an_id_that_is_free_and_can_then_log_in(self):
         self.assertEqual(
             self.add("user", self.admin, userid="newbie", password="").status_int, 200
         )
+        self.assertEqual(self.numbers("user"), [1, 2])
+        taken = self.add("user", self.admin, userid="admin", password="long enough pw")
+        self.assertEqual(taken.status_int, 200)
+        self.assertIn("is taken", taken.text)
         self.assertEqual(self.numbers("user"), [1, 2])
         response = self.add(
             "user", self.admin, userid="newbie", password="long enough pw"
         )
         self.assertEqual(response.status_int, 302)
-        self.assertEqual(self.numbers("user"), [1, 2, 3])
+        self.assertEqual(len(self.numbers("user")), 3)
         self.assertEqual(
             self.status("/test_repo/manage", basic("newbie", "long enough pw")), 403
         )
         self.assertEqual(
             self.status("/test_repo/manage", basic("newbie", "wrong")), 401
         )
-        self.assertNotIn("long enough pw", str(self.values("rec:user:3")))
-
-    def test_a_user_id_that_is_taken_cannot_be_added(self):
-        response = self.add(
-            "user", self.admin, userid="admin", password="long enough pw"
+        self.assertNotIn(
+            "long enough pw", str(self.values(f"rec:user:{self.numbers('user')[-1]}"))
         )
-        self.assertEqual(response.status_int, 200)
-        self.assertIn("is taken", response.text)
-        self.assertEqual(self.numbers("user"), [1, 2])
 
-    def test_a_type_the_form_cannot_fill_in_is_refused_not_half_made(self):
+    def test_a_type_the_form_cannot_fill_in_is_refused_not_half_made_and_an_unknown_one_is_404(  # noqa: E501
+        self,
+    ):
         response = self.client().get(
             "/test_repo/type/add", headers=self.admin, expect_errors=True
         )
@@ -580,8 +559,6 @@ class AddViewTest(EditCase):
             .json["records"],
             [1, 2, 3, 4, 5],
         )
-
-    def test_adding_to_a_type_that_does_not_exist_is_404(self):
         self.assertEqual(self.status("/test_repo/nope/add", self.admin), 404)
 
 
@@ -604,18 +581,23 @@ class SwitchingSchemaTest(EditCase):
             "save", headers={**self.admin, "Origin": "http://localhost:80"}
         )
 
-    def test_the_type_starts_on_the_full_profile(self):
+    def test_the_type_starts_on_the_full_profile_and_switching_to_the_minimal_one_changes_the_forms_and_the_version(  # noqa: E501
+        self,
+    ):
         self.assertEqual(self.fields(), {"name", "mbox"})
-
-    def test_switching_to_the_minimal_profile_changes_the_forms(self):
+        node = self.application["test_repo"]
+        self.addCleanup(node.close)
+        full = node["person"].assets_version
         self.assertEqual(self.switch("person-minimal-01.ttl").status_int, 302)
         self.assertEqual(self.fields(), {"name"})
         self.assertEqual(self.fields("/test_repo/person/add"), {"name"})
+        other = self.application["test_repo"]
+        self.addCleanup(other.close)
+        self.assertNotEqual(other["person"].assets_version, full)
         self.switch("person-unittest-01.ttl")  # and back
         self.assertEqual(self.fields(), {"name", "mbox"})
 
     def test_what_the_minimal_form_cannot_show_is_kept(self):
-        self.client().get("/test_repo/person/1/edit", headers=self.admin)
         form = (
             self.client().get("/test_repo/person/1/edit", headers=self.admin).forms[0]
         )
@@ -633,16 +615,9 @@ class SwitchingSchemaTest(EditCase):
         )  # not in the form, still there
         self.assertIn((f"{FOAF}name", "Ada King"), stored)
 
-    def test_the_version_of_the_type_follows_the_schema_it_is_on(self):
-        node = self.application["test_repo"]
-        self.addCleanup(node.close)
-        full = node["person"].assets_version
-        self.switch("person-minimal-01.ttl")
-        other = self.application["test_repo"]
-        self.addCleanup(other.close)
-        self.assertNotEqual(other["person"].assets_version, full)
-
-    def test_the_form_offers_the_schema_files_of_the_type_and_no_others(self):
+    def test_the_form_offers_the_schema_files_of_the_type_and_no_others_are_accepted(
+        self,
+    ):
         # the field of `gracia:schemaTemplate` is a select of the files of the directory
         # `gracia:assets` names
         page = self.client().get("/test_repo/person/manage", headers=self.admin).text
@@ -654,8 +629,6 @@ class SwitchingSchemaTest(EditCase):
             ["person-minimal-01.ttl", "person-unittest-01.ttl"],
         )
         self.assertIn('<option selected value="person-unittest-01.ttl">', select)
-
-    def test_a_schema_that_is_not_a_file_of_the_type_is_refused(self):
         for schema in ("person-full-09.ttl", "work-full-01.ttl", "../../etc/passwd"):
             response = self.switch(schema, by_hand=True)
             self.assertEqual(

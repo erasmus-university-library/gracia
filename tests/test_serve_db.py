@@ -20,25 +20,28 @@ def quack_available() -> bool:
 
 
 class TokenFileTest(DbTestCase):
-    def test_a_new_token_file_is_created_with_mode_0600(self):
+    def test_a_token_file_is_created_with_mode_0600_and_reused_and_a_readable_or_short_one_is_refused(
+        self,
+    ):
+        # a new token file is created with mode 0600
         path = self.tmp / "t.token"
         token = database.read_or_create_token(path)
         self.assertGreaterEqual(len(token), 16)
         self.assertEqual(path.stat().st_mode & 0o777, 0o600)
 
-    def test_an_existing_token_is_reused(self):
+        # an existing token is reused
         path = self.tmp / "t.token"
         first = database.read_or_create_token(path)
         self.assertEqual(database.read_or_create_token(path), first)
 
-    def test_a_token_file_others_can_read_is_refused(self):
+        # a token file others can read is refused
         path = self.tmp / "t.token"
         path.write_text("x" * 32 + "\n")
         path.chmod(0o644)
         with self.assertRaisesRegex(ValueError, "readable by group or others"):
             database.read_or_create_token(path)
 
-    def test_a_short_token_is_refused(self):
+        # a short token is refused
         path = self.tmp / "t.token"
         path.write_text("short\n")
         path.chmod(0o600)
@@ -90,7 +93,10 @@ class ServeDbProcessTest(DbTestCase):
         con.execute("CONNECT qk")
         return con
 
-    def test_it_serves_the_file_and_shuts_down_cleanly(self):
+    def test_it_serves_the_file_and_shuts_down_cleanly_and_the_token_survives_a_restart(
+        self,
+    ):
+        # it serves the file and shuts down cleanly
         proc = self.start()
         self.assertIn(f"quack:localhost:{self.port}", self.first_line)
         self.assertEqual(self.token_file.stat().st_mode & 0o777, 0o600)
@@ -118,21 +124,7 @@ class ServeDbProcessTest(DbTestCase):
         self.assertIn("demo", schemas)
         reopened.close()
 
-    def test_while_it_runs_nobody_else_can_open_the_file(self):
-        proc = self.start()
-        with self.assertRaises(duckdb.IOException):
-            duckdb.connect(str(self.db))
-        self.stop(proc)
-
-    def test_a_wrong_token_is_refused(self):
-        proc = self.start()
-        try:
-            with self.assertRaises(duckdb.Error):
-                self.attach("not-the-token-0123456789")
-        finally:
-            self.stop(proc)
-
-    def test_the_token_survives_a_restart(self):
+        # the token survives a restart
         proc = self.start()
         token = self.token_file.read_text()
         self.stop(proc)
@@ -142,3 +134,20 @@ class ServeDbProcessTest(DbTestCase):
             self.attach(token.strip()).execute("SELECT 1").fetchone()[0], 1
         )
         self.stop(proc)
+
+    def test_while_it_runs_nobody_else_can_open_the_file_and_a_wrong_token_is_refused(
+        self,
+    ):
+        # while it runs nobody else can open the file
+        proc = self.start()
+        with self.assertRaises(duckdb.IOException):
+            duckdb.connect(str(self.db))
+        self.stop(proc)
+
+        # a wrong token is refused
+        proc = self.start()
+        try:
+            with self.assertRaises(duckdb.Error):
+                self.attach("not-the-token-0123456789")
+        finally:
+            self.stop(proc)

@@ -44,7 +44,10 @@ def fields_rows(form, query):
 
 
 class DeclaredTest(FieldsCase):
-    def test_the_function_is_a_view_of_its_node_and_a_source_by_name(self):
+    def test_a_view_is_a_view_of_its_node_and_a_source_by_name_and_answers_html_or_a_response_of_its_own(
+        self,
+    ):
+        # the function is a view of its node and a source by name
         got = self.web.get("/test_repo/deform/shades?family=red")
         self.assertIn("text/html", got.content_type)
         self.assertEqual(
@@ -56,12 +59,34 @@ class DeclaredTest(FieldsCase):
 
         self.assertIs(self.config.registry.queryUtility(IDeformView, "shades"), shades)  # ty: ignore[missing-union-attribute]
 
-    def test_a_view_that_answers_a_string_is_html_as_it_is(self):
+        # a view that answers a string is html as it is
         got = self.web.get("/test_repo/deform/palette?family=blue")
         self.assertIn("text/html", got.content_type)
         self.assertEqual(got.text, "<p id='palette'>blue</p>")
 
-    def test_a_view_is_always_given_the_form_it_belongs_to(self):
+        # a view can answer a response of its own
+        got = self.web.get("/test_repo/deform/teapot", expect_errors=True)
+        self.assertEqual((got.status_int, got.text), (418, "short and stout"))
+
+        # the views live in one namespace so they cannot clash with a type
+        from gracia import uri
+
+        self.assertIn("deform", uri.RESERVED_SLUGS)
+        self.assertEqual(
+            self.web.get("/test_repo/shades?family=red", expect_errors=True).status_int,
+            404,
+        )
+        self.assertEqual(
+            self.web.get("/test_repo/deform/nope", expect_errors=True).status_int, 404
+        )
+        self.assertEqual(
+            self.web.get("/nolibrary/deform/shades", expect_errors=True).status_int, 404
+        )
+
+    def test_a_view_is_given_its_form_and_the_target_field_and_the_select_adds_its_own_name_to_its_url(
+        self,
+    ):
+        # a view is always given the form it belongs to
         import deform_views_support as support
 
         support.SEEN.clear()
@@ -76,7 +101,7 @@ class DeclaredTest(FieldsCase):
         self.assertIsInstance(support.SEEN[-1][0], deform.Form)
         self.assertIsNot(support.SEEN[-1][0], form)
 
-    def test_a_view_is_given_the_target_field(self):
+        # a view is given the target field
         import deform_views_support as support
 
         support.SEEN.clear()
@@ -94,15 +119,16 @@ class DeclaredTest(FieldsCase):
         )
         self.assertEqual(got.status_int, 404)
 
-    def test_the_select_adds_its_own_name_to_its_url_so_one_view_can_serve_several(
-        self,
-    ):
+        # the select adds its own name to its url so one view can serve several
         html = self.form().render({})
         self.assertIn(
             'hx-get="http://localhost/test_repo/deform/shades?field=shade"', html
         )
 
-    def test_one_row_of_the_form_can_be_rendered_without_form_tags(self):
+    def test_one_row_of_the_form_can_be_rendered_without_form_tags_and_a_view_can_return_the_form(
+        self,
+    ):
+        # one row of the form can be rendered without form tags
         got = self.web.get(
             "/test_repo/deform/row?field=family&family=blue&shade=navy"
         ).text
@@ -119,44 +145,7 @@ class DeclaredTest(FieldsCase):
         self.assertIn('name="shade"', both)
         self.assertNotIn("<form", both)
 
-    def test_a_deform_view_must_say_which_form_it_belongs_to(self):
-        with self.assertRaises(TypeError):
-            templates.DeformViews.declare("x", context=object)  # ty: ignore[missing-argument, unknown-argument]
-
-    def test_the_views_live_in_one_namespace_so_they_cannot_clash_with_a_type(self):
-        from gracia import uri
-
-        self.assertIn("deform", uri.RESERVED_SLUGS)
-        self.assertEqual(
-            self.web.get("/test_repo/shades?family=red", expect_errors=True).status_int,
-            404,
-        )
-        self.assertEqual(
-            self.web.get("/test_repo/deform/nope", expect_errors=True).status_int, 404
-        )
-        self.assertEqual(
-            self.web.get("/nolibrary/deform/shades", expect_errors=True).status_int, 404
-        )
-
-    def test_a_view_is_asked_for_its_permission_of_the_node_it_was_declared_for(self):
-        import deform_views_support as support
-
-        self.assertIsNone(support.shades.deform_at)  # the repository
-        self.assertEqual(support.hue.deform_permission, "edit")
-        from gracia.jobs.validate import schema_files
-
-        self.assertEqual(
-            (schema_files.deform_at, schema_files.deform_permission),
-            ("jobs", "start_validate_job"),
-        )
-
-    def test_a_view_can_answer_a_response_of_its_own(self):
-        got = self.web.get("/test_repo/deform/teapot", expect_errors=True)
-        self.assertEqual((got.status_int, got.text), (418, "short and stout"))
-
-    def test_a_view_that_returns_the_form_gets_a_fresh_one_and_answers_it_filled_in(
-        self,
-    ):
+        # a view that returns the form gets a fresh one and answers it filled in
         user = {"X-User": "admin"}
         blue = self.web.get(
             "/test_repo/deform/hue?family=blue&shade=navy", headers=user
@@ -173,20 +162,14 @@ class DeclaredTest(FieldsCase):
         )  # a fresh form: the blue change is not kept
         self.assertIn('value="crimson"', red)
 
-    def test_a_view_declared_with_a_form_has_the_permission_it_was_declared_with(self):
-        self.assertEqual(
-            self.web.get(
-                "/test_repo/deform/hue?family=red", expect_errors=True
-            ).status_int,
-            403,
-        )
+    def test_a_deform_view_must_say_which_form_it_belongs_to_and_two_sources_with_one_name_conflict(
+        self,
+    ):
+        # a deform view must say which form it belongs to
+        with self.assertRaises(TypeError):
+            templates.DeformViews.declare("x", context=object)  # ty: ignore[missing-argument, unknown-argument]
 
-    def test_the_view_has_the_permission_it_was_declared_with(self):
-        self.assertEqual(
-            self.web.get("/test_repo/deform/shades?family=red").status_int, 200
-        )
-
-    def test_two_sources_with_one_name_are_a_conflict(self):
+        # two sources with one name are a conflict
         config = make_config(self.settings)
         config.scan("deform_views_support")
         config.add_gracia_deform_view(
@@ -195,9 +178,40 @@ class DeclaredTest(FieldsCase):
         with self.assertRaises(ConfigurationConflictError):
             config.commit()
 
+    def test_a_view_has_the_permission_it_was_declared_with_for_the_node_it_was_declared_for(
+        self,
+    ):
+        # a view is asked for its permission of the node it was declared for
+        import deform_views_support as support
+
+        self.assertIsNone(support.shades.deform_at)  # the repository
+        self.assertEqual(support.hue.deform_permission, "edit")
+        from gracia.jobs.validate import schema_files
+
+        self.assertEqual(
+            (schema_files.deform_at, schema_files.deform_permission),
+            ("jobs", "start_validate_job"),
+        )
+
+        # a view declared with a form has the permission it was declared with
+        self.assertEqual(
+            self.web.get(
+                "/test_repo/deform/hue?family=red", expect_errors=True
+            ).status_int,
+            403,
+        )
+
+        # the view has the permission it was declared with
+        self.assertEqual(
+            self.web.get("/test_repo/deform/shades?family=red").status_int, 200
+        )
+
 
 class WidgetTest(FieldsCase):
-    def test_the_dependent_select_declares_that_it_follows_the_other_one(self):
+    def test_the_dependent_select_follows_the_other_one_and_has_the_choices_for_what_it_shows_or_was_posted(
+        self,
+    ):
+        # the dependent select declares that it follows the other one
         html = self.form().render({})
         family = must_search(r'<select name="family"[^>]*>', html)[0]
         shade = must_search(r'<select name="shade"[^>]*>', html)[0]
@@ -211,12 +225,12 @@ class WidgetTest(FieldsCase):
         self.assertIn('hx-target="this"', shade)
         self.assertIn('hx-swap="innerHTML"', shade)
 
-    def test_the_first_time_it_has_the_choices_for_what_the_other_select_shows(self):
+        # the first time it has the choices for what the other select shows
         html = self.form().render({})
         self.assertIn('value="crimson"', html)  # red is the first family
         self.assertNotIn("navy", html)
 
-    def test_a_form_that_comes_back_has_the_choices_for_what_was_posted(self):
+        # a form that comes back has the choices for what was posted
         form = self.form()
         with self.assertRaises(deform.ValidationFailure) as caught:
             form.validate([("family", "blue"), ("shade", "crimson")])
@@ -244,12 +258,15 @@ class ValidatorTest(FieldsCase):
     def validate(self, family, shade):
         return self.form().validate([("family", family), ("shade", shade)])
 
-    def test_a_value_the_source_offers_for_the_other_value_is_accepted(self):
+    def test_a_value_the_source_offers_is_accepted_and_one_it_does_not_offer_is_refused_on_the_server(
+        self,
+    ):
+        # a value the source offers for the other value is accepted
         self.assertEqual(
             self.validate("blue", "navy"), {"family": "blue", "shade": "navy"}
         )
 
-    def test_a_value_it_does_not_offer_for_it_is_refused_on_the_server(self):
+        # a value it does not offer for it is refused on the server
         with self.assertRaises(deform.ValidationFailure) as caught:
             self.validate("blue", "crimson")  # a shade of red
         self.assertIn(

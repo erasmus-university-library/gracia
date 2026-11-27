@@ -1,70 +1,44 @@
-import base64
+"""A text that has a language: the text, the language and the menu of languages."""
+
 import re
 
 import colander
 import pyoxigraph as ox
-from harness import BUNDLED, ConfiguredCase
+from widgets_support import ADMIN, FormCase
 
 from gracia import forms
 
-SCHEMA = "https://schema.org/"
-AUTH = {"Authorization": "Basic " + base64.b64encode(b"admin:correct horse").decode()}
-ADD = "/test_repo/person/add"
+ADD = "/test_repo/gadget/add"
+EDIT = "/test_repo/gadget/1/edit"
 
 
-class LanguageWidgetTest(ConfiguredCase):
-    def setUp(self):
-        super().setUp()
-        self.application.create_repository(
-            "test_repo",
-            admin=("admin", "correct horse"),
-            content_types=[BUNDLED["person"]],
-        )
-        self.web = self.client()
+class LanguageWidgetTest(FormCase):
+    def post_note(self, text: str, language: str, path: str = ADD):
+        return self.post(path, mappings={"note": [("value", text), ("lang", language)]})
 
-    def post(self, text: str, language: str, path: str = ADD):
-        # what the form posts, with the description and its language filled in
-        form = self.web.get(path, headers=AUTH).forms[0]
-        out, inside = [], False
-        for name, value in form.submit_fields("save"):
-            if (name, value) == ("__start__", "description:mapping"):
-                inside = True
-            elif (name, value) == ("__end__", "description:mapping"):
-                inside = False
-            elif inside and name == "value":
-                value = text
-            elif inside and name == "lang":
-                value = language
-            elif name == "name" and not value:
-                value = "Ada Lovelace"
-            out.append((name, value))
-        return self.web.post(path, params=out, headers=AUTH, expect_errors=True)
+    def note(self):
+        record = self.record()
+        return record.graph.value(record.resource, "http://example.org/note")
 
-    def description(self):
-        record = self.application["test_repo"].types["person"].find_record("1")
-        return record.graph.value(record.resource, SCHEMA + "description")
-
-    def test_the_description_has_a_text_a_language_and_a_menu_of_languages(self):
-        page = self.web.get(ADD, headers=AUTH).text
+    def test_the_note_has_a_text_area_of_four_lines_a_language_and_a_menu_of_languages(
+        self,
+    ):
+        page = self.page(ADD)
         group = re.search(
             r'(?s)<div class="input-group language-text[^"]*">.*?</ul>', page
         )
         assert group is not None
         text = group.group(0)
-        self.assertRegex(page, r'name="value"')
         self.assertRegex(
             text, r'(?s)<input[^>]*name="lang"[^>]*class="[^"]*language-code'
         )
         self.assertIn('placeholder="lang"', text)
-        self.assertRegex(page, r"<label[^>]*>description</label>")  # and a label
+        self.assertRegex(page, r"<label[^>]*>note</label>")  # and a label
         self.assertIn("dropdown-toggle-split", text)  # the caret
         for code in ("en", "fr", "de", "nl"):
             self.assertIn(f'data-language="{code}"', text)
         self.assertIn('data-language=""', text)  # no language
         self.assertIn("language.js", page)
-
-    def test_the_description_is_a_text_area_of_four_lines_with_the_language_below(self):
-        page = self.web.get(ADD, headers=AUTH).text
         self.assertRegex(page, r'<textarea[^>]*name="value"[^>]*rows="4"')
         self.assertRegex(
             page,
@@ -72,46 +46,34 @@ class LanguageWidgetTest(ConfiguredCase):
             r'<div class="input-group language-text w-auto">',
         )
 
-    def test_a_language_is_stored_with_the_text_as_a_tagged_literal(self):
-        self.assertEqual(self.post("Hallo wereld", "nl").status_int, 302)
-        self.assertEqual(self.description(), ox.Literal("Hallo wereld", language="nl"))
-
-    def test_with_no_language_the_text_is_a_plain_literal(self):
-        self.assertEqual(self.post("Hello", "").status_int, 302)
-        self.assertEqual(self.description(), ox.Literal("Hello"))
-
-    def test_no_text_is_no_description_whatever_the_language(self):
-        self.assertEqual(self.post("", "nl").status_int, 302)
-        self.assertIsNone(self.description())
-
-    def test_what_is_stored_is_in_the_form_again(self):
-        self.post("Bonjour", "fr")
-        page = self.web.get("/test_repo/person/ada-lovelace/edit", headers=AUTH).text
-        self.assertRegex(page, r'(?s)<input[^>]*name="lang"[^>]*value="fr"')
+    def test_the_text_is_stored_with_its_language_as_a_tagged_literal_and_shown_again(
+        self,
+    ):
+        self.assertEqual(self.post_note("Hallo wereld", "nl").status_int, 302)
+        self.assertEqual(self.note(), ox.Literal("Hallo wereld", language="nl"))
+        page = self.page(EDIT)
+        self.assertRegex(page, r'(?s)<input[^>]*name="lang"[^>]*value="nl"')
         self.assertRegex(
-            page, r'(?s)<textarea[^>]*name="value"[^>]*>Bonjour</textarea>'
+            page, r'(?s)<textarea[^>]*name="value"[^>]*>Hallo wereld</textarea>'
         )
+        self.post_note("Hallo wereld", "de", EDIT)  # a change of language replaces it
+        self.assertEqual(self.note(), ox.Literal("Hallo wereld", language="de"))
+        self.post_note("Hello", "", EDIT)  # with no language it is a plain literal
+        self.assertEqual(self.note(), ox.Literal("Hello"))
+        self.post_note("", "nl", EDIT)  # no text is no note whatever the language
+        self.assertIsNone(self.note())
 
-    def test_a_change_of_language_replaces_the_literal(self):
-        self.post("Hello", "en")
-        self.post("Hello", "de", "/test_repo/person/ada-lovelace/edit")
-        self.assertEqual(self.description(), ox.Literal("Hello", language="de"))
-
-    def test_something_that_is_not_a_language_code_is_refused(self):
-        response = self.post("Hello", "not a code!")
+    def test_something_that_is_not_a_language_code_is_refused_and_nothing_is_saved(
+        self,
+    ):
+        response = self.post_note("Hello", "not a code!")
         self.assertEqual(response.status_int, 200)
         self.assertIn("Not a language code", response.text)
-        self.web.get("/test_repo/person/ada-lovelace/edit", headers=AUTH, status=404)
+        self.web.get(EDIT, headers=ADMIN, status=404)
 
 
-class NoBrowserValidationTest(ConfiguredCase):
+class NoBrowserValidationTest(FormCase):
     def test_the_forms_are_left_to_the_server_to_validate(self):
-        self.application.create_repository(
-            "test_repo",
-            admin=("admin", "correct horse"),
-            content_types=[BUNDLED["person"]],
-        )
-        page = self.client().get(ADD, headers=AUTH).text
-        self.assertRegex(page, r"<form[^>]*novalidate")
+        self.assertRegex(self.page(ADD), r"<form[^>]*novalidate")
         plain = forms.Form(colander.Schema()).render({})
         self.assertRegex(plain, r"<form[^>]*novalidate")

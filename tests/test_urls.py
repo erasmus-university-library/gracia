@@ -40,7 +40,8 @@ class AbsoluteUrlsTest(WebCase):
         )
         self.web = self.client()
 
-    def test_the_html_of_every_page_has_absolute_addresses_only(self):
+    def test_the_addresses_in_the_html_the_static_files_and_the_json_are_absolute(self):
+        # the html of every page has absolute addresses only
         for path in PAGES:
             page = self.web.get(path, headers=ADMIN)
             self.assertIn("html", page.content_type, path)
@@ -51,14 +52,14 @@ class AbsoluteUrlsTest(WebCase):
                     address, ABSOLUTE, f"{path}: {attribute}={address!r} is relative"
                 )
 
-    def test_the_static_files_are_absolute_too(self):
+        # the static files are absolute too
         page = self.web.get("/test_repo/manage", headers=ADMIN).text
         self.assertRegex(page, r'<link rel="icon"[^>]*href="http://localhost/_static/')
         self.assertRegex(
             page, r'<script type="text/javascript" src="http://localhost/_static/'
         )
 
-    def test_the_addresses_in_the_json_are_absolute(self):
+        # the addresses in the json are absolute
         document = self.web.get(
             "/test_repo/api", headers={"X-User": "admin", "Accept": "application/json"}
         ).json

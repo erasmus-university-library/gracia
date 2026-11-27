@@ -111,12 +111,41 @@ class Node:
 
 
 class DebugViewTest(ManageCase):
-    def test_the_debug_view_is_a_stylesheet_run_over_the_request(self):
+    def test_the_debug_view_is_a_stylesheet_run_over_the_request_and_shows_its_output_and_stylesheet(
+        self,
+    ):
+        # the debug view is a stylesheet run over the request
         got = self.client().get("/test_repo/debug", headers=ADMIN)
         self.assertEqual((got.status_int, got.text), (200, "Hello"))
         self.assertEqual(got.content_type, "text/plain")  # the stylesheet says so
 
-    def test_debug_input_shows_the_document_the_stylesheet_is_given(self):
+        # debug output shows the response the stylesheet makes
+        got = self.client().get("/test_repo/debug?debug=output", headers=ADMIN)
+        self.assertEqual(got.status_int, 200)
+        self.assertEqual(got.headers["Content-Type"], "text/plain; charset=UTF-8")
+        self.assertIn("<response>", got.text)  # the envelope, as written
+        self.assertIn("<Content-Type>text/plain</Content-Type>", got.text)
+        self.assertIn("<body>Hello</body>", got.text)
+
+        # debug xslt shows the stylesheet
+        got = self.client().get("/test_repo/debug?debug=xslt", headers=ADMIN)
+        self.assertEqual(got.status_int, 200)
+        self.assertTrue(got.headers["Content-Type"].startswith("application/xslt+xml"))
+        self.assertEqual(
+            got.text, assets.read_text("gracia:assets/xslt/debug.xslt")
+        )  # what the file says, not what it makes
+
+        # debug stylesheet is debug xslt
+        client = self.client()
+        same = client.get("/test_repo/debug?debug=xslt", headers=ADMIN)
+        alias = client.get("/test_repo/debug?debug=stylesheet", headers=ADMIN)
+        self.assertEqual(alias.text, same.text)
+        self.assertEqual(alias.headers["Content-Type"], same.headers["Content-Type"])
+
+    def test_debug_input_and_the_text_page_of_switches_are_shown_only_to_who_manages_the_repository(
+        self,
+    ):
+        # debug input shows the document the stylesheet is given
         got = self.client().get("/test_repo/debug?debug=input&x=1", headers=ADMIN)
         self.assertEqual(got.status_int, 200)
         self.assertEqual(got.headers["Content-Type"], "application/xml; charset=UTF-8")
@@ -164,30 +193,7 @@ class DebugViewTest(ManageCase):
         rdf = found(root, f"body/{RDF}")
         self.assertIn("rec:repository:1", ET.tostring(rdf, encoding="unicode"))
 
-    def test_debug_output_shows_the_response_the_stylesheet_makes(self):
-        got = self.client().get("/test_repo/debug?debug=output", headers=ADMIN)
-        self.assertEqual(got.status_int, 200)
-        self.assertEqual(got.headers["Content-Type"], "text/plain; charset=UTF-8")
-        self.assertIn("<response>", got.text)  # the envelope, as written
-        self.assertIn("<Content-Type>text/plain</Content-Type>", got.text)
-        self.assertIn("<body>Hello</body>", got.text)
-
-    def test_debug_xslt_shows_the_stylesheet(self):
-        got = self.client().get("/test_repo/debug?debug=xslt", headers=ADMIN)
-        self.assertEqual(got.status_int, 200)
-        self.assertTrue(got.headers["Content-Type"].startswith("application/xslt+xml"))
-        self.assertEqual(
-            got.text, assets.read_text("gracia:assets/xslt/debug.xslt")
-        )  # what the file says, not what it makes
-
-    def test_debug_stylesheet_is_debug_xslt(self):
-        client = self.client()
-        same = client.get("/test_repo/debug?debug=xslt", headers=ADMIN)
-        alias = client.get("/test_repo/debug?debug=stylesheet", headers=ADMIN)
-        self.assertEqual(alias.text, same.text)
-        self.assertEqual(alias.headers["Content-Type"], same.headers["Content-Type"])
-
-    def test_debug_anything_is_a_text_page_that_says_what_the_switches_are(self):
+        # debug anything is a text page that says what the switches are
         got = self.client().get("/test_repo/debug?debug=1", headers=ADMIN)
         self.assertEqual(got.status_int, 200)
         self.assertEqual(got.headers["Content-Type"], "text/plain; charset=UTF-8")
@@ -207,7 +213,7 @@ class DebugViewTest(ManageCase):
         self.assertTrue(empty.text.startswith("Debug switches of this page"))
         self.assertIn("result: ok", empty.text)
 
-    def test_only_who_manages_the_repository_may_see_it(self):
+        # only who manages the repository may see it
         for headers in ({}, {"X-User": "nobody"}):
             status = (
                 self.client()
@@ -283,7 +289,10 @@ class DebugPermissionTest(RendererCase):
 
 
 class XsltRendererTest(RendererCase):
-    def test_the_values_of_the_view_are_in_the_document_as_they_are_given(self):
+    def test_the_values_the_data_the_fragments_and_the_site_are_in_the_document_and_the_response_can_be_changed(
+        self,
+    ):
+        # the values of the view are in the document as they are given
         response = self.render({"greeting": "Hello", "count": 9, "flag": True})
         self.assertEqual(response.text, "Hi greeting=Hello,count=9,flag=true")
         self.assertEqual(response.content_type, "text/html")  # the stylesheet says none
@@ -291,7 +300,7 @@ class XsltRendererTest(RendererCase):
         with self.assertRaisesRegex(TypeError, "the value count of the view is a list"):
             self.render({"count": [1]})
 
-    def test_the_data_and_what_a_listing_used_are_in_the_document(self):
+        # the data and what a listing used are in the document
         path = self.directory / "data.xslt"
         path.write_text(DATA)
         values = {
@@ -302,24 +311,7 @@ class XsltRendererTest(RendererCase):
         response = self.render(values, path)
         self.assertEqual(response.text, "rdf:RDF 2 rec:work:41 rec:work:42")
 
-    def test_a_stylesheet_finds_the_files_it_imports_beside_it(self):
-        (self.directory / "common.xslt").write_text(COMMON)
-        main = self.directory / "main.xslt"
-        main.write_text(MAIN)
-        self.assertEqual(self.render({}, main).text, "Hello common")
-
-    def test_with_reload_an_edit_of_an_imported_file_is_seen_too(self):
-        (self.directory / "common.xslt").write_text(COMMON)
-        main = self.directory / "main.xslt"
-        main.write_text(MAIN)
-        self.assertEqual(self.render({}, main, reload=True).text, "Hello common")
-        common = self.directory / "common.xslt"
-        common.write_text(COMMON.replace(">common<", ">changed<"))
-        later = common.stat().st_mtime_ns + 10**9
-        os.utime(common, ns=(later, later))
-        self.assertEqual(self.render({}, main, reload=True).text, "Hello changed")
-
-    def test_a_fragment_of_html_is_put_in_the_page_as_the_browser_takes_it(self):
+        # a fragment of html is put in the page as the browser takes it
         path = self.directory / "fragment.xslt"
         path.write_text(FRAGMENT)
         text = self.render({"fragments": {"form": FORM}}, path).text
@@ -330,7 +322,7 @@ class XsltRendererTest(RendererCase):
         self.assertIn("café&nbsp;<b>bold<i>both</i></b>", text)  # what was not nested
         self.assertIn('<script>if (a < b && c) { x = "$1 ]]>"; }</script>', text)
 
-    def test_the_site_and_the_layout_are_what_the_pages_have_around_them(self):
+        # the site and the layout are what the pages have around them
         page = self.directory / "page.xslt"
         page.write_text(
             f"""<xsl:stylesheet version="3.0" {XSL}>
@@ -365,12 +357,48 @@ class XsltRendererTest(RendererCase):
         self.assertNotIn("<footer", framed)
         self.assertIn('<main class="container-fluid px-4 py-4">', framed)
 
-    def test_render_to_response_gives_a_response_to_change_before_it_is_returned(self):
+        # render to response gives a response to change before it is returned
         response = self.render({"greeting": "Hello"})
         response.content_type = "text/plain"  # as the view may
         self.assertEqual(response.content_type, "text/plain")
 
-    def test_the_headers_of_the_response_are_the_ones_the_stylesheet_makes(self):
+    def test_a_stylesheet_finds_its_imports_and_is_compiled_once_and_again_when_edited_with_reload(
+        self,
+    ):
+        # a stylesheet finds the files it imports beside it
+        (self.directory / "common.xslt").write_text(COMMON)
+        main = self.directory / "main.xslt"
+        main.write_text(MAIN)
+        self.assertEqual(self.render({}, main).text, "Hello common")
+
+        # with reload an edit of an imported file is seen too
+        (self.directory / "common.xslt").write_text(COMMON)
+        main = self.directory / "main.xslt"
+        main.write_text(MAIN)
+        self.assertEqual(self.render({}, main, reload=True).text, "Hello common")
+        common = self.directory / "common.xslt"
+        common.write_text(COMMON.replace(">common<", ">changed<"))
+        later = common.stat().st_mtime_ns + 10**9
+        os.utime(common, ns=(later, later))
+        self.assertEqual(self.render({}, main, reload=True).text, "Hello changed")
+
+        # a stylesheet is compiled once and again when it was edited and reload is on
+        for reload, expected in ((False, "Hi"), (True, "Bye")):
+            self.assertEqual(self.render({}, reload=reload).text, "Hi")
+            first = templates._STYLESHEETS[str(self.path)][1]
+            self.render({}, reload=reload)
+            self.assertIs(templates._STYLESHEETS[str(self.path)][1], first)  # once
+            self.path.write_text(self.path.read_text().replace("Hi", "Bye"))
+            later = self.path.stat().st_mtime_ns + 10**9  # a change that shows
+            os.utime(self.path, ns=(later, later))
+            self.assertEqual(self.render({}, reload=reload).text, expected, reload)
+            self.path.write_text(self.path.read_text().replace("Bye", "Hi"))
+            self.forget()
+
+    def test_the_headers_of_the_response_are_the_ones_the_stylesheet_makes_and_what_it_may_not_make_is_an_error(
+        self,
+    ):
+        # the headers of the response are the ones the stylesheet makes
         headers = (
             "<Content-Type>application/xml; charset=latin-1</Content-Type>"
             "<Cache-Control>private</Cache-Control>"
@@ -388,7 +416,7 @@ class XsltRendererTest(RendererCase):
         self.assertEqual(response.headers["Cache-Control"], "private")
         self.assertEqual(response.text, "<a/>")  # the body is what the writer wrote
 
-    def test_a_response_the_stylesheet_may_not_make_is_an_error(self):
+        # a response the stylesheet may not make is an error
         wrong = {
             "<Set-Cookie>a=b</Set-Cookie>": "may not set the header Set-Cookie",
         }
@@ -411,29 +439,17 @@ class XsltRendererTest(RendererCase):
                 self.render({}, path)
             self.forget()
 
-    def test_markup_in_the_body_is_written_by_the_writer_of_the_stylesheet(self):
+        # markup in the body is written by the writer of the stylesheet
         path = self.directory / "markup.xslt"
         path.write_text(MARKUP)
         response = self.render({}, path)
         self.assertEqual(response.text, "<p>a &amp; b<br></p>")
         self.assertEqual(response.content_type, "text/html")
 
-    def test_a_stylesheet_is_compiled_once_and_again_when_it_was_edited_and_reload_is_on(
+    def test_the_debug_page_has_the_messages_the_steps_and_the_files_and_the_modes_are_for_who_manages(
         self,
     ):
-        for reload, expected in ((False, "Hi"), (True, "Bye")):
-            self.assertEqual(self.render({}, reload=reload).text, "Hi")
-            first = templates._STYLESHEETS[str(self.path)][1]
-            self.render({}, reload=reload)
-            self.assertIs(templates._STYLESHEETS[str(self.path)][1], first)  # once
-            self.path.write_text(self.path.read_text().replace("Hi", "Bye"))
-            later = self.path.stat().st_mtime_ns + 10**9  # a change that shows
-            os.utime(self.path, ns=(later, later))
-            self.assertEqual(self.render({}, reload=reload).text, expected, reload)
-            self.path.write_text(self.path.read_text().replace("Bye", "Hi"))
-            self.forget()
-
-    def test_the_debug_page_has_the_messages_the_log_records_and_the_error(self):
+        # the debug page has the messages the log records and the error
         path = self.directory / "noisy.xslt"
         path.write_text(MESSAGES)
         noisy = patch.object(
@@ -470,7 +486,7 @@ class XsltRendererTest(RendererCase):
         self.assertIn("result: FAILED in the document of the request", page)
         self.assertIn("the value count of the view is a list", page)
 
-    def test_the_debug_page_times_the_steps_and_lists_the_files_it_is_made_of(self):
+        # the debug page times the steps and lists the files it is made of
         (self.directory / "common.xslt").write_text(COMMON)
         main = self.directory / "main.xslt"
         main.write_text(
@@ -501,14 +517,7 @@ class XsltRendererTest(RendererCase):
         self.assertIn("(there is no such file)", page)
         self.assertIn("result: FAILED in the stylesheet", page)
 
-    def logging_stylesheet(self, real):
-        def stylesheet(renderer, path, layout=None, timings=None):
-            logging.getLogger("gracia.test").warning("something odd")
-            return real(renderer, path, layout, timings)
-
-        return stylesheet
-
-    def test_debug_input_xslt_and_output_are_shown_only_to_who_manages(self):
+        # debug input xslt and output are shown only to who manages
         stylesheet = self.path.read_text()
         for debug in ("input", "xslt", "stylesheet", "output", "anything"):
             for allowed in (True, False):
@@ -528,6 +537,13 @@ class XsltRendererTest(RendererCase):
                     document = ET.fromstring(response.text)
                     self.assertEqual(found(document, "view/param").text, "Hello")
 
+    def logging_stylesheet(self, real):
+        def stylesheet(renderer, path, layout=None, timings=None):
+            logging.getLogger("gracia.test").warning("something odd")
+            return real(renderer, path, layout, timings)
+
+        return stylesheet
+
 
 class RequestXmlTest(unittest.TestCase):
     def request(self, context, permissive=False, **params):
@@ -538,7 +554,10 @@ class RequestXmlTest(unittest.TestCase):
         request.context = context
         return request
 
-    def test_the_records_and_the_paging_of_a_listing_are_in_the_document(self):
+    def test_the_records_the_paging_the_view_the_accept_header_and_the_permissions_are_in_the_document(
+        self,
+    ):
+        # the records and the paging of a listing are in the document
         root = Node(None)
         work = Node("work", root, uri="rec:type:7")
         request = self.request(work, page="2")
@@ -562,7 +581,42 @@ class RequestXmlTest(unittest.TestCase):
         plain = ET.fromstring(templates.XsltRenderer.request_xml(request))
         self.assertIsNone(plain.find("records"))  # no list, no paging: no element
 
-    def test_fragments_are_html_that_lxml_makes_into_markup(self):
+        # the view has its name and the values it gives its page
+        request = self.request(Node("work", Node(None)))
+        request.view_name = "edit"
+        values = {"heading": 'A "title" & <more>', "count": 3, "draft": False}
+        document = ET.fromstring(
+            templates.XsltRenderer.request_xml(request, view_params=values)
+        )
+        view = found(document, "view")
+        self.assertEqual(view.get("name"), "edit")
+        self.assertEqual(
+            [(p.get("name"), p.text) for p in view.findall("param")],
+            [("heading", 'A "title" & <more>'), ("count", "3"), ("draft", "false")],
+        )
+        plain = ET.fromstring(
+            templates.XsltRenderer.request_xml(self.request(Node("x")))
+        )
+        self.assertEqual(found(plain, "view").get("name"), "")  # always there
+
+        # the accept header is in the document when there is one
+        request = self.request(Node("work", Node(None)))
+        request.headers["Accept"] = 'text/html, application/xml;q=0.9, "x"&<y>'
+        document = ET.fromstring(templates.XsltRenderer.request_xml(request))
+        header = found(document, "headers/header")
+        self.assertEqual(header.get("name"), "accept")
+        self.assertEqual(header.text, request.headers["Accept"])
+
+        # the permissions of the user on the context are listed
+        request = self.request(Node("work", Node(None)), permissive=True)
+        document = ET.fromstring(templates.XsltRenderer.request_xml(request))
+        listed = [p.text for p in document.findall("permissions/permission")]
+        self.assertEqual(listed, list(templates.PERMISSIONS))
+
+    def test_fragments_are_markup_and_structure_is_an_element_for_each_key_and_item_and_a_name_cannot_break_it(
+        self,
+    ):
+        # fragments are html that lxml makes into markup
         request = self.request(Node("work", Node(None)))
         document = ET.fromstring(
             templates.XsltRenderer.request_xml(
@@ -581,7 +635,7 @@ class RequestXmlTest(unittest.TestCase):
         text = found(document, "fragments/fragment[@name='text']")
         self.assertEqual((text.text, found(text, "i").text), ("a & b ", "c"))
 
-    def test_what_has_structure_is_data_with_an_element_for_each_key_and_item(self):
+        # what has structure is data with an element for each key and item
         data = {
             "revisions": [{"txn": 3, "current": True, "note": "a & <b>"}, {"txn": 2}],
             "none": None,
@@ -604,39 +658,7 @@ class RequestXmlTest(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "the value x of the page is a set"):
             templates.XsltRenderer.request_xml(request, data={"x": {1}})
 
-    def test_the_view_has_its_name_and_the_values_it_gives_its_page(self):
-        request = self.request(Node("work", Node(None)))
-        request.view_name = "edit"
-        values = {"heading": 'A "title" & <more>', "count": 3, "draft": False}
-        document = ET.fromstring(
-            templates.XsltRenderer.request_xml(request, view_params=values)
-        )
-        view = found(document, "view")
-        self.assertEqual(view.get("name"), "edit")
-        self.assertEqual(
-            [(p.get("name"), p.text) for p in view.findall("param")],
-            [("heading", 'A "title" & <more>'), ("count", "3"), ("draft", "false")],
-        )
-        plain = ET.fromstring(
-            templates.XsltRenderer.request_xml(self.request(Node("x")))
-        )
-        self.assertEqual(found(plain, "view").get("name"), "")  # always there
-
-    def test_the_accept_header_is_in_the_document_when_there_is_one(self):
-        request = self.request(Node("work", Node(None)))
-        request.headers["Accept"] = 'text/html, application/xml;q=0.9, "x"&<y>'
-        document = ET.fromstring(templates.XsltRenderer.request_xml(request))
-        header = found(document, "headers/header")
-        self.assertEqual(header.get("name"), "accept")
-        self.assertEqual(header.text, request.headers["Accept"])
-
-    def test_the_permissions_of_the_user_on_the_context_are_listed(self):
-        request = self.request(Node("work", Node(None)), permissive=True)
-        document = ET.fromstring(templates.XsltRenderer.request_xml(request))
-        listed = [p.text for p in document.findall("permissions/permission")]
-        self.assertEqual(listed, list(templates.PERMISSIONS))
-
-    def test_what_is_in_a_name_cannot_break_the_document(self):
+        # what is in a name cannot break the document
         odd = Node('a"b<c&d', Node(None))
         request = self.request(odd, q='<&">')
         document = ET.fromstring(templates.XsltRenderer.request_xml(request))
@@ -679,7 +701,10 @@ class ImportedFilesTest(unittest.TestCase):
 
 
 class CompiledParametersTest(unittest.TestCase):
-    def test_strings_numbers_booleans_and_documents_are_what_the_stylesheet_says(self):
+    def test_parameters_are_what_the_stylesheet_says_and_the_response_the_messages_and_the_time_are_read_from_a_run(
+        self,
+    ):
+        # strings numbers booleans and documents are what the stylesheet says
         compiled = xslt.Compiled(TYPED)
         self.assertEqual(compiled.transform("<a/>"), "Hi 1 2 false")
         got = compiled.transform(
@@ -696,7 +721,7 @@ class CompiledParametersTest(unittest.TestCase):
         with self.assertRaisesRegex(xslt.XsltError, "the parameter count is a list"):
             compiled.transform("<a/>", {"count": [1]})
 
-    def test_the_response_is_read_from_what_the_stylesheet_makes(self):
+        # the response is read from what the stylesheet makes
         def made(body: str, headers: str = "", root: str = "response"):
             sheet = f"""<xsl:stylesheet version="3.0" {XSL}><xsl:output method="xml"/>
               <xsl:template match="/"><{root}><headers>{headers}</headers>{body}</{root}>
@@ -724,7 +749,7 @@ class CompiledParametersTest(unittest.TestCase):
           <xsl:template match="/">Hello</xsl:template></xsl:stylesheet>"""
         self.assertEqual(xslt.Compiled(text_sheet).transform_response("<a/>").root, "")
 
-    def test_the_messages_and_the_time_of_a_run_are_given_when_they_are_asked_for(self):
+        # the messages and the time of a run are given when they are asked for
         sheet = f"""<xsl:stylesheet version="3.0" {XSL}><xsl:output method="text"/>
           <xsl:template match="/"><xsl:message>one</xsl:message>done</xsl:template>
         </xsl:stylesheet>"""

@@ -72,7 +72,10 @@ class TypeImportsCase(WebCase):
 
 
 class ReferencesTest(unittest.TestCase):
-    def test_only_type_addresses_of_imports_and_includes_are_found(self):
+    def test_only_type_addresses_of_imports_and_includes_are_found_and_text_that_is_not_xml_has_none(
+        self,
+    ):
+        # only type addresses of imports and includes are found
         text = sheet(
             "",
             head=(
@@ -86,7 +89,7 @@ class ReferencesTest(unittest.TestCase):
             xslt.type_references(text), ["type:person/view.xsl", "type:work/a.xsl"]
         )
 
-    def test_text_that_is_not_xml_has_no_references(self):
+        # text that is not xml has no references
         self.assertEqual(xslt.type_references("<xsl:import"), [])
 
 
@@ -99,17 +102,33 @@ class ImportTest(TypeImportsCase):
             res_types=repository.resolve_type,
         )
 
-    def test_a_stylesheet_imports_the_stylesheet_of_another_type(self):
+    def test_a_stylesheet_imports_the_stylesheet_of_another_type_or_fails_clearly(self):
+        # a stylesheet imports the stylesheet of another type
         self.assertEqual(self.run_work(), "work by person")
 
-    def test_without_types_the_address_means_nothing(self):
+        # without types the address means nothing
         with self.assertRaises(xslt.XsltError):
             xslt.transform("<a/>", self.dirs["work"] / "view.xsl")
 
-    def test_a_stylesheet_given_as_text_works_too(self):
+        # a stylesheet given as text works too
         self.assertEqual(self.run_work(stylesheet=WORK), "work by person")
 
-    def test_imports_of_imported_files_are_followed(self):
+        # an unknown type or file is a clear error
+        for href, message in (
+            ("type:nobody/view.xsl", "no type"),
+            ("type:person/missing.xsl", "no such asset"),
+            ("type:person/../work/view.xsl", "not a path inside a type"),
+            ("type:person//view.xsl", "not a path inside a type"),
+        ):
+            text = sheet("", head=f'<xsl:import href="{href}"/>')
+            with self.assertRaises(xslt.XsltError, msg=href) as caught:
+                self.run_work(stylesheet=text)
+            self.assertIn(message, str(caught.exception), href)
+
+    def test_imports_of_imported_files_and_relative_imports_inside_a_type_are_followed(
+        self,
+    ):
+        # imports of imported files are followed
         (self.dirs["common"] / "base.xsl").write_text(
             sheet('<xsl:template name="who"><xsl:text>common</xsl:text></xsl:template>')
         )
@@ -118,7 +137,7 @@ class ImportTest(TypeImportsCase):
         )
         self.assertEqual(self.run_work(), "work by common")
 
-    def test_a_relative_import_inside_a_type_still_works(self):
+        # a relative import inside a type still works
         (self.dirs["person"] / "name.xsl").write_text(
             sheet(
                 '<xsl:template name="who"><xsl:text>relative</xsl:text></xsl:template>'
@@ -129,7 +148,10 @@ class ImportTest(TypeImportsCase):
         )
         self.assertEqual(self.run_work(), "work by relative")
 
-    def test_a_repository_can_give_a_type_other_files(self):
+    def test_a_repository_can_give_a_type_other_files_and_a_type_without_assets_cannot_be_imported(
+        self,
+    ):
+        # a repository can give a type other files
         elsewhere = self.root / "person-archive"
         elsewhere.mkdir()
         (elsewhere / "view.xsl").write_text(
@@ -145,19 +167,7 @@ class ImportTest(TypeImportsCase):
         )
         self.assertEqual(self.run_work(self.repository("test_repo")), "work by person")
 
-    def test_an_unknown_type_or_file_is_a_clear_error(self):
-        for href, message in (
-            ("type:nobody/view.xsl", "no type"),
-            ("type:person/missing.xsl", "no such asset"),
-            ("type:person/../work/view.xsl", "not a path inside a type"),
-            ("type:person//view.xsl", "not a path inside a type"),
-        ):
-            text = sheet("", head=f'<xsl:import href="{href}"/>')
-            with self.assertRaises(xslt.XsltError, msg=href) as caught:
-                self.run_work(stylesheet=text)
-            self.assertIn(message, str(caught.exception), href)
-
-    def test_a_type_without_assets_cannot_be_imported(self):
+        # a type without assets cannot be imported
         self.add_types("test_repo", {"person": self.dirs["person"]})
         with self.application.new_store("test_repo") as store:
             data = store.get("rec:type:10")

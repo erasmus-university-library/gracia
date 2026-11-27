@@ -37,7 +37,9 @@
     xmlns:g="https://gracia.pub/ns/"
     exclude-result-prefixes="#all">
 
-  <xsl:import href="type:type/xslt/doc/record-base-01.xsl"/>
+  <!-- the base (record-base-01.xsl) is not imported: the stylesheet of a repository is made of it
+       and of the docs of all its types, and a copy of the base inside each doc would outrank
+       the docs imported before it -->
 
   <xsl:variable name="w:schema" select="'https://schema.org/'"/>
   <!-- the classes of the series a work can be part of -->

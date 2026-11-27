@@ -74,7 +74,19 @@ class RegistryTest(PredicateCase):
         )  # nothing for it
         self.assertIsNone(predicates.find(self.config.registry, uri.NAME))
 
-    def test_two_predicates_for_one_property_are_a_conflict_at_commit(self):
+    def test_the_application_can_replace_one_that_comes_with_gracia_but_two_for_one_property_are_a_conflict_at_commit(  # noqa: E501
+        self,
+    ):
+        class Mine(Predicate):
+            uri = uri.LABEL
+
+        config = make_config(self.settings)
+        config.add_gracia_predicate(Mine)
+        config.commit()
+        config.begin()
+        self.addCleanup(config.end)
+        self.assertIsInstance(predicates.find(config.registry, uri.LABEL), Mine)
+
         class One(Predicate):
             uri = FOAF + "nick"
 
@@ -87,20 +99,9 @@ class RegistryTest(PredicateCase):
         with self.assertRaises(ConfigurationConflictError):
             config.commit()
 
-    def test_the_application_can_replace_one_that_comes_with_gracia(self):
-        class Mine(Predicate):
-            uri = uri.LABEL
-
-        config = make_config(self.settings)
-        config.add_gracia_predicate(Mine)
-        config.commit()
-        config.begin()
-        self.addCleanup(config.end)
-        self.assertIsInstance(predicates.find(config.registry, uri.LABEL), Mine)
-
 
 class RecordShapeTest(PredicateCase):
-    def test_the_shape_of_a_record_embeds_the_shape_of_its_content_on_gracia_resource(
+    def test_the_shape_of_a_record_embeds_the_shape_of_its_content_on_gracia_resource_and_a_type_without_a_shape_has_the_record_shape(  # noqa: E501
         self,
     ):
         self.config.begin()
@@ -124,8 +125,7 @@ class RecordShapeTest(PredicateCase):
         self.assertEqual(
             [c.value for c in required], [FOAF + "Person"]
         )  # and it has to be one
-
-    def test_a_type_without_a_shape_still_has_the_record_shape_and_its_class(self):
+        # a type without a shape still has the record shape and its class
         data, node = assets.record_shape(None, FOAF + "Person")
         properties = data.objects(node, ox.NamedNode(SH + "property"))
         self.assertEqual(len(properties), 7)
@@ -134,7 +134,9 @@ class RecordShapeTest(PredicateCase):
         ]
         self.assertEqual([c.value for c in classes], [FOAF + "Person"])
 
-    def test_the_fields_follow_sh_order_with_the_content_on_a_tab_of_its_own(self):
+    def test_the_fields_follow_sh_order_with_the_content_on_a_tab_of_its_own_and_every_node_knows_its_property(  # noqa: E501
+        self,
+    ):
         record = self.repo()["person"].find_record("1")
         self.assertEqual(
             [c.name for c in record.edit_schema().children],
@@ -152,9 +154,7 @@ class RecordShapeTest(PredicateCase):
         self.assertEqual(
             tabs, ["Person", "Record"]
         )  # the content is a tab, loose fields another
-
-    def test_every_node_knows_the_property_it_is_for(self):
-        record = self.repo()["person"].find_record("1")
+        # every node knows the property it is for
         schema = record.edit_schema()
         self.assertEqual(
             [c.predicate for c in schema.children],
@@ -177,7 +177,7 @@ class RecordShapeTest(PredicateCase):
 class PropertyCodeTest(PredicateCase):
     predicates = (MboxPredicate,)
 
-    def test_a_predicate_changes_the_field_the_shape_made_and_stores_the_value_itself(
+    def test_a_predicate_changes_the_field_the_shape_made_and_stores_the_value_itself_and_the_others_as_they_are(  # noqa: E501
         self,
     ):
         client = self.client(self.config)
@@ -187,19 +187,17 @@ class PropertyCodeTest(PredicateCase):
             client.get("/test_repo/person/1/edit", headers=self.admin).text,
         )
         form["mbox"] = "ADA@Example.ORG"
+        form["name"] = "Ada KING"
         self.assertEqual(form.submit("save", headers=self.admin).status_int, 302)
         self.assertIn((FOAF + "mbox", "ada@example.org"), self.values("rec:person:1"))
-
-    def test_a_property_with_no_predicate_is_stored_as_it_is(self):
-        client = self.client(self.config)
-        form = client.get("/test_repo/person/1/edit", headers=self.admin).forms[0]
-        form["name"] = "Ada KING"
-        form.submit("save", headers=self.admin)
+        # a property with no predicate is stored as it is
         self.assertIn((FOAF + "name", "Ada KING"), self.values("rec:person:1"))
 
 
 class ResourceUriTest(PredicateCase):
-    def test_a_new_record_gets_the_ark_from_the_predicate(self):
+    def test_a_new_record_gets_the_ark_from_the_predicate_and_the_core_has_no_code_for_it(
+        self,
+    ):
         client = self.client(self.config)
         form = client.get("/test_repo/person/add", headers=self.admin).forms[0]
         form["name"] = "Grace"
@@ -207,12 +205,10 @@ class ResourceUriTest(PredicateCase):
         self.assertIn(
             (uri.RESOURCE_URI, "ark:/99999/ir/person/2"), self.values("rec:person:2")
         )
-
-    def test_the_core_and_the_extension_have_no_code_for_it(self):
         from gracia.extensions import ark
 
         self.assertFalse(hasattr(record_module.Record, "default_resource_uri"))
-        self.assertFalse(hasattr(ark, "ResourceUriPredicate"))
+        self.assertFalse(hasattr(ark, "ResourceUriPredicate"))  # no code of its own
 
 
 class SchemaTest(PredicateCase):
@@ -223,13 +219,8 @@ class SchemaTest(PredicateCase):
             re.findall(r'<option[^>]*value="([^"]+)"', select),
             ["person-minimal-01.ttl", "person-unittest-01.ttl"],
         )
-
-    def test_the_other_fields_of_the_type_record_stay_text_fields(self):
-        page = self.page("/test_repo/person/manage").text
-        for name in ("name", "slug", "assets"):
+        for name in ("name", "slug", "assets"):  # the other fields stay text fields
             self.assertRegex(page, rf'<input type="text" name="{name}"')
-
-    def test_the_predicate_is_the_one_for_gracia_schema_wherever_the_shape_has_it(self):
         self.config.begin()
         self.addCleanup(self.config.end)
         self.assertIsInstance(
@@ -274,7 +265,9 @@ class BatchHookTest(PredicateCase):
         )
         return ox.Dataset(ox.parse(text.encode(), format=ox.RdfFormat.TURTLE))
 
-    def test_every_record_of_the_batch_goes_through_the_sql_and_nothing_is_stored(self):
+    def test_every_record_of_the_batch_goes_through_the_sql_nothing_is_stored_and_again_gives_the_same_rows(  # noqa: E501
+        self,
+    ):
         node = self.repo()
         before = node.store.counts()
         done = node.store.apply_hooks(self.people())
@@ -283,14 +276,9 @@ class BatchHookTest(PredicateCase):
         labels = {q.object.value for q in done if q.predicate.value == uri.LABEL}
         self.assertEqual(labels, {"P1", "P2", "P3"})  # the predicates of gracia run too
         self.assertEqual(node.store.counts(), before)  # a trial leaves nothing behind
-
-    def test_the_same_sql_again_gives_the_same_rows(self):
-        node = self.repo()
-        once = node.store.apply_hooks(self.people())
+        # the same sql again gives the same rows
+        once = done
         twice = node.store.apply_hooks(once)
-        # modified_at is the time of the run: a text that differs from what is stored is
-        # modified
-        # now
 
         def same(graph):
             return {str(q) for q in graph if q.predicate.value != uri.MODIFIED_AT}

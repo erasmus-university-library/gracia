@@ -45,18 +45,18 @@ class LookupCase(SearchCase):
 
 
 class LookupTest(LookupCase):
-    def test_every_word_is_the_beginning_of_a_word_of_the_label(self):
+    def test_every_word_is_the_beginning_of_a_word_of_the_label_nothing_typed_is_every_record_and_it_says_how_many(
+        self,
+    ):
         self.assertEqual(self.labels("lov"), ["Ada Lovelace", "Lovelace Foundation"])
         self.assertEqual(self.labels("ada lov"), ["Ada Lovelace"])
         self.assertEqual(self.labels("A"), ["Ada Byron", "Ada Lovelace"])
         self.assertEqual(self.labels("babbage ch"), ["Charles Babbage"])
-
-    def test_what_is_not_the_beginning_of_a_word_is_not_found(self):
+        # what is not the beginning of a word is not found
         self.assertEqual(self.labels("velace"), [])
         self.assertEqual(self.labels("zzz"), [])
         self.assertEqual(self.labels("ada zzz"), [])
-
-    def test_nothing_typed_is_every_record_by_label(self):
+        # nothing typed is every record by label
         everyone = [
             "Ada Byron",
             "Ada Lovelace",
@@ -69,13 +69,11 @@ class LookupTest(LookupCase):
         self.assertEqual(
             self.labels("", [FOAF]), ["Ada Byron", "Ada Lovelace", "Charles Babbage"]
         )
-
-    def test_it_says_how_many_there_are(self):
+        # it says how many there are
         count, found = self.indexes.lookup("main", RECORDS, "lov")
         self.assertEqual((count, len(found)), (2, 2))
         self.assertEqual(self.indexes.lookup("main", RECORDS, "zzz"), (0, []))
-
-    def test_of_a_great_many_only_the_cap_is_taken_and_the_count_is_all_of_them(self):
+        # of a great many only the cap is taken and the count is all of them
         with patch("gracia.search.LOOKUP_CAP", 2):
             count, found = self.indexes.lookup("main", RECORDS, "")
         self.assertEqual((count, len(found)), (4, 2))
@@ -89,26 +87,24 @@ class LookupTest(LookupCase):
         )  # of the classes that are asked for
         self.assertEqual(self.labels("4"), ["Lovelace Foundation"])
         self.assertEqual(self.labels("99"), [])
-
-    def test_the_record_of_the_number_comes_before_labels_that_begin_with_it(self):
+        # a number among words is a word
+        self.assertEqual(self.labels("ada 3"), [])
+        self.assertEqual(self.labels("charles 3"), [])
+        # the record of the number comes before labels that begin with it
         self.add(person(5, "3D Printing"), person(6, "Zed"))
         self.handle()
         self.assertEqual(self.labels("3"), ["Charles Babbage", "3D Printing"])
         self.assertEqual(self.labels("3d"), ["3D Printing"])  # not only digits: a word
 
-    def test_a_number_among_words_is_a_word(self):
-        self.assertEqual(self.labels("ada 3"), [])
-        self.assertEqual(self.labels("charles 3"), [])
-
-    def test_the_resources_are_of_the_rdf_types_that_are_asked_for(self):
+    def test_the_resources_are_of_the_rdf_types_that_are_asked_for_and_a_hit_says_what_to_point_at(
+        self,
+    ):
         self.assertEqual(self.labels("lov", [FOAF]), ["Ada Lovelace"])
         self.assertEqual(self.labels("lov", [ORG]), ["Lovelace Foundation"])
         self.assertEqual(
             self.labels("lov", [FOAF, ORG]), ["Ada Lovelace", "Lovelace Foundation"]
         )
         self.assertEqual(self.labels("lov", ["https://schema.org/Book"]), [])
-
-    def test_a_hit_says_what_to_point_at(self):
         _count, (hit,) = self.indexes.lookup("main", RECORDS, "babbage", [FOAF])
         self.assertEqual(hit["record"], "rec:person:3")
         self.assertEqual(hit["resource_uri"], "ark:/1/person/3")
@@ -116,7 +112,9 @@ class LookupTest(LookupCase):
         self.assertEqual(hit["type"], "person")
         self.assertTrue(hit["published"])
 
-    def test_an_index_without_the_type_of_the_resource_cannot_filter_by_it(self):
+    def test_an_index_without_the_type_of_the_resource_cannot_filter_by_it_and_one_that_is_not_there_is_missing(
+        self,
+    ):
         without = replace(
             RECORDS,
             fields=tuple(f for f in RECORDS.fields if f.name != "resource_type"),
@@ -126,8 +124,6 @@ class LookupTest(LookupCase):
         with self.assertRaisesRegex(LookupError, "resource_type"):
             self.indexes.lookup("main", without, "lov", [FOAF])
         self.assertEqual(self.indexes.lookup("main", without, "lov"), (0, []))  # none
-
-    def test_an_index_that_is_not_there_is_said_to_be_missing(self):
         other = IndexDefinition("nothing", (Field("label", "text"),))
         with self.assertRaisesRegex(LookupError, "missing"):
             self.indexes.lookup("main", other, "lov")

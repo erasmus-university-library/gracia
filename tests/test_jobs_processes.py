@@ -1,6 +1,7 @@
 import contextlib
 import io
 import os
+import shutil
 import signal
 import time
 import uuid
@@ -172,13 +173,11 @@ class SpawnTest(ProcessCase):
         with self.assertRaises(procs.JobStateError):
             self.start(job_id)  # done
 
-    def test_a_job_that_fails_in_its_process_says_why(self):
+    def test_a_job_that_fails_in_its_process_says_why_and_can_be_started_again(self):
         job_id = self.make(echo(fail_batch=0))
         self.start(job_id)
         job = self.wait_for(job_id, ("failed",))
         self.assertEqual(job["error_msg"], "batch 0 was asked to fail")
-
-    def test_a_failed_job_can_be_started_again_and_does_what_is_left(self):
         fail = self.tmp / "fail"
         fail.write_text("")
         job_id = self.make(echo(n_items=4, size=2, fail_batch=1, fail_file=str(fail)))
@@ -243,7 +242,18 @@ class StopTest(ProcessCase):
             time.sleep(0.05)
         self.fail("a process of the job's group is still there")
 
-    def test_stopping_what_is_not_running(self):
+    def test_a_stopped_job_can_be_started_again(self):
+        job_id = self.running(n_items=8, size=1)
+        started = time.monotonic()
+        self.assertEqual(self.stop(job_id, grace=60, now=True), "stopped")
+        self.assertLess(time.monotonic() - started, 10)  # now: no grace period
+        self.hold.unlink()
+        self.start(job_id)
+        job = self.wait_for(job_id, ("done", "failed"))
+        self.assertEqual((job["state"], job["attempt"]), ("done", 1))
+        self.assertEqual(self.stage(job_id, "Echo")["processed"], 8)
+
+    def test_what_is_not_running_or_not_ours_is_not_stopped_or_signalled(self):
         queued = self.make(ECHO)
         self.assertEqual(
             self.stop(queued), "stopped"
@@ -256,19 +266,7 @@ class StopTest(ProcessCase):
         self.assertEqual(self.job(done)["state"], "done")
         with self.assertRaises(KeyError):
             self.stop("00000000-0000-0000-0000-000000000000")
-
-    def test_a_stopped_job_can_be_started_again(self):
-        job_id = self.running(n_items=8, size=1)
-        started = time.monotonic()
-        self.assertEqual(self.stop(job_id, grace=60, now=True), "stopped")
-        self.assertLess(time.monotonic() - started, 10)  # now: no grace period
-        self.hold.unlink()
-        self.start(job_id)
-        job = self.wait_for(job_id, ("done", "failed"))
-        self.assertEqual((job["state"], job["attempt"]), ("done", 1))
-        self.assertEqual(self.stage(job_id, "Echo")["processed"], 8)
-
-    def test_a_pid_that_is_not_the_job_is_never_signalled(self):
+        # a pid that is not the job is never signalled
         job_id = self.make(ECHO)
         with JobsDb(self.application) as db:
             db.update_job(
@@ -282,8 +280,7 @@ class StopTest(ProcessCase):
             )
             self.assertEqual(procs.stop_job(db, job_id, grace=0.2), "stopped")
         self.assertTrue(procs.is_alive(os.getpid()))  # this very process is still here
-
-    def test_a_job_of_another_host_is_not_stopped_from_here(self):
+        # a job of another host is not stopped from here
         job_id = self.make(ECHO)
         with JobsDb(self.application) as db:
             db.update_job(
@@ -308,8 +305,11 @@ class ReconcileTest(ProcessCase):
         job_id = self.make(self.held(n_items=2, size=1))
         pid = self.start(job_id)
         self.wait_started()
+        started = procs.start_time(pid)
         os.kill(pid, signal.SIGKILL)  # as the out-of-memory killer would
         time.sleep(0.3)
+        # a process that has ended but is not yet collected counts as gone
+        self.assertFalse(procs.is_alive(pid, started))
         with JobsDb(self.application) as db:
             self.assertEqual(procs.reconcile(db, self.jobs_dir), [job_id])
             job = db.get(job_id)
@@ -323,27 +323,9 @@ class ReconcileTest(ProcessCase):
         self.start(job_id)
         self.assertEqual(self.wait_for(job_id, ("done", "failed"))["state"], "done")
 
-    def test_the_last_words_of_a_process_are_used_when_there_are_some(self):
-        job_id = self.make(ECHO)
-        (self.jobs_dir / job_id).mkdir(parents=True)
-        (self.jobs_dir / job_id / "exit.json").write_text(
-            '{"state": "failed", "error": "it ran out of room"}'
-        )
-        with JobsDb(self.application) as db:
-            db.update_job(
-                job_id,
-                {
-                    "state": "running",
-                    "pid": 2**22 - 3,
-                    "pid_started": 5,
-                    "host": os.uname().nodename,
-                    "started_at": NOW,
-                },
-            )
-            procs.reconcile(db, self.jobs_dir)
-            self.assertEqual(db.get(job_id)["error_msg"], "it ran out of room")  # ty: ignore[not-subscriptable]
-
-    def test_a_live_job_a_young_job_and_a_job_of_another_host_are_left_alone(self):
+    def test_a_live_job_a_young_job_and_a_job_of_another_host_are_left_alone_and_the_last_words_are_used(
+        self,
+    ):
         live = self.make(self.held(n_items=1, size=1))
         self.start(live)
         self.wait_started()
@@ -381,18 +363,24 @@ class ReconcileTest(ProcessCase):
                 db.get(elsewhere)["state"],  # ty: ignore[not-subscriptable]
                 "running",
             )  # a pid of another host means nothing
-
-    def test_a_process_that_has_ended_but_is_not_yet_collected_counts_as_gone(self):
-        job_id = self.make(self.held(n_items=1, size=1))
-        pid = self.start(job_id)
-        self.wait_started()
-        started = procs.start_time(pid)
-        os.kill(pid, signal.SIGKILL)
-        time.sleep(0.3)
-        self.assertFalse(
-            procs.is_alive(pid, started)
-        )  # a zombie, until it is collected
-        procs.reap_children()
+            # the last words of a process are used when there are some
+            job_id = self.make(ECHO)
+            (self.jobs_dir / job_id).mkdir(parents=True)
+            (self.jobs_dir / job_id / "exit.json").write_text(
+                '{"state": "failed", "error": "it ran out of room"}'
+            )
+            db.update_job(
+                job_id,
+                {
+                    "state": "running",
+                    "pid": 2**22 - 3,
+                    "pid_started": 5,
+                    "host": os.uname().nodename,
+                    "started_at": NOW,
+                },
+            )
+            procs.reconcile(db, self.jobs_dir)
+            self.assertEqual(db.get(job_id)["error_msg"], "it ran out of room")  # ty: ignore[not-subscriptable]
 
 
 class CleanTest(ProcessCase):
@@ -421,6 +409,16 @@ class CleanTest(ProcessCase):
         )
         running = self.make(ECHO)
         (self.jobs_dir / running).mkdir(parents=True)
+        with JobsDb(self.application) as db:  # a running job is never cleaned
+            db.update_job(
+                running,
+                {"state": "running", "finished_at": naive_utc(timedelta(days=9))},
+            )
+        report = self.clean(dry_run=True)  # a dry run only reports
+        self.assertEqual(sorted(report.jobs), sorted([old, older]))
+        self.assertTrue(report.dry_run)
+        self.assertIsNotNone(self.job(old))
+        self.assertTrue((self.jobs_dir / old).exists())
         report = self.clean()
         self.assertEqual(sorted(report.jobs), sorted([old, older]))
         self.assertGreaterEqual(report.bytes, 4096)
@@ -430,29 +428,15 @@ class CleanTest(ProcessCase):
         for kept in (recent, running):
             self.assertIsNotNone(self.job(kept))
             self.assertTrue((self.jobs_dir / kept).exists())
+        self.assertEqual(self.clean().jobs, [])  # running it twice is harmless
 
-    def test_a_running_job_is_never_cleaned_however_old(self):
-        job_id = self.make(ECHO)
-        with JobsDb(self.application) as db:
-            db.update_job(
-                job_id,
-                {"state": "running", "finished_at": naive_utc(timedelta(days=9))},
-            )
-        self.assertEqual(self.clean().jobs, [])
+    def test_a_jobs_directory_that_is_not_there_has_nothing_to_remove(self):
+        shutil.rmtree(self.jobs_dir, ignore_errors=True)
+        self.assertEqual(self.clean().orphans, [])
 
-    def test_a_dry_run_only_reports(self):
-        old = self.finished(9)
-        report = self.clean(dry_run=True)
-        self.assertEqual((report.jobs, report.dry_run), ([old], True))
-        self.assertIsNotNone(self.job(old))
-        self.assertTrue((self.jobs_dir / old).exists())
-
-    def test_running_it_twice_is_harmless(self):
-        self.finished(9)
-        self.assertEqual(len(self.clean().jobs), 1)
-        self.assertEqual(self.clean().jobs, [])
-
-    def test_a_directory_left_without_a_row_goes_after_the_same_period(self):
+    def test_a_directory_left_without_a_row_goes_after_the_same_period_and_only_a_uuid_one_is_removed(
+        self,
+    ):
         orphan, young = str(uuid.uuid4()), str(uuid.uuid4())
         for name in (orphan, young):
             (self.jobs_dir / name).mkdir(parents=True)
@@ -463,8 +447,7 @@ class CleanTest(ProcessCase):
         self.assertEqual(report.orphans, [orphan])
         self.assertFalse((self.jobs_dir / orphan).exists())
         self.assertTrue((self.jobs_dir / young).exists())
-
-    def test_only_a_uuid_directory_inside_the_jobs_directory_is_ever_removed(self):
+        # only a uuid directory inside the jobs directory is ever removed
         outside = self.tmp / "precious"
         outside.mkdir()
         (outside / "file").write_text("keep me")
@@ -529,7 +512,9 @@ class CommandsTest(ProcessCase):
         self.assertEqual(code, 1)
         self.assertIn("cannot start", err)
 
-    def test_a_job_that_is_not_valid_is_refused_with_every_reason(self):
+    def test_a_job_that_is_not_valid_is_refused_with_every_reason_and_create_takes_stdin(
+        self,
+    ):
         spec = self.tmp / "bad.json"
         spec.write_text(
             '{"repo": "test_repo", "stages": [{"stage": "Nope"},'
@@ -543,15 +528,11 @@ class CommandsTest(ProcessCase):
         self.assertEqual(
             self.cli("jobs", "list", "--json")[1].strip(), "[]"
         )  # nothing was made
-
-    def test_a_repository_that_does_not_exist_is_refused(self):
         code, _, err = self.cli(
             "jobs", "validate", "--repo", "nowhere", "--type", "person"
         )
         self.assertEqual(code, 1)
         self.assertIn("no such repository: nowhere", err)
-
-    def test_create_takes_a_job_from_stdin(self):
         with mock.patch(
             "sys.stdin",
             io.StringIO('{"repo": "test_repo", "stages": [{"stage": "Echo"}]}'),

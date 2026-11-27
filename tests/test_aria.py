@@ -1,11 +1,11 @@
-import base64
+"""What a screen reader gets of the forms: names, groups, errors, tabs and icons."""
+
 import re
 
 from bs4 import BeautifulSoup, Tag
-from harness import BUNDLED, ConfiguredCase
+from widgets_support import FormCase
 
-AUTH = {"Authorization": "Basic " + base64.b64encode(b"admin:correct horse").decode()}
-ADD = "/test_repo/person/add"
+ADD = "/test_repo/gadget/add"
 
 
 def one(page: BeautifulSoup | Tag, selector: str) -> Tag:
@@ -18,46 +18,27 @@ def attr(tag: Tag, name: str) -> str:
     return str(tag.get(name))
 
 
-class AriaTest(ConfiguredCase):
-    def setUp(self):
-        super().setUp()
-        self.application.create_repository(
-            "test_repo",
-            admin=("admin", "correct horse"),
-            content_types=[BUNDLED["person"]],
-        )
-        self.web = self.client()
-
+class AriaTest(FormCase):
     def soup(self, html: str) -> BeautifulSoup:
         return BeautifulSoup(html, "html.parser")
 
     def with_errors(self) -> str:
-        # an address that is not complete, and an alternate name with a language that
-        # is not one
-        form = self.web.get(ADD, headers=AUTH).forms[0]
-        out = []
-        for name, value in form.submit_fields("save"):
-            out.append((name, "Ada" if name == "name" else value))
-            if (name, value) == ("__start__", "address:sequence"):
-                out += [
-                    ("__start__", "item:mapping"),
-                    ("streetAddress", "x"),
-                    ("postalCode", ""),
-                    ("addressLocality", ""),
-                    ("addressCountry", ""),
-                    ("__end__", "item:mapping"),
-                ]
-            if (name, value) == ("__start__", "alternateName:sequence"):
-                out += [
-                    ("__start__", "item:mapping"),
-                    ("value", "Ada"),
-                    ("lang", "not a code"),
-                    ("__end__", "item:mapping"),
-                ]
-        return self.web.post(ADD, params=out, headers=AUTH, expect_errors=True).text
+        # a place that is not complete, and an alias with a language that is not one
+        response = self.post(
+            ADD,
+            rows={
+                "place": [
+                    [("street", "x"), ("code", ""), ("city", ""), ("country", "")]
+                ],
+                "alias": [[("value", "Ada"), ("lang", "not a code")]],
+            },
+        )
+        return response.text
 
-    def test_every_control_has_a_name_a_screen_reader_can_find(self):
-        page = self.soup(self.web.get(ADD, headers=AUTH).text)
+    def test_every_control_has_a_name_and_the_tabs_and_their_panels_name_each_other(
+        self,
+    ):
+        page = self.soup(self.page(ADD))
         unnamed = []
         for e in page.find_all(["input", "select", "textarea"]):
             if e.get("type") in ("hidden", "submit", "button"):
@@ -70,32 +51,32 @@ class AriaTest(ConfiguredCase):
             if not named:
                 unnamed.append(e.get("name"))
         self.assertEqual(unnamed, [])
+        self.assertEqual(page.select("[aria-invalid]"), [])  # none is wrong yet
+        tabs = page.select("[data-bs-toggle=tab]")
+        self.assertEqual(len(tabs), 2)
+        for tab in tabs:
+            panel = one(page, "#" + attr(tab, "aria-controls"))
+            self.assertEqual(panel.get("role"), "tabpanel")
+            self.assertEqual(panel.get("aria-labelledby"), tab.get("id"))
 
-    def test_the_rows_of_a_list_are_named_by_the_list_and_their_place(self):
-        page = self.soup(self.web.get(ADD, headers=AUTH).text)
-        bag = one(page, "#bag-alternateName")
+    def test_the_rows_and_the_nodes_of_a_list_are_groups_named_by_the_list_and_their_place(
+        self,
+    ):
+        html = self.page(ADD)
+        page = self.soup(html)
+        bag = one(page, "#bag-alias")
         self.assertEqual(attr(bag, "role"), "group")
-        self.assertEqual(attr(bag, "aria-labelledby"), "req-bag-alternateName")
-        self.assertIsNotNone(
-            page.find(id="req-bag-alternateName")
-        )  # the label is there
+        self.assertEqual(attr(bag, "aria-labelledby"), "req-bag-alias")
+        self.assertIsNotNone(page.find(id="req-bag-alias"))  # the label is there
         row = one(bag, ".bag-item")
+        self.assertEqual(attr(one(row, "input[name=value]"), "aria-label"), "alias 1")
         self.assertEqual(
-            attr(one(row, "input[name=value]"), "aria-label"), "alternate name 1"
+            attr(one(row, "input[name=lang]"), "aria-label"), "alias 1, language"
         )
-        self.assertEqual(
-            attr(one(row, "input[name=lang]"), "aria-label"),
-            "alternate name 1, language",
-        )
-
-    def test_the_buttons_say_what_they_add(self):
-        page = self.web.get(ADD, headers=AUTH).text
-        self.assertIn('aria-label="Add alternate name"', page)
-
-    def test_the_lists_of_nodes_are_groups_with_their_label(self):
-        group = one(self.soup(self.web.get(ADD, headers=AUTH).text), "#nodes-address")
+        self.assertIn('aria-label="Add alias"', html)  # the buttons say what they add
+        group = one(page, "#nodes-place")
         self.assertEqual(attr(group, "role"), "group")
-        self.assertEqual(attr(group, "aria-labelledby"), "req-nodes-address")
+        self.assertEqual(attr(group, "aria-labelledby"), "req-nodes-place")
 
     def test_a_field_that_is_wrong_is_invalid_and_points_at_its_message(self):
         page = self.soup(self.with_errors())
@@ -105,26 +86,12 @@ class AriaTest(ConfiguredCase):
             message = page.select_one("#" + attr(e, "aria-describedby"))
             assert message is not None, e.get("name")  # the message is there
             self.assertTrue(message.get_text(strip=True))
-
-    def test_the_language_that_is_wrong_points_at_the_message_of_its_widget(self):
-        page = self.soup(self.with_errors())
-        lang = one(page, "#bag-alternateName input[name=lang]")
+        lang = one(
+            page, "#bag-alias input[name=lang]"
+        )  # the one of the language widget
         self.assertEqual(attr(lang, "aria-invalid"), "true")
         message = one(page, "#" + attr(lang, "aria-describedby"))
         self.assertIn("Not a language code", message.get_text())
-
-    def test_a_field_that_is_right_is_not_marked_invalid(self):
-        page = self.soup(self.web.get(ADD, headers=AUTH).text)
-        self.assertEqual(page.select("[aria-invalid]"), [])
-
-    def test_the_tabs_and_their_panels_name_each_other(self):
-        page = self.soup(self.web.get(ADD, headers=AUTH).text)
-        tabs = page.select("[data-bs-toggle=tab]")
-        self.assertEqual(len(tabs), 2)
-        for tab in tabs:
-            panel = one(page, "#" + attr(tab, "aria-controls"))
-            self.assertEqual(panel.get("role"), "tabpanel")
-            self.assertEqual(panel.get("aria-labelledby"), tab.get("id"))
 
     def test_the_icons_are_hidden_from_a_screen_reader(self):
         html = self.with_errors()
@@ -136,5 +103,5 @@ class AriaTest(ConfiguredCase):
         node = one(self.soup(self.with_errors()), ".blank-node")
         self.assertIsNone(one(node, "summary").find("button"))  # not in the summary
         remove = one(node, "button.bar-remove")
-        self.assertEqual(attr(remove, "aria-label"), "Remove address 1")
+        self.assertEqual(attr(remove, "aria-label"), "Remove place 1")
         self.assertIsNone(remove.find_parent("details"))

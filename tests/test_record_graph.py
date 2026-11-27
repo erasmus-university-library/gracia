@@ -37,7 +37,9 @@ class RecordGraphTest(EtagCase):
             if isinstance(q.subject, ox.NamedNode)
         }
 
-    def test_a_row_for_every_etag_with_the_columns_of_the_etag(self):
+    def test_a_row_for_every_etag_with_a_trig_graph_of_the_record_and_all_it_is_made_of(
+        self,
+    ):
         rows = self.store.con.execute(RG + " ORDER BY record_id").fetchall()
         etags = self.store.con.execute(
             "SELECT record_id, record_uri, record_type, etag, last_modified_at FROM "
@@ -47,9 +49,6 @@ class RecordGraphTest(EtagCase):
         self.assertEqual([r[:5] for r in rows], etags)
         self.assertEqual(len(rows), 5)
 
-    def test_the_graph_is_trig_named_by_the_record_and_holds_the_record_and_all_it_is_made_of(  # noqa: E501
-        self,
-    ):
         graphs = self.graphs()
         for rec_uri, trig in graphs.items():
             self.assertTrue(trig.startswith(f"<{rec_uri}> {{\n"), trig[:40])
@@ -76,9 +75,6 @@ class RecordGraphTest(EtagCase):
         )  # nothing to point at
         self.assertEqual(self.subjects(graphs["rec:person:2"]), {"rec:person:2"})
 
-    def test_the_graph_is_the_sources_of_the_records_joined_by_a_newline_the_record_first(  # noqa: E501
-        self,
-    ):
         sources = dict(
             self.store.con.execute(
                 "SELECT record_uri(record_id), source FROM records"
@@ -94,7 +90,6 @@ class RecordGraphTest(EtagCase):
             + "\n}",
         )
 
-    def test_the_graph_has_the_triples_of_the_sources_and_no_others(self):
         quads = list(
             ox.parse(self.graphs()["rec:person:1"].encode(), format=ox.RdfFormat.TRIG)
         )
@@ -153,7 +148,9 @@ class RecordGraphTest(EtagCase):
             trig.count("<rec:person:1> <https://gracia.pub/ns/resource_uri>"), 1
         )
 
-    def test_every_repository_reads_its_own_records(self):
+    def test_every_repository_reads_its_own_records_and_an_iri_in_the_name_is_encoded_like_the_sources(
+        self,
+    ):
         other = open_store(self.db, repo="other", create=True)
         self.addCleanup(other.close)
         other.set_type_ids([("work", 6)])
@@ -166,7 +163,6 @@ class RecordGraphTest(EtagCase):
         )
         self.assertEqual(len(self.graphs()), 5)
 
-    def test_an_iri_in_the_name_is_encoded_like_the_sources(self):
         self.assertEqual(
             fetch_one(
                 self.store.con.execute(

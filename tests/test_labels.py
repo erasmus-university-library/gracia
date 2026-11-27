@@ -53,32 +53,31 @@ class LabelCase(WebCase):
 
 
 class LabelTest(LabelCase):
-    def test_the_label_is_copied_from_the_content_by_the_label_role_of_the_shape(self):
+    def test_the_label_is_copied_from_the_content_by_the_label_role_and_follows_it(
+        self,
+    ):
         self.add_person("Ada Lovelace")
         self.assertEqual(
             self.labels("rec:person:1"), ["Ada Lovelace"]
         )  # one, on the record
-
-    def test_the_label_follows_the_content(self):
-        self.add_person("Ada Lovelace")
         form = self.web.get("/test_repo/person/1/edit", headers=ADMIN).forms[0]
         form["name"] = "Ada King"
         form.submit("save", headers=POSTING)
         self.assertEqual(self.labels("rec:person:1"), ["Ada King"])
+        body = self.web.get(
+            "/test_repo/person/1", headers={**ADMIN, "Accept": "application/json"}
+        ).json
+        self.assertEqual(body["record"][uri.LABEL], ["Ada King"])
 
-    def test_the_title_of_the_edit_form_is_the_label(self):
+    def test_the_label_is_the_title_of_the_edit_form_and_a_field_that_is_not_taken_from_the_form(
+        self,
+    ):
         self.add_person("Ada Lovelace")
         page = self.web.get("/test_repo/person/1/edit", headers=ADMIN).text
         self.assertRegex(
             page, r'<h1 class="h3 mb-0 form-heading">\s*Ada Lovelace\s*</h1>'
         )
         self.assertIn("rec:person:1", page)  # the key stays as the subtitle
-
-    def test_the_label_is_a_read_only_field_that_is_shown_and_not_taken_from_the_form(
-        self,
-    ):
-        self.add_person("Ada Lovelace")
-        page = self.web.get("/test_repo/person/1/edit", headers=ADMIN).text
         field = must_search(r'<input[^>]*name="label"[^>]*>', page)[0]
         self.assertIn("readonly", field)
         self.assertIn('value="Ada Lovelace"', field)
@@ -88,13 +87,6 @@ class LabelTest(LabelCase):
         self.assertEqual(
             self.labels("rec:person:1"), ["Ada Lovelace"]
         )  # made from the content
-
-    def test_the_json_of_a_record_has_its_label(self):
-        self.add_person("Ada Lovelace")
-        body = self.web.get(
-            "/test_repo/person/1", headers={**ADMIN, "Accept": "application/json"}
-        ).json
-        self.assertEqual(body["record"][uri.LABEL], ["Ada Lovelace"])
 
     def test_a_record_without_a_label_is_called_unnamed(self):
         with self.application.new_store("test_repo") as store:
@@ -122,7 +114,9 @@ class EveryTypeTest(LabelCase):
             ["Repository", "Type", "User", "UserGroup", "Person"],  # their names
         )
 
-    def test_editing_a_user_a_group_and_a_type_keeps_their_labels_right(self):
+    def test_editing_a_user_a_group_a_type_and_the_repository_keeps_their_labels_right(
+        self,
+    ):
         form = self.web.get("/test_repo/group/2/edit", headers=ADMIN).forms[0]
         form["name"] = "editors"
         form.submit("save", headers=POSTING)
@@ -132,10 +126,8 @@ class EveryTypeTest(LabelCase):
         form["password"] = ""
         form.submit("save", headers=POSTING)
         self.assertEqual(self.labels("rec:user:1"), ["root"])
-
-    def test_the_label_of_the_repository_follows_its_title(self):
         form = self.web.get("/test_repo/manage", headers=ADMIN).forms[0]
-        form["title"] = "The Library"
+        form["title"] = "The Library"  # the label of the repository follows its title
         self.assertEqual(form.submit("save", headers=POSTING).status_int, 302)
         self.assertEqual(self.labels("rec:repository:1"), ["The Library"])
 
@@ -147,21 +139,17 @@ class NameTest(LabelCase):
             form[name] = text
         return form.submit("save", headers=POSTING)
 
-    def test_an_empty_name_follows_from_the_two_parts_and_so_does_the_label(self):
+    def test_a_name_follows_from_the_two_parts_unless_a_part_is_missing(self):
         self.assertEqual(
             self.submit(name="", givenName="Ada", familyName="Lovelace").status_int, 302
-        )
+        )  # an empty name follows from the two parts, and so does the label
         self.assertEqual(self.labels("rec:person:1"), ["Ada Lovelace"])
-
-    def test_a_name_that_is_there_gives_way_when_the_two_parts_are(self):
         self.submit(name="Countess of Lovelace", givenName="Ada", familyName="Lovelace")
-        self.assertEqual(self.labels("rec:person:1"), ["Ada Lovelace"])
-
-    def test_a_name_that_is_there_is_kept_when_a_part_is_missing(self):
+        self.assertEqual(self.labels("rec:person:2"), ["Ada Lovelace"])  # it gives way
         self.submit(name="Countess of Lovelace", givenName="Ada")
-        self.assertEqual(self.labels("rec:person:1"), ["Countess of Lovelace"])
+        self.assertEqual(self.labels("rec:person:3"), ["Countess of Lovelace"])  # kept
         self.submit(name="Ada")  # a name alone is fine
-        self.assertEqual(self.labels("rec:person:2"), ["Ada"])
+        self.assertEqual(self.labels("rec:person:4"), ["Ada"])
 
     def test_nothing_or_one_part_is_refused_at_the_name_and_nothing_is_stored(self):
         for fields in ({}, {"givenName": "Ada"}, {"familyName": "Lovelace"}):
@@ -239,7 +227,9 @@ class LabelSqlTest(unittest.TestCase):
             {"rec:person:1": "Lovelace Countess"},
         )
 
-    def test_of_several_values_the_shallowest_one_wins_and_a_label_is_made_again(self):
+    def test_the_shallowest_value_wins_and_no_value_or_role_is_no_label_and_other_types_are_left_alone(
+        self,
+    ):
         rows = [
             (
                 "rec:person:1",
@@ -248,11 +238,9 @@ class LabelSqlTest(unittest.TestCase):
                 "Deep",
             ),
             ("rec:person:1", ["g:resource", "_:1"], self.NAME, "Near"),
-            ("rec:person:1", [], uri.LABEL, "Old label"),
+            ("rec:person:1", [], uri.LABEL, "Old label"),  # a label is made again
         ]
         self.assertEqual(self.labels([self.NAME], rows), {"rec:person:1": "Near"})
-
-    def test_no_value_or_no_role_is_no_label_and_other_types_are_left_alone(self):
         rows = [
             ("rec:person:1", [], uri.LABEL, "Old"),
             ("rec:book:1", [], uri.LABEL, "Kept"),
@@ -266,19 +254,17 @@ class EditorLoadingTest(LabelCase):
     def has_editor(self, path, headers=ADMIN):
         return "codemirror" in self.web.get(path, headers=headers).text
 
-    def test_the_extensions_tab_loads_the_editor(self):
+    def test_the_extensions_tab_loads_the_editor_and_other_pages_do_not(self):
         page = self.web.get("/test_repo/manage", headers=ADMIN).text
         self.assertIn("codemirror", page)
         self.assertIn('data-editor="json"', page)
-
-    def test_other_pages_do_not(self):
         self.add_person()
         self.assertFalse(self.has_editor("/test_repo/person/1/edit"))
         self.assertFalse(self.has_editor("/test_repo/person/add"))
         self.assertFalse(self.has_editor("/test_repo", headers={}))
 
 
-class CodeWidgetTest(LabelCase):
+class CodeWidgetTest(unittest.TestCase):
     def test_a_code_widget_names_its_mode_and_loads_the_editor(self):
         import colander
         import deform
@@ -301,8 +287,5 @@ class CodeWidgetTest(LabelCase):
             html = field.render({"q": "x"})
             self.assertIn(f'data-editor="{mode}"', html)
             self.assertIn(static.editor_js, get_needed().resources())
-
-    def test_xml_mode_is_shipped(self):
-        from gracia import static
-
+        # and the mode of xml is shipped
         self.assertIn(static.codemirror_xml_js, static.editor_js.depends)  # ty: ignore[invalid-argument-type]

@@ -3,7 +3,7 @@ from support import canonical, diff, parse_json, prune, same, triples_from_file
 
 
 class RoundTripTest(DbTestCase):
-    def test_all_data_files(self):
+    def test_all_data_files_and_two_files_in_one_database(self):
         self.assertTrue(RDF_FILES, "no test data found")
         for path in RDF_FILES:
             with self.subTest(file=path.name):
@@ -13,7 +13,7 @@ class RoundTripTest(DbTestCase):
                 actual = parse_json(self.export_json())
                 self.assertTrue(same(expected, actual), diff(expected, actual))
 
-    def test_two_files_in_one_database(self):
+        self.db.unlink(missing_ok=True)
         a, b = DATA / "02_bnodes.ttl", DATA / "05_shared.ttl"  # no resource in common
         self.load(a, b)
         expected = []

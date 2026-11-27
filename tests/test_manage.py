@@ -21,7 +21,10 @@ POSTING = {
 
 
 class RepositoryDataTest(WebCase):
-    def test_a_new_repository_gets_its_resource_types_and_groups(self):
+    def test_a_new_repository_gets_its_types_and_groups_and_creating_it_again_does_not_reload(
+        self,
+    ):
+        # a new repository gets its resource types and groups
         self.application.create_repository("test_repo")
         with self.application.new_store("test_repo") as store:
             # the repository is one record of the type `repository` (rec:type:1)
@@ -29,7 +32,7 @@ class RepositoryDataTest(WebCase):
             self.assertEqual(len(store.records_of_type("type")), 4)  # types
             self.assertEqual(len(store.records_of_type("group")), 3)  # groups
 
-    def test_creating_again_does_not_reload(self):
+        # creating again does not reload
         self.application.create_repository("test_repo")
         with self.application.new_store("test_repo") as store:
             before = store.counts()
@@ -94,7 +97,10 @@ class ManageViewTest(ManageCase):
             )
             return [o.value for o in data.objects(content, ox.NamedNode(uri.TITLE))]
 
-    def test_the_tabs_are_types_first_and_then_the_settings(self):
+    def test_the_tabs_are_types_first_then_the_settings_with_the_title_form_and_need_the_manage_permission(
+        self,
+    ):
+        # the tabs are types first and then the settings
         tabs, page = self.tabs()
         self.assertEqual(
             tabs,
@@ -112,6 +118,26 @@ class ManageViewTest(ManageCase):
         self.assertIn('class="tab-pane" id="tab-settings"', page)
         _, page = self.tabs("/test_repo/manage?tab=settings")
         self.assertIn('class="tab-pane active" id="tab-settings"', page)
+
+        # the settings tab has the title
+        _, page = self.tabs()
+        pane = must_search(r'id="tab-settings".*?</form>', page, re.S)[0]
+        self.assertIn('name="title"', pane)
+        self.assertNotIn("ark_", pane)  # the ARK settings are the ARK extension's
+        self.assertIn('id="form-repository-settings"', pane)
+        self.assertIn('action="http://localhost/test_repo/manage?tab=settings"', pane)
+
+        # renders the form with the current title
+        response = self.client().get("/test_repo/manage", headers=ADMIN)
+        self.assertIn('name="title"', response.text)
+        self.assertIn('value="test_repo"', response.text)
+
+        # needs the manage permission
+        web = self.client()
+        self.assertEqual(
+            web.get("/test_repo/manage", expect_errors=True).status_int, 403
+        )
+        self.assertEqual(web.get("/test_repo/manage", headers=ADMIN).status_int, 200)
 
     def test_the_types_tab_lists_the_types_and_each_row_is_a_link_to_its_manage_page(
         self,
@@ -146,15 +172,10 @@ class ManageViewTest(ManageCase):
                 True,
             )
 
-    def test_the_settings_tab_has_the_title(self):
-        _, page = self.tabs()
-        pane = must_search(r'id="tab-settings".*?</form>', page, re.S)[0]
-        self.assertIn('name="title"', pane)
-        self.assertNotIn("ark_", pane)  # the ARK settings are the ARK extension's
-        self.assertIn('id="form-repository-settings"', pane)
-        self.assertIn('action="http://localhost/test_repo/manage?tab=settings"', pane)
-
-    def test_a_post_from_another_site_is_refused(self):
+    def test_a_post_from_another_site_or_with_an_empty_title_is_refused_and_changes_nothing(
+        self,
+    ):
+        # a post from another site is refused
         form = self.client().get("/test_repo/manage", headers=ADMIN).forms[0]
         form["title"] = "Hijacked"
         response = form.submit(
@@ -165,24 +186,19 @@ class ManageViewTest(ManageCase):
         self.assertEqual(response.status_int, 400)
         self.assertEqual(self.title(), ["test_repo"])
 
-    def test_a_form_that_is_not_right_comes_back_in_the_settings_tab(self):
+        # a form that is not right comes back in the settings tab
         form = self.client().get("/test_repo/manage", headers=ADMIN).forms[0]
         form["title"] = ""
         response = form.submit("save", headers=POSTING)
         self.assertEqual(response.status_int, 200)
         self.assertIn('class="tab-pane active" id="tab-settings"', response.text)
 
-    def test_needs_the_manage_permission(self):
-        web = self.client()
-        self.assertEqual(
-            web.get("/test_repo/manage", expect_errors=True).status_int, 403
-        )
-        self.assertEqual(web.get("/test_repo/manage", headers=ADMIN).status_int, 200)
-
-    def test_renders_the_form_with_the_current_title(self):
-        response = self.client().get("/test_repo/manage", headers=ADMIN)
-        self.assertIn('name="title"', response.text)
-        self.assertIn('value="test_repo"', response.text)
+        # an empty title is refused
+        form = self.client().get("/test_repo/manage", headers=ADMIN).forms[0]
+        form["title"] = ""
+        response = form.submit("save", headers=POSTING)
+        self.assertEqual(response.status_int, 200)
+        self.assertEqual(self.title(), ["test_repo"])
 
     def test_saving_replaces_the_title(self):
         web = self.client()
@@ -198,16 +214,12 @@ class ManageViewTest(ManageCase):
         self.assertIn("Saved", followed.text)
         self.assertIn('class="tab-pane active" id="tab-settings"', followed.text)
 
-    def test_an_empty_title_is_refused(self):
-        form = self.client().get("/test_repo/manage", headers=ADMIN).forms[0]
-        form["title"] = ""
-        response = form.submit("save", headers=POSTING)
-        self.assertEqual(response.status_int, 200)
-        self.assertEqual(self.title(), ["test_repo"])
-
 
 class CountsTest(ManageCase):
-    def test_the_types_tab_counts_the_records_of_each_type(self):
+    def test_the_types_tab_counts_the_records_of_each_type_and_the_predicates_tab_the_values(
+        self,
+    ):
+        # the types tab counts the records of each type
         self.application.create_repository("archive", content_types=[self.person()])
         with self.application.new_store("archive") as store:
             for n in (1, 2, 3):
@@ -226,7 +238,7 @@ class CountsTest(ManageCase):
         self.assertEqual(records("person"), "3")
         self.assertEqual(records("repository"), "1")  # the one record of the repository
 
-    def test_the_predicates_tab_counts_the_values_of_each_property(self):
+        # the predicates tab counts the values of each property
         cards = predicate_cards(self.tabs("/test_repo/manage?tab=predicates")[1])
         label = int(must_search(r"(\d+) stored", cards[uri.LABEL])[1])
         self.assertGreater(
@@ -255,7 +267,10 @@ class PredicatesTabTest(ManageCase):
     def cards(self):
         return predicate_cards(self.tabs("/test_repo/manage?tab=predicates")[1])
 
-    def test_every_registered_predicate_has_a_card_by_the_uri_of_its_property(self):
+    def test_every_registered_predicate_has_a_card_with_its_title_class_docstring_and_parts(
+        self,
+    ):
+        # every registered predicate has a card by the uri of its property
         cards = self.cards()
         for property_uri in (
             uri.RESOURCE,
@@ -266,7 +281,7 @@ class PredicatesTabTest(ManageCase):
             self.assertIn(property_uri, cards)
         self.assertEqual(list(cards), sorted(cards))  # by uri
 
-    def test_the_title_is_the_name_the_shapes_give_the_property(self):
+        # the title is the name the shapes give the property
         cards = self.cards()
         for property_uri, title in (
             (uri.LABEL, "Label"),
@@ -279,7 +294,7 @@ class PredicatesTabTest(ManageCase):
             "A short text for the record", cards[uri.LABEL]
         )  # its sh:description
 
-    def test_the_class_the_docstring_and_the_parts_are_shown(self):
+        # the class the docstring and the parts are shown
         label = self.cards()[uri.LABEL]
         self.assertIn("gracia.predicates.gracia_label.LabelPredicate", label)
         self.assertIn(
@@ -300,9 +315,10 @@ class JobsTabTest(ManageCase):
         _, page = self.tabs("/test_repo/manage?tab=jobs")
         return must_search(r'id="tab-jobs".*', page, re.S)[0]
 
-    def test_the_jobs_of_the_repository_start_from_their_own_forms_and_their_runs_are_listed_under_them(  # noqa: E501
+    def test_the_jobs_of_the_repository_start_from_their_own_forms_and_their_runs_are_listed_under_them(
         self,
     ):
+        # the jobs of the repository start from their own forms and their runs are listed under them
         pane = self.pane()
         self.assertEqual(
             re.findall(r'<form id="repository-job-(\w+)"', pane),
@@ -335,7 +351,7 @@ class JobsTabTest(ManageCase):
             pane,
         )  # their runs are listed, no others
 
-    def test_the_tab_is_after_the_others(self):
+        # the tab is after the others
         tabs, _ = self.tabs()
         self.assertEqual(tabs[-1], ("jobs", "Jobs"))
 
@@ -401,7 +417,16 @@ class StatsTabTest(ManageCase):
             ox.Dataset(ox.parse(text.encode(), format=ox.RdfFormat.TURTLE))
         )
 
-    def test_the_fieldsets_are_cache_then_pending_change_events(self):
+    def test_the_tab_has_its_fieldsets_buttons_and_dialog_and_is_not_a_tab_of_a_type(
+        self,
+    ):
+        # without a cache directory the graphs and docs say there is no cache
+        self.application.cache._graph_dir = None
+        self.assertIn("no cache", self.text(self.pane(), "stats-kept-graphs"))
+        self.assertIn("no cache", self.text(self.pane(), "stats-kept-docs"))
+        self.assertNotIn("no cache", self.text(self.pane(), "stats-kept-etags"))
+
+        # the fieldsets are cache then pending change events
         pane = self.pane()
         positions = [
             pane.index(f'id="{name}"')
@@ -415,13 +440,60 @@ class StatsTabTest(ManageCase):
         for gone in ("stats-types", "stats-search"):  # they have their own tabs
             self.assertNotIn(f'id="{gone}"', pane)
 
+        # the buttons start the jobs and are for who may start them
+        pane = self.pane()
+        for job, form in (
+            ("update_cache", "stats-job-update_cache"),
+            ("process_change_events", "stats-job-process_change_events"),
+        ):
+            found = must_search(rf'<form id="{form}".*?</form>', pane, re.S)[0]
+            self.assertIn(
+                f'data-start-job="http://localhost/test_repo/jobs/start?job={job}"',
+                found,
+            )
+        page = self.client().get(
+            "/test_repo/manage?tab=stats",
+            headers={"X-User": "nobody"},
+            expect_errors=True,
+        )
+        self.assertNotIn(
+            "stats-job-", page.text
+        )  # not for those who may not manage it, nor start a job
+
+        # the tab has a dialog of its own for the jobs it starts and a refresh link
+        pane = self.pane()
+        dialog = must_search(
+            r'<div class="job-panel"[^>]*data-compact="true"[^>]*>', pane
+        )[0]
+        self.assertIn('data-filter="job=update_cache,process_change_events"', dialog)
+        self.assertIn("http://localhost/test_repo/jobs/list", dialog)
+        self.assertIn('data-progress-dialog=""', pane)
+        self.assertRegex(
+            pane,
+            r"<a "
+            r'href="http://localhost/test_repo/manage\?tab=stats"[^>]*id="stats-refresh"',
+        )
+
+        # a panel that is not on show does not open a dialog
+        script = (
+            files("gracia") / "assets" / "static" / "scripts" / "jobs.js"
+        ).read_text()
+        self.assertIn("get visible()", script)
+        self.assertIn("this.visible && this.find(id)", script)
+
+        # it is a tab of the repository and not of a type
+        self.application.create_repository("archive", content_types=[self.person()])
+        _, page = self.tabs("/archive/person/manage")
+        self.assertNotIn('data-tab="stats"', page)
+
     def types_tab(self, repo="test_repo") -> str:
         _, page = self.tabs(f"/{repo}/manage?tab=types")
         return page[page.index('id="tab-types"') : page.index('id="tab-settings"')]
 
-    def test_the_types_have_their_records_the_published_ones_and_the_size_of_their_sources(  # noqa: E501
+    def test_the_types_have_their_records_the_published_ones_and_the_size_of_their_sources(
         self,
     ):
+        # the types have their records the published ones and the size of their sources
         self.add_people(4)
         pane = self.types_tab()
         row = self.text(pane, "type-person")
@@ -438,13 +510,14 @@ class StatsTabTest(ManageCase):
             'id="type-repository"', pane
         )  # the types a repository is made of are there too
 
-    def test_a_type_with_no_records_is_there_with_none(self):
+        # a type with no records is there with none
         self.application.create_repository("archive", content_types=[self.person()])
         self.assertRegex(
             self.text(self.types_tab("archive"), "type-person"), r"person 0 0 0 B$"
         )
 
     def test_the_pages_and_what_each_cache_keeps_of_the_repository(self):
+        # the pages and what each cache keeps of the repository
         self.add_people(3)
         pages = self.store.etag_stats()["pages"]
         self.assertEqual(self.text(self.pane(), "stats-pages").split()[0], f"{pages:,}")
@@ -471,13 +544,10 @@ class StatsTabTest(ManageCase):
         for name in ("etags", "slugs", "referencing", "graphs", "docs"):
             self.assertIn(f"stats-kept-{name}", self.pane())
 
-    def test_without_a_cache_directory_the_graphs_and_docs_say_there_is_no_cache(self):
-        self.application.cache._graph_dir = None
-        self.assertIn("no cache", self.text(self.pane(), "stats-kept-graphs"))
-        self.assertIn("no cache", self.text(self.pane(), "stats-kept-docs"))
-        self.assertNotIn("no cache", self.text(self.pane(), "stats-kept-etags"))
-
-    def test_the_pending_work_is_what_the_queue_holds(self):
+    def test_the_pending_work_is_what_the_queue_holds_and_nothing_waiting_is_said_so(
+        self,
+    ):
+        # the pending work is what the queue holds
         self.add_people(3)
         summary = self.store.pending_summary()
         text = self.text(self.pane(), "stats-pending")
@@ -488,7 +558,7 @@ class StatsTabTest(ManageCase):
             f"transaction {summary['oldest']} of {summary['last']}", self.pane()
         )
 
-    def test_nothing_waiting_is_said_so_and_has_no_oldest(self):
+        # nothing waiting is said so and has no oldest
         from gracia.change_events import process_pending
 
         process_pending(self.application, Registry())
@@ -521,54 +591,6 @@ class StatsTabTest(ManageCase):
         self.assertIn('data-state="failing"', pane)
         self.assertIn("3 time(s) in a row", self.text(pane, "stats-worker"))
         self.assertRegex(self.text(pane, "stats-worker"), r"next try in (29|30) s")
-
-    def test_the_buttons_start_the_jobs_and_are_for_who_may_start_them(self):
-        pane = self.pane()
-        for job, form in (
-            ("update_cache", "stats-job-update_cache"),
-            ("process_change_events", "stats-job-process_change_events"),
-        ):
-            found = must_search(rf'<form id="{form}".*?</form>', pane, re.S)[0]
-            self.assertIn(
-                f'data-start-job="http://localhost/test_repo/jobs/start?job={job}"',
-                found,
-            )
-        page = self.client().get(
-            "/test_repo/manage?tab=stats",
-            headers={"X-User": "nobody"},
-            expect_errors=True,
-        )
-        self.assertNotIn(
-            "stats-job-", page.text
-        )  # not for those who may not manage it, nor start a job
-
-    def test_the_tab_has_a_dialog_of_its_own_for_the_jobs_it_starts_and_a_refresh_link(
-        self,
-    ):
-        pane = self.pane()
-        dialog = must_search(
-            r'<div class="job-panel"[^>]*data-compact="true"[^>]*>', pane
-        )[0]
-        self.assertIn('data-filter="job=update_cache,process_change_events"', dialog)
-        self.assertIn("http://localhost/test_repo/jobs/list", dialog)
-        self.assertIn('data-progress-dialog=""', pane)
-        self.assertRegex(
-            pane,
-            r"<a "
-            r'href="http://localhost/test_repo/manage\?tab=stats"[^>]*id="stats-refresh"',
-        )
-
-    def test_a_panel_that_is_not_on_show_does_not_open_a_dialog(self):
-        script = (
-            files("gracia") / "assets" / "static" / "scripts" / "jobs.js"
-        ).read_text()
-        self.assertIn("get visible()", script)
-        self.assertIn("this.visible && this.find(id)", script)
-
-    def test_it_is_a_tab_of_the_repository_and_not_of_a_type(self):
-        self.application.create_repository("archive", content_types=[self.person()])
-        _, page = self.tabs("/archive/person/manage")
-        self.assertNotIn('data-tab="stats"', page)
 
 
 def test_sizes_and_times_are_text():
@@ -626,9 +648,10 @@ class LogoTest(ManageCase):
                     self.logo(page.text), "http://localhost/archive/", path
                 )
 
-    def test_the_search_page_and_the_manage_page_of_each_repository_go_to_their_own(
+    def test_the_logo_goes_to_the_repository_and_the_page_in_no_repository_to_the_application(
         self,
     ):
+        # the search page and the manage page of each repository go to their own
         self.application.create_repository("archive")
         for repo in ("test_repo", "archive"):
             page = self.client().get(f"/{repo}/manage", headers=ADMIN).text
@@ -640,7 +663,7 @@ class LogoTest(ManageCase):
             )
             self.assertEqual(self.logo(home), f"http://localhost/{repo}/")
 
-    def test_a_page_that_is_in_no_repository_goes_to_the_application(self):
+        # a page that is in no repository goes to the application
         from types import SimpleNamespace
         from unittest import mock
 

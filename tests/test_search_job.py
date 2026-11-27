@@ -55,7 +55,9 @@ class SearchJobCase(GraphJobsCase):
 
 
 class RebuildTest(SearchJobCase):
-    def test_an_index_that_is_not_there_is_made_with_every_record(self):
+    def test_an_index_that_is_not_there_or_missed_records_is_made_with_every_record_and_nothing_is_left(
+        self,
+    ):
         self.assertEqual(self.indexes.status("test_repo", RECORDS), "missing")
         self.rebuild()
         self.assertEqual(
@@ -65,15 +67,24 @@ class RebuildTest(SearchJobCase):
         self.assertEqual(
             self.hits("Thirteen"), [self.store.record_id_of("rec:person:13")]
         )
-
-    def test_the_documents_are_the_ones_the_worker_makes(self):
-        self.rebuild()
+        # the documents are the ones the worker makes
         before = self.hits("Fourteen")
         process_pending(
             self.application, context.registry()
         )  # the worker's way, for the same records
         self.assertEqual(self.hits("Fourteen"), before)
         self.assertEqual(self.docs(), self.records())  # and no record twice
+        # nothing of the making is left
+        left = sorted(p.name for p in (self.indexes.directory / "test_repo").iterdir())
+        self.assertEqual(left, ["records", "records.json"])
+        # an index that missed records has them after
+        self.indexes.reset("test_repo", RECORDS)
+        self.indexes.open(
+            "test_repo", RECORDS
+        )  # there, and empty: it has not seen a record
+        self.assertEqual(self.docs(), 0)
+        self.rebuild()
+        self.assertEqual(self.docs(), self.records())
 
     def test_a_stale_index_is_replaced_and_answers_until_then(self):
         self.rebuild()
@@ -103,34 +114,19 @@ class RebuildTest(SearchJobCase):
             ("ok", self.records()),
         )
 
-    def test_nothing_of_the_making_is_left(self):
-        self.rebuild()
-        left = sorted(p.name for p in (self.indexes.directory / "test_repo").iterdir())
-        self.assertEqual(left, ["records", "records.json"])
-
-    def test_an_index_that_missed_records_has_them_after(self):
-        self.rebuild()
-        self.indexes.reset("test_repo", RECORDS)
-        self.indexes.open(
-            "test_repo", RECORDS
-        )  # there, and empty: it has not seen a record
-        self.assertEqual(self.docs(), 0)
-        self.rebuild()
-        self.assertEqual(self.docs(), self.records())
-
-    def test_without_a_directory_for_the_indexes_the_job_fails_and_says_why(self):
-        self.application.indexes = None
-        job_id = self.make(*RebuildSearchJob().spec("test_repo", {})["stages"])
-        self.assertEqual(self.run_job(job_id), runner.EXIT_FAILED)
-        self.assertIn("gracia.index_dir", self.job(job_id)["error_msg"])
-
-    def test_it_is_a_job_of_the_repository_for_the_administrators(self):
+    def test_it_is_a_job_of_the_repository_for_the_administrators_and_fails_without_a_directory_for_the_indexes(
+        self,
+    ):
         spec = RebuildSearchJob().spec("test_repo", {})
         self.assertEqual(
             [s["stage"] for s in spec["stages"]], ["Export", "IndexRecords"]
         )
         self.assertTrue(spec["stages"][0]["params"]["graphs"])
         self.assertEqual(RebuildSearchJob.groups, ())
+        self.application.indexes = None
+        job_id = self.make(*spec["stages"])
+        self.assertEqual(self.run_job(job_id), runner.EXIT_FAILED)
+        self.assertIn("gracia.index_dir", self.job(job_id)["error_msg"])
 
 
 class MeanwhileTest(SearchJobCase):
@@ -195,7 +191,9 @@ class MeanwhileTest(SearchJobCase):
 
 
 class FromTheSettingsTest(GraphJobsCase):
-    def test_the_job_finds_the_directory_of_the_indexes_in_the_settings(self):
+    def test_the_job_finds_the_directory_of_the_indexes_in_the_settings_and_says_what_to_set_without(
+        self,
+    ):
         import shutil
         import tempfile
 
@@ -214,9 +212,9 @@ class FromTheSettingsTest(GraphJobsCase):
             indexes.stats("test_repo")[0]["documents"],
             fetch_one(self.store.con.execute("SELECT count(*) FROM etags"))[0],
         )
-
-    def test_without_the_setting_the_job_says_what_to_set(self):
+        # without the setting the job says what to set
         self.settings = {}  # ty: ignore[invalid-attribute-access]
+        self.application.indexes = None
         job_id = self.make(*RebuildSearchJob().spec("test_repo", {})["stages"])
         self.assertEqual(self.run_job(job_id), runner.EXIT_FAILED)
         self.assertIn("gracia.index_dir", self.job(job_id)["error_msg"])

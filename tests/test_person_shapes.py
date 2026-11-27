@@ -1,13 +1,14 @@
 import unittest
 
 import pyoxigraph as ox
+from harness import FIXTURES
 from support import validate
 
 from gracia import forms
 from gracia.utils import assets
 
 FOAF = "http://xmlns.com/foaf/0.1/"
-SHAPES = "gracia:assets/shacl/"
+SHAPES = f"{FIXTURES}/foaf/shacl/"  # the foaf profiles are fixtures of the tests
 
 
 def person(**props) -> ox.Dataset:
@@ -35,7 +36,9 @@ GOOD = {"name": "Ada Lovelace", "givenName": "Ada", "familyName": "Lovelace"}
 
 
 class ProfilesTest(unittest.TestCase):
-    def test_both_profiles_are_there_and_have_a_shape_for_foaf_person(self):
+    def test_the_profiles_have_a_shape_for_foaf_person_and_the_unittest_one_is_closed(
+        self,
+    ):
         for profile in ("minimal", "unittest"):
             with self.subTest(profile=profile):
                 path = assets.resolve(f"{SHAPES}person-{profile}-01.ttl")
@@ -44,18 +47,10 @@ class ProfilesTest(unittest.TestCase):
                 )  # a ValueError when there is none
         self.assertLessEqual(
             {"person-unittest-01.ttl", "person-minimal-01.ttl"},
-            set(assets.schemas_of("gracia:assets/")),
-        )  # others (the schemaorg one) may be there too
-
-    def test_the_schemaorg_profile_is_for_schema_person(self):
-        path = assets.resolve(f"{SHAPES}person-schemaorg-01.ttl")
-        assets.load_shape(path, "https://schema.org/Person")
-
-    def test_a_complete_person_follows_both(self):
-        self.assertTrue(conforms("minimal", **GOOD))
+            set(assets.schemas_of(f"{FIXTURES}/foaf/")),
+        )  # others may be there too
+        self.assertTrue(conforms("minimal", **GOOD))  # a complete person follows both
         self.assertTrue(conforms("unittest", **GOOD, nick="ada", title="Countess"))
-
-    def test_the_unittest_profile_is_closed_and_the_minimal_is_not(self):
         # foaf:age is a property neither profile describes
         self.assertTrue(conforms("minimal", **GOOD, age="7"))
         self.assertFalse(conforms("unittest", **GOOD, age="7"))

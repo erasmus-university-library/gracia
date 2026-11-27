@@ -55,7 +55,9 @@ class NestedRdfXmlTest(DbTestCase):
                     same(expected, actual, False), diff(expected, actual, False)
                 )
 
-    def test_lists_of_resources_become_collections(self):
+    def test_lists_of_resources_become_collections_and_a_custom_stylesheet_gets_the_nested_rdfxml(
+        self,
+    ):
         self.load(DATA / "04_complex.ttl")
         found = collections(self.nested())
         self.assertTrue(found, "expected a parseType=Collection")
@@ -65,36 +67,6 @@ class NestedRdfXmlTest(DbTestCase):
         self.assertEqual(len(order), 1)
         self.assertEqual(len(order[0]), 2)
 
-    def test_lists_with_literals_stay_explicit(self):
-        self.load(DATA / "03_lists.ttl")
-        root = ET.fromstring(self.nested())
-        tags = next(e for e in root.iter("{http://example.org/}tags"))
-        self.assertIsNone(tags.get(COLLECTION))
-        self.assertTrue(list(tags.iter(f"{{{RDF_NS}}}first")))
-
-    def test_typed_nodes_and_literal_details(self):
-        self.load(DATA / "01_simple.ttl")
-        rdfxml = self.nested()
-        self.assertIn("<ex:Book", rdfxml)  # rdf:type -> element name
-        self.assertIn('xml:lang="fr"', rdfxml)
-        self.assertIn("XMLSchema#integer", rdfxml)
-
-    def test_shared_bnode_uses_node_id(self):
-        flat = flat_rdfxml_from_file(DATA / "04_complex.ttl")  # _:shared is used twice
-        refs = [
-            e
-            for e in ET.fromstring(xslt.nest(flat)).iter()
-            if e.get(f"{{{RDF_NS}}}nodeID")
-        ]
-        self.assertGreaterEqual(len(refs), 3)  # one definition + two references
-
-    def test_one_resource_only(self):
-        self.load(DATA / "01_simple.ttl")
-        rdfxml = self.nested("rec:person:1")
-        self.assertIn("Alice", rdfxml)
-        self.assertNotIn("The Title", rdfxml)
-
-    def test_custom_stylesheet_gets_the_nested_rdfxml(self):
         sheet = self.tmp / "count.xsl"
         sheet.write_text(
             """<xsl:stylesheet version="3.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
@@ -115,29 +87,52 @@ class NestedRdfXmlTest(DbTestCase):
         )  # doc1..doc4 (doc2/doc3 hold their bnode)
         self.assertEqual(result.get("collections"), "2")
 
+    def test_lists_with_literals_stay_explicit_typed_nodes_shared_bnodes_and_one_resource_only(
+        self,
+    ):
+        self.load(DATA / "03_lists.ttl")
+        root = ET.fromstring(self.nested())
+        tags = next(e for e in root.iter("{http://example.org/}tags"))
+        self.assertIsNone(tags.get(COLLECTION))
+        self.assertTrue(list(tags.iter(f"{{{RDF_NS}}}first")))
+
+        self.load(DATA / "01_simple.ttl")
+        rdfxml = self.nested()
+        self.assertIn("<ex:Book", rdfxml)  # rdf:type -> element name
+        self.assertIn('xml:lang="fr"', rdfxml)
+        self.assertIn("XMLSchema#integer", rdfxml)
+
+        flat = flat_rdfxml_from_file(DATA / "04_complex.ttl")  # _:shared is used twice
+        refs = [
+            e
+            for e in ET.fromstring(xslt.nest(flat)).iter()
+            if e.get(f"{{{RDF_NS}}}nodeID")
+        ]
+        self.assertGreaterEqual(len(refs), 3)  # one definition + two references
+
+        rdfxml = self.nested("rec:person:1")
+        self.assertIn("Alice", rdfxml)
+        self.assertNotIn("The Title", rdfxml)
+
 
 class PrefixesInXsltTest(DbTestCase):
     with_record = True
 
-    def test_the_prefixes_of_the_repository_are_used(self):
-        # the file binds dc: to dc/terms; the defaults already have dcterms for it and
-        # dc for
-        # dc/elements/1.1, so the file's dc is not taken over and dcterms is what gets
-        # used
+    def test_the_prefixes_of_the_repository_are_used_an_option_overrides_them_and_an_unknown_namespace_is_well_formed(
+        self,
+    ):
         self.load(DATA / "01_simple.ttl")
         code, out, err = self.gracia("export", "-f", "rdfxml-collection")
         self.assertEqual(code, 0, err)
         self.assertIn("<ex:Book", out)
         self.assertIn("<dcterms:title", out)
 
-    def test_option_overrides_the_prefixes(self):
         self.load(DATA / "01_simple.ttl")
         _, out, _ = self.gracia(
             "export", "-f", "rdfxml-collection", "-p", "ex=http://nowhere.org/"
         )
         self.assertIn('xmlns:ex="http://nowhere.org/"', out)
 
-    def test_unknown_namespace_still_gives_well_formed_output(self):
         path = self.tmp / "u.nt"
         path.write_text(
             '<rec:thing:1> <http://unknown.org/ns#p> "v" .\n', encoding="utf-8"
@@ -175,3 +170,32 @@ class RecordUriParamTest(unittest.TestCase):
         self.assertEqual(
             self.order(record_uri="rec:none:1"), ["rec:a:1", "rec:a:2", "rec:a:3"]
         )
+
+
+class TypeFilesTest(unittest.TestCase):
+    def test_an_address_that_two_stylesheets_name_is_resolved_once(self):
+        import tempfile
+        from pathlib import Path
+
+        asked = []
+        with tempfile.TemporaryDirectory() as folder:
+            shared = Path(folder) / "shared.xsl"
+            shared.write_text(
+                '<xsl:stylesheet version="3.0" xmlns:xsl="%s"/>' % xslt.XSL
+            )
+
+            def resolve(href):
+                asked.append(href)
+                return shared
+
+            one = (
+                '<xsl:stylesheet xmlns:xsl="%s"><xsl:import href="type:a/x.xsl"/></xsl:stylesheet>'
+                % xslt.XSL
+            )
+            two = (
+                '<xsl:stylesheet xmlns:xsl="%s"><xsl:import href="type:a/x.xsl"/></xsl:stylesheet>'
+                % xslt.XSL
+            )
+            found = xslt.type_files([one, two], resolve)
+        self.assertEqual(list(found), ["type:a/x.xsl"])
+        self.assertEqual(asked, ["type:a/x.xsl"])

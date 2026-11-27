@@ -43,13 +43,14 @@ class RecordsTest(DbTestCase):
         names = [d[0] for d in con.description]
         return dict(zip(names, found, strict=False)) if found else {}
 
-    def test_a_subject_that_is_not_a_record_is_refused(self):
+    def test_a_record_row_has_its_columns_and_a_source_in_ntriples_that_is_the_same_every_time_and_a_subject_that_is_not_a_record_is_refused(
+        self,
+    ):
         with self.assertRaises(ValueError):
             self.store.put_multi(graph('<http://example.org/x> <http://ex/p> "x" .'))
         count = fetch_one(self.store.con.execute("SELECT count(*) FROM records"))[0]
         self.assertEqual(count, 2)
 
-    def test_the_columns(self):
         r = self.row("rec:person:1")
         self.assertEqual(
             (r["rec_type"], r["record_id"], r["res_uri"]),
@@ -64,9 +65,6 @@ class RecordsTest(DbTestCase):
             r["text"], 'Ada "L"\nline'
         )  # the literals of the properties with the description role
 
-    def test_source_is_ntriples_with_blank_nodes_named_by_the_record_and_their_number(
-        self,
-    ):
         source = self.row("rec:person:1")["source"]
         parsed = Graph(
             ox.Dataset(ox.parse(source.encode(), format=ox.RdfFormat.N_TRIPLES))
@@ -86,14 +84,15 @@ class RecordsTest(DbTestCase):
         self.assertIn('"Ada \\"L\\"\\nline"@en', source)
         self.assertIn("<http://www.w3.org/2001/XMLSchema#integer>", source)
 
-    def test_the_blank_nodes_are_the_same_every_time_the_record_is_made(self):
         first = self.row("rec:person:1")["source"]
         self.store.con.execute(
             "UPDATE triples SET lit = lit WHERE s = 'rec:person:1'"
         )  # made again
         self.assertEqual(self.row("rec:person:1")["source"], first)
 
-    def test_a_changed_record_is_rewritten_whole(self):
+    def test_a_changed_record_is_rewritten_whole_and_a_deleted_one_is_in_the_history_and_can_come_back(
+        self,
+    ):
         before = self.row("rec:person:1")
         self.store.put_multi(graph('<rec:person:1> <http://ex/p> "changed"@nl .'))
         after = self.row("rec:person:1")
@@ -105,9 +104,6 @@ class RecordsTest(DbTestCase):
         )
         self.assertGreater(after["modified_at"], before["modified_at"])
 
-    def test_a_deleted_record_has_no_row_and_is_in_the_history_as_deleted_and_can_come_back(  # noqa: E501
-        self,
-    ):
         self.store.delete(["rec:person:2"])
         self.assertEqual(self.row("rec:person:2"), {})
         self.assertEqual(self.store.count_records_by_type(), {"person": 1})
@@ -123,7 +119,9 @@ class RecordsTest(DbTestCase):
         self.assertEqual(self.row("rec:person:2")["text"], None)
         self.assertIn('"back"@en', self.row("rec:person:2")["source"])
 
-    def test_a_partial_change_of_the_rows_updates_the_row(self):
+    def test_a_partial_change_of_the_rows_updates_the_row_and_sort_keeps_the_triggers_the_rows_and_list_tables(
+        self,
+    ):
         self.store.con.execute(
             "DELETE FROM triples WHERE s = 'rec:person:1' AND p = ?", [G + "label"]
         )
@@ -136,7 +134,6 @@ class RecordsTest(DbTestCase):
         self.assertEqual(self.row("rec:person:2")["label"], "Ada B")
         self.assertIn('"Ada B"', self.row("rec:person:2")["source"])
 
-    def test_sort_keeps_the_triggers_and_the_rows(self):
         before = self.row("rec:person:1")["source"]
         self.store.sort()
         self.assertEqual(self.row("rec:person:1")["source"], before)
@@ -144,6 +141,15 @@ class RecordsTest(DbTestCase):
             self.store.con.execute("SELECT count(*) FROM duckdb_triggers()")
         )[0]
         self.assertEqual(triggers, 69)  # 23 steps for each of insert, update and delete
+
+        self.store.sort()
+        self.assertEqual(
+            self.store.records_with("identifiers", "ID-1"), ["rec:person:1"]
+        )
+        self.store.put_multi(graph(f'<rec:person:3> <{G}identifier> "ID-3" .'))
+        self.assertEqual(
+            self.store.records_with("identifiers", "ID-3"), ["rec:person:3"]
+        )
 
     def test_the_list_tables_follow_every_change(self):
         s = self.store
@@ -190,16 +196,6 @@ class RecordsTest(DbTestCase):
                 0,
             )
 
-    def test_the_list_tables_survive_sort(self):
-        self.store.sort()
-        self.assertEqual(
-            self.store.records_with("identifiers", "ID-1"), ["rec:person:1"]
-        )
-        self.store.put_multi(graph(f'<rec:person:3> <{G}identifier> "ID-3" .'))
-        self.assertEqual(
-            self.store.records_with("identifiers", "ID-3"), ["rec:person:3"]
-        )
-
     def test_the_export_in_chunks_writes_whole_records_in_files_made_at_once(self):
         text = "".join(
             f'<rec:big:{i}> <http://ex/p> "value {i}" .\n' for i in range(1, 5001)
@@ -227,7 +223,9 @@ class RecordsTest(DbTestCase):
             self.store.export_chunks(self.tmp / "none", "nobody", 20_000), (0, [])
         )
 
-    def test_changing_the_roles_makes_the_records_again(self):
+    def test_changing_the_roles_makes_the_records_again_and_a_unique_that_has_duplicates_changes_nothing(
+        self,
+    ):
         self.assertFalse(
             self.store.set_property_roles(self.roles())
         )  # the same: nothing to do
@@ -240,6 +238,18 @@ class RecordsTest(DbTestCase):
         self.assertEqual(
             self.store.records_with("identifiers", "Ada <x>"), ["rec:person:1"]
         )
+
+        self.store.put_multi(
+            graph(
+                f'<rec:person:7> <{G}label> "same" . <rec:person:8> <{G}label> "same" .'
+            )
+        )
+        before = self.roles()
+        with self.assertRaises(DuplicateValue):
+            self.store.set_property_roles(
+                [*before, ("person", "unique", G + "label", 0)]
+            )
+        self.assertEqual(self.roles(), before)
 
     def roles(self):
         return [
@@ -254,7 +264,9 @@ class RecordsTest(DbTestCase):
             "."
         )
 
-    def test_a_unique_value_can_only_be_used_by_one_record(self):
+    def test_a_unique_value_can_only_be_used_by_one_record_also_in_one_save_but_not_across_types(
+        self,
+    ):
         s = self.store
         s.put_multi(self.user(1, "ada"))
         s.put_multi(self.user(1, "ada"))  # saving the same record again is not a clash
@@ -283,7 +295,6 @@ class RecordsTest(DbTestCase):
         s.delete(["rec:user:1"])  # and so does a delete
         s.put_multi(self.user(4, "ada"))
 
-    def test_two_records_with_the_same_unique_value_in_one_save_are_refused(self):
         with self.assertRaises(DuplicateValue):
             self.store.put_multi(
                 graph(
@@ -294,30 +305,15 @@ class RecordsTest(DbTestCase):
         self.assertEqual(
             fetch_one(
                 self.store.con.execute(
-                    "SELECT count(*) FROM triples WHERE s LIKE 'rec:user:%'"
+                    "SELECT count(*) FROM triples WHERE s IN ('rec:user:5', 'rec:user:6')"
                 )
             )[0],
             0,
         )
 
-    def test_the_same_value_may_be_used_by_records_of_different_types(self):
-        self.store.put_multi(self.user(1, "ada"))
         self.store.put_multi(
             graph(f'<rec:person:7> <{G}resource> [ <{G}userid> "ada" ] .')
         )
-
-    def test_marking_a_property_unique_where_there_are_duplicates_changes_nothing(self):
-        self.store.put_multi(
-            graph(
-                f'<rec:person:7> <{G}label> "same" . <rec:person:8> <{G}label> "same" .'
-            )
-        )
-        before = self.roles()
-        with self.assertRaises(DuplicateValue):
-            self.store.set_property_roles(
-                [*before, ("person", "unique", G + "label", 0)]
-            )
-        self.assertEqual(self.roles(), before)
 
     def test_rederive_stores_only_what_the_hooks_change(self):
         upper = (
@@ -456,7 +452,9 @@ class RecordsTest(DbTestCase):
 
 
 class EncodeNtriplesUriTest(DbTestCase):
-    def test_the_macro_encodes_what_an_iri_may_not_hold_and_leaves_percent_alone(self):
+    def test_the_macro_encodes_what_an_iri_may_not_hold_and_source_and_history_hold_the_same_text(
+        self,
+    ):
         s = open_store(self.db)
         self.addCleanup(s.close)
         got = fetch_one(
@@ -467,7 +465,6 @@ class EncodeNtriplesUriTest(DbTestCase):
         )[0]
         self.assertEqual(got, "<http://e/a%20b%3Cc%3E%22d%7Be%7D%7Cf%5Cg%5Eh%20i>")
 
-    def test_the_source_and_the_history_hold_the_same_text(self):
         s = open_store(self.db)
         self.addCleanup(s.close)
         s.put_multi(graph("<rec:person:1> <http://ex/p> <http://ex/a%20b?x=1&y=2> ."))

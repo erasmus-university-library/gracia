@@ -19,7 +19,9 @@ class RepositoryOfNodeTest(EditCase):
 
         return make_config(self.settings)
 
-    def test_every_node_reaches_the_same_repository(self):
+    def test_every_node_reaches_the_same_repository_the_application_has_none_and_the_request_gets_its_store_from_it(  # noqa: E501
+        self,
+    ):
         person = self.repo["person"]
         record = person["1"]
         jobs = self.repo["jobs"]
@@ -30,12 +32,18 @@ class RepositoryOfNodeTest(EditCase):
         self.assertIsInstance(person, Type)
         self.assertIsInstance(record, Record)
         self.assertIsInstance(jobs, Jobs)
-
-    def test_a_repository_is_its_own_repository(self):
-        self.assertIs(self.repo.repository, self.repo)
-
-    def test_the_application_has_none(self):
+        self.assertIs(self.repo.repository, self.repo)  # its own repository
         self.assertFalse(hasattr(self.application, "repository"))
+        web = self.client()
+        self.assertEqual(
+            web.get("/test_repo/person/1", headers=self.admin).status_int, 200
+        )
+        self.assertEqual(
+            web.get(
+                "/test_repo/", headers={**self.admin, "Accept": "application/json"}
+            ).json["id"],
+            "test_repo",
+        )
 
     def test_what_is_below_a_repository_is_what_says_so_with_traversable(self):
         from gracia import interfaces
@@ -54,12 +62,19 @@ class RepositoryOfNodeTest(EditCase):
         with self.assertRaises(KeyError):
             interfaces.find_child(self.repo, "rec:person:999")
 
-    def test_a_node_has_the_repository_the_store_the_registry_and_the_application(self):
+    def test_a_node_has_the_repository_the_store_the_registry_and_the_application_and_the_types_are_in_types(  # noqa: E501
+        self,
+    ):
         record = self.repo["person"].find_record("1")
         self.assertIs(record.repository, self.repo)
         self.assertIs(record.store, self.repo.store)
         self.assertIs(record.registry, self.repo.registry)
         self.assertIs(record.application, self.application)
+        self.assertIs(record.repository, record.repository)  # found once
+        self.assertIn("repository", record.__dict__)  # kept on the node
+        self.assertIn("person", self.repo.types)
+        self.assertIs(self.repo["person"], self.repo.types["person"])
+        self.assertIs(self.repo.types["person"].repository, self.repo)
 
     def test_the_record_of_the_repository_is_a_record_with_its_resource(self):
         record = self.repo.record()
@@ -78,25 +93,3 @@ class RepositoryOfNodeTest(EditCase):
         loose = self.repo.record()
         self.assertIs(loose.__parent__, self.repo)
         self.assertIs(loose.type, self.repo.types["repository"])
-
-    def test_the_types_of_a_repository_are_in_types(self):
-        self.assertIn("person", self.repo.types)
-        self.assertIs(self.repo["person"], self.repo.types["person"])
-        self.assertIs(self.repo.types["person"].repository, self.repo)
-
-    def test_it_is_found_once(self):
-        record = self.repo["person"].find_record("1")
-        self.assertIs(record.repository, record.repository)
-        self.assertIn("repository", record.__dict__)  # kept on the node
-
-    def test_the_request_gets_the_store_from_the_repository_of_its_context(self):
-        web = self.client()
-        self.assertEqual(
-            web.get("/test_repo/person/1", headers=self.admin).status_int, 200
-        )
-        self.assertEqual(
-            web.get(
-                "/test_repo/", headers={**self.admin, "Accept": "application/json"}
-            ).json["id"],
-            "test_repo",
-        )

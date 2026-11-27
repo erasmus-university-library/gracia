@@ -29,7 +29,9 @@ def iso(a, b) -> bool:
 
 
 class ExtractTest(unittest.TestCase):
-    def test_follows_blank_nodes_and_lists_but_stops_at_uris(self):
+    def test_it_follows_blank_nodes_and_lists_but_stops_at_uris_and_an_unknown_uri_is_empty(
+        self,
+    ):
         ds = parse(DATA / "04_complex.ttl")
         doc1 = ds.extract(REC["doc1"])
         self.assertTrue(len(doc1))
@@ -42,7 +44,6 @@ class ExtractTest(unittest.TestCase):
         # ex:ref ex:x points at another uri: ex:x is not pulled in
         self.assertFalse(any(q.subject == node("x") for q in doc1))
 
-    def test_a_uri_object_is_not_followed(self):
         ds = Graph(
             ox.Dataset(
                 [
@@ -53,12 +54,26 @@ class ExtractTest(unittest.TestCase):
         )
         self.assertEqual(len(ds.extract(node("a"))), 1)
 
-    def test_shared_blank_node_is_in_both_resources(self):
+        b = ox.BlankNode()
+        ds = Graph(
+            ox.Dataset(
+                [
+                    ox.Quad(node("a"), node("p"), ox.Literal("x")),
+                    ox.Quad(b, node("q"), ox.Literal("y")),
+                ]
+            )
+        )
+        self.assertEqual(len(ds.extract(node("nope"))), 0)
+        self.assertEqual(len(ds.orphaned_nodes()), 1)
+        self.assertEqual(ds.subjects(), [node("a")])
+
+    def test_a_shared_blank_node_is_in_both_resources_within_the_same_graph_and_a_cycle_ends(
+        self,
+    ):
         ds = parse(DATA / "04_complex.ttl")
         for name in ("doc2", "doc3"):
             self.assertEqual(len(ds.extract(node(name))), 2)  # ex:see + _:shared label
 
-    def test_blank_nodes_are_followed_within_the_same_graph(self):
         b, g1, g2 = ox.BlankNode(), node("g1"), node("g2")
         ds = Graph(
             ox.Dataset(
@@ -75,34 +90,27 @@ class ExtractTest(unittest.TestCase):
             {"in g1"},
         )
 
-    def test_blank_node_cycle_terminates(self):
         b = ox.BlankNode()
         ds = Graph(
             ox.Dataset([ox.Quad(node("a"), node("p"), b), ox.Quad(b, node("self"), b)])
         )
         self.assertEqual(len(ds.extract(node("a"))), 2)
 
-    def test_unknown_uri_is_empty_and_orphans_are_found(self):
-        b = ox.BlankNode()
-        ds = Graph(
-            ox.Dataset(
-                [
-                    ox.Quad(node("a"), node("p"), ox.Literal("x")),
-                    ox.Quad(b, node("q"), ox.Literal("y")),
-                ]
-            )
-        )
-        self.assertEqual(len(ds.extract(node("nope"))), 0)
-        self.assertEqual(len(ds.orphaned_nodes()), 1)
-        self.assertEqual(ds.subjects(), [node("a")])
-
 
 class GetTest(DbTestCase):
-    def test_get_one_resource(self):
+    def test_get_one_resource_expands_lists_and_blank_nodes(self):
         self.load(DATA / "04_complex.ttl")
         with open_store(self.db) as store:
             got = store.get(REC["doc1"])
         self.assertTrue(iso(got, parse(DATA / "04_complex.ttl").extract(REC["doc1"])))
+
+        self.load(DATA / "03_lists.ttl")
+        with open_store(self.db) as store:
+            book = store.get(REC["book1"])
+        predicates = {q.predicate.value.rsplit("#", 1)[-1] for q in book}
+        self.assertIn("first", predicates)
+        self.assertIn("rest", predicates)
+        self.assertEqual(len(book.orphaned_nodes()), 0)
 
     def test_get_several_and_unknown_and_node_arguments(self):
         self.load(DATA / "01_simple.ttl")
@@ -116,18 +124,11 @@ class GetTest(DbTestCase):
                 len(store.get_multi([REC["alice"], REC["alice"]])), 1
             )  # no duplicates
 
-    def test_get_expands_lists_and_blank_nodes(self):
-        self.load(DATA / "03_lists.ttl")
-        with open_store(self.db) as store:
-            book = store.get(REC["book1"])
-        predicates = {q.predicate.value.rsplit("#", 1)[-1] for q in book}
-        self.assertIn("first", predicates)
-        self.assertIn("rest", predicates)
-        self.assertEqual(len(book.orphaned_nodes()), 0)
-
 
 class PutTest(DbTestCase):
-    def test_put_new_resources_from_a_parsed_file(self):
+    def test_put_new_resources_from_a_parsed_file_a_shared_blank_node_per_use_and_literal_details(
+        self,
+    ):
         ds = parse(DATA / "02_bnodes.ttl")
         with open_store(self.db) as store:
             counts = store.put_multi(ds)
@@ -137,7 +138,6 @@ class PutTest(DbTestCase):
         for root in ds.subjects():
             self.assertTrue(iso(got.extract(root), ds.extract(root)), root)
 
-    def test_a_blank_node_used_twice_is_stored_once_per_use(self):
         ds = parse(DATA / "05_shared.ttl")
         original = ds.extract(REC["alice"])
         with open_store(self.db) as store:
@@ -149,6 +149,15 @@ class PutTest(DbTestCase):
 
         self.assertEqual(len(bnodes(stored)), 2 * len(bnodes(original)))
 
+        quads = [
+            ox.Quad(node("a"), node("label"), ox.Literal("Doc", language="en")),
+            ox.Quad(node("a"), node("n"), ox.Literal("5", datatype=XSD_INT)),
+            ox.Quad(node("a"), node("plain"), ox.Literal("x")),
+        ]
+        with open_store(self.db) as store:
+            store.put_multi(ox.Dataset(quads))
+            self.assertTrue(iso(store.get(node("a")), quads))
+
     def test_get_put_roundtrip_changes_nothing(self):
         self.load(DATA / "04_complex.ttl")
         with open_store(self.db) as store:
@@ -156,7 +165,9 @@ class PutTest(DbTestCase):
             store.put_multi(store.get_multi([REC["doc1"], REC["doc4"]]))
             self.assertEqual(len(self.rows(store)), before)
 
-    def test_put_replaces_the_resource_as_a_whole(self):
+    def test_put_replaces_resources_as_a_whole_several_in_one_call_and_leaves_others_alone(
+        self,
+    ):
         self.load(DATA / "01_simple.ttl")
         with open_store(self.db) as store:
             book = store.get(REC["book1"])
@@ -177,7 +188,6 @@ class PutTest(DbTestCase):
             self.assertTrue(iso(store.get(REC["book1"]), book))
             self.assertEqual(len(store.get(REC["alice"])), 1)  # untouched
 
-    def test_put_several_resources_in_one_call_leaves_others_alone(self):
         self.load(DATA / "01_simple.ttl")
         ds = ox.Dataset(
             [
@@ -193,17 +203,9 @@ class PutTest(DbTestCase):
             )
             self.assertEqual(len(store.get(REC["book1"])), 5)  # untouched
 
-    def test_literal_details_survive(self):
-        quads = [
-            ox.Quad(node("a"), node("label"), ox.Literal("Doc", language="en")),
-            ox.Quad(node("a"), node("n"), ox.Literal("5", datatype=XSD_INT)),
-            ox.Quad(node("a"), node("plain"), ox.Literal("x")),
-        ]
-        with open_store(self.db) as store:
-            store.put_multi(ox.Dataset(quads))
-            self.assertTrue(iso(store.get(node("a")), quads))
-
-    def test_blank_node_orphans_are_an_error_and_nothing_is_stored(self):
+    def test_orphans_and_strict_warnings_are_errors_nothing_is_stored_and_an_empty_dataset_is_a_no_op(
+        self,
+    ):
         ds = ox.Dataset(
             [
                 ox.Quad(node("a"), node("p"), ox.Literal("x")),
@@ -218,11 +220,9 @@ class PutTest(DbTestCase):
                 store.put_multi(ds)
             self.assertEqual(len(store.get(node("a"))), 0)
 
-    def test_empty_dataset_is_a_no_op(self):
         with open_store(self.db) as store:
             self.assertEqual(dict(store.put_multi(ox.Dataset())), {})
 
-    def test_strict_refuses_warnings(self):
         b = ox.BlankNode()
         ds = ox.Dataset(
             [
@@ -252,7 +252,7 @@ class PutTest(DbTestCase):
 
 
 class WrapperTest(unittest.TestCase):
-    def test_a_graph_holds_the_dataset_it_is_given_and_does_not_copy_it(self):
+    def test_a_graph_holds_the_dataset_it_is_given_and_a_copy_is_independent(self):
         dataset = ox.Dataset([ox.Quad(node("a"), node("p"), ox.Literal("x"))])
         graph = Graph(dataset)
         self.assertIs(graph.dataset, dataset)
@@ -261,7 +261,6 @@ class WrapperTest(unittest.TestCase):
         )  # the dataset's own add
         self.assertEqual(len(dataset), 2)  # one dataset, two ways to it
 
-    def test_of_makes_a_new_dataset_and_copy_is_independent(self):
         quads = [ox.Quad(node("a"), node("p"), ox.Literal("x"))]
         graph = Graph(ox.Dataset(quads))
         copy = graph.copy()
@@ -269,7 +268,7 @@ class WrapperTest(unittest.TestCase):
         self.assertEqual((len(graph), len(copy)), (1, 2))
         self.assertEqual(len(Graph()), 0)
 
-    def test_it_goes_where_quads_go(self):
+    def test_it_goes_where_quads_go_and_a_missing_dataset_is_an_attribute_error(self):
         graph = Graph(ox.Dataset([ox.Quad(node("a"), node("p"), ox.Literal("x"))]))
         self.assertEqual(list(graph), list(graph.dataset))
         self.assertIn(next(iter(graph)), graph)
@@ -282,7 +281,6 @@ class WrapperTest(unittest.TestCase):
             len(list(graph.quads_for_subject(node("a")))), 1
         )  # the dataset's
 
-    def test_a_missing_dataset_is_an_attribute_error_and_not_a_loop(self):
         import copy
 
         graph = Graph(ox.Dataset([ox.Quad(node("a"), node("p"), ox.Literal("x"))]))
@@ -332,7 +330,7 @@ class ReadingTest(unittest.TestCase):
 
 
 class ChangingTest(unittest.TestCase):
-    def test_replace_sets_the_one_value_and_none_removes_it(self):
+    def test_replace_sets_the_one_value_and_add_value_adds_one(self):
         graph = Graph(
             ox.Dataset(
                 [
@@ -347,6 +345,12 @@ class ChangingTest(unittest.TestCase):
         self.assertEqual(graph.value(node("a"), node("q")).value, "keep")
         graph.replace(REC["a"], EX + "p", None)
         self.assertIsNone(graph.value(node("a"), node("p")))
+
+        graph = Graph()
+        graph.add_value(node("a"), node("p"), ox.Literal("1"))
+        graph.add_value(node("a"), node("p"), ox.Literal("2"))
+        graph.add(ox.Quad(node("a"), node("q"), ox.Literal("3")))
+        self.assertEqual(len(graph), 3)
 
     def test_what_is_written_goes_in_the_graph_the_subject_is_in_or_the_one_given(self):
         g1, g2 = node("g1"), node("g2")
@@ -366,16 +370,9 @@ class ChangingTest(unittest.TestCase):
         )  # nothing yet: default
         self.assertIsNone(fresh.graph_name_of(node("nobody")))
 
-    def test_add_value_adds_a_value_and_add_is_still_the_datasets_add_of_a_quad(self):
-        graph = Graph()
-        graph.add_value(node("a"), node("p"), ox.Literal("1"))
-        graph.add_value(node("a"), node("p"), ox.Literal("2"))
-        graph.add(ox.Quad(node("a"), node("q"), ox.Literal("3")))
-        self.assertEqual(len(graph), 3)
-
 
 class WholeGraphTest(unittest.TestCase):
-    def test_without_leaves_out_the_quads_of_some_predicates(self):
+    def test_without_and_remap_make_a_new_graph_and_leave_the_original(self):
         graph = Graph(
             ox.Dataset(
                 [
@@ -388,7 +385,6 @@ class WholeGraphTest(unittest.TestCase):
         self.assertEqual([q.predicate for q in shown], [node("p")])
         self.assertEqual(len(graph), 2)  # the graph is left as it was
 
-    def test_remap_changes_a_uri_as_subject_and_as_object_in_a_new_graph(self):
         graph = Graph(
             ox.Dataset(
                 [
@@ -444,7 +440,9 @@ class TextTest(unittest.TestCase):
         "turtle",
     )
 
-    def test_parse_reads_every_serialization_into_the_default_graph(self):
+    def test_parse_reads_every_serialization_and_a_text_not_in_the_format_is_a_parse_error(
+        self,
+    ):
         for fmt in ("turtle", "ntriples", "rdfxml", "jsonld"):
             with self.subTest(fmt=fmt):
                 text = self.graph.serialize(fmt, self.PREFIXES)
@@ -452,7 +450,6 @@ class TextTest(unittest.TestCase):
                 self.assertTrue(iso(self.graph, again), text)
                 self.assertEqual({q.graph_name for q in again}, {ox.DefaultGraph()})
 
-    def test_a_text_that_is_not_in_the_format_is_a_parse_error(self):
         with self.assertRaisesRegex(ParseError, "This is not valid turtle"):
             Graph.parse("this is not turtle {", "turtle")
         with self.assertRaises(ValueError):  # it is one
@@ -468,13 +465,12 @@ class TextTest(unittest.TestCase):
             ],
         )  # not skos
 
-    def test_a_prefix_that_is_only_in_a_string_is_not_used(self):
         graph = Graph.parse(
             '<rec:thing:1> <http://example.org/p> "see skos:Concept" .', "turtle"
         )
         self.assertNotIn("@prefix skos:", graph.serialize("turtle", self.PREFIXES))
 
-    def test_rdfxml_is_nested_declares_what_it_uses_and_always_rdf(self):
+    def test_rdfxml_is_nested_declares_what_it_uses_and_jsonld_is_indented(self):
         text = self.graph.serialize("rdfxml", self.PREFIXES)
         self.assertNotIn(
             "rdf:nodeID", text
@@ -483,7 +479,6 @@ class TextTest(unittest.TestCase):
             sorted(re.findall(r"xmlns:(\w+)=", text)), ["ex", "foaf", "rdf"]
         )
 
-    def test_jsonld_is_indented(self):
         self.assertGreater(len(self.graph.serialize("jsonld").splitlines()), 10)
 
     def test_the_same_triples_are_the_same_text_with_the_type_first(self):
@@ -506,13 +501,12 @@ class SelectTest(unittest.TestCase):
         "turtle",
     )
 
-    def test_select_runs_on_the_graph_with_the_prefixes_counted_on(self):
+    def test_select_runs_on_this_graph_only_with_the_prefixes_counted_on(self):
         rows = list(
             self.graph.select("SELECT ?n WHERE { <urn:a> foaf:name ?n }", self.PREFIXES)
         )
         self.assertEqual([r[0].value for r in rows], ["Ada"])
 
-    def test_it_sees_only_this_graph(self):
         other = Graph.parse('<urn:c> <http://xmlns.com/foaf/0.1/name> "Cy" .', "turtle")
         rows = list(other.select("SELECT ?n WHERE { ?s foaf:name ?n }", self.PREFIXES))
         self.assertEqual([r[0].value for r in rows], ["Cy"])

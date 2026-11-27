@@ -8,9 +8,8 @@ import unittest
 from types import SimpleNamespace
 
 import pyoxigraph as ox
+from schemaorg.cases import ADD, ADMIN, PEOPLE, POSTING, ListCase
 from support import must_search
-from test_dates import ADMIN, POSTING
-from test_list_widget import ADD, PEOPLE, ListCase
 
 from gracia import forms
 from gracia.forms import TabsWidget
@@ -29,7 +28,7 @@ class GroupRunsTest(ListCase):
     def names(self, runs):
         return [(r.group, [f.name for f in r.fields]) for r in runs]
 
-    def test_fields_that_are_next_to_each_other_in_a_group_are_one_run(self):
+    def test_fields_next_to_each_other_in_a_group_are_one_run_and_apart_are_two(self):
         found = TabsWidget.runs(
             [
                 self.field("a"),
@@ -41,10 +40,6 @@ class GroupRunsTest(ListCase):
         self.assertEqual(
             self.names(found), [(None, ["a"]), ("G", ["b", "c"]), (None, ["d"])]
         )
-
-    def test_the_fields_of_a_group_that_are_apart_are_two_runs_and_groups_are_apart(
-        self,
-    ):
         found = TabsWidget.runs(
             [
                 self.field("a", "G"),
@@ -57,8 +52,7 @@ class GroupRunsTest(ListCase):
             self.names(found),
             [("G", ["a"]), (None, ["b"]), ("G", ["c"]), ("H", ["d"])],
         )
-
-    def test_fields_with_no_group_are_runs_of_their_own_with_no_name(self):
+        # fields with no group are runs of their own with no name
         found = TabsWidget.runs([self.field("a"), self.field("b")])
         self.assertEqual(self.names(found), [(None, ["a"]), (None, ["b"])])
 
@@ -77,8 +71,10 @@ class HostReferenceTest(ListCase):
     def page(self):
         return self.web.get(ADD, headers=ADMIN).text
 
-    def test_the_host_reference_is_one_box_with_the_name_of_the_group(self):
-        box = must_search(GROUP_BOX, self.page())[1]
+    def test_the_host_reference_is_one_box_with_the_name_of_the_group_as_a_label(self):
+        page = self.page()
+        found = must_search(GROUP_BOX, page)
+        group, box = found[0], found[1]
         self.assertEqual(
             re.findall(r"<label[^>]*>([^<]*)</label>", box),
             [
@@ -90,18 +86,19 @@ class HostReferenceTest(ListCase):
                 "page end",
             ],
         )
-
-    def test_only_those_are_in_the_box(self):
-        self.assertEqual(
-            len(re.findall(r'<div class="mb-3 field-group"', self.page())), 1
-        )
-        outside = re.sub(GROUP_BOX, "", self.page())
+        self.assertEqual(len(re.findall(r'<div class="mb-3 field-group"', page)), 1)
+        outside = re.sub(GROUP_BOX, "", page)
         for name in ("volumeNumber", "issueNumber", "pageStart", "pageEnd"):
             self.assertNotIn(f'name="{name}"', outside)
         self.assertIn(">author<", outside)
-
-    def test_there_is_no_separate_isbn_for_it_is_a_kind_of_identifier(self):
-        self.assertNotIn('name="isbn"', self.page())
+        # there is no separate isbn: it is a kind of identifier
+        self.assertNotIn('name="isbn"', page)
+        label = must_search(
+            r'<label class="form-label" id="([^"]*)">Host Reference</label>', group
+        )
+        self.assertRegex(group, rf'role="group"\s+aria-labelledby="{label[1]}"')
+        self.assertLess(group.index("<label"), group.index("field-group-box"))
+        self.assertRegex(group, r'class="field-group-box card-body border rounded')
 
     def test_the_volume_the_issue_and_the_pages_are_saved_and_come_back(self):
         form = self.web.get(ADD, headers=ADMIN).forms[0]
@@ -191,7 +188,7 @@ class IdentifierKindsTest(ListCase):
             with self.subTest(kind=kind, value=value):
                 self.assertEqual(self.work_with(kind, value, url).validate(), [])
 
-    def test_a_value_that_is_not_in_the_form_of_its_kind_does_not(self):
+    def test_a_value_or_a_url_that_is_not_in_the_form_of_its_kind_does_not(self):
         for kind, value in (
             ("DOI", "not a doi"),
             ("DOI", "11.1000/x"),
@@ -202,25 +199,9 @@ class IdentifierKindsTest(ListCase):
         ):
             with self.subTest(kind=kind, value=value):
                 self.assertNotEqual(self.work_with(kind, value).validate(), [])
-
-    def test_a_url_that_is_not_of_the_kind_does_not_conform(self):
+        # a url that is not of the kind does not conform either
         found = self.work_with("DOI", "10.1000/xyz123", "https://example.org/x")
         self.assertNotEqual(found.validate(), [])
-
-
-class GroupLabelTest(ListCase):
-    def test_the_name_of_the_group_is_a_label_like_those_of_the_fields(self):
-        page = self.web.get(ADD, headers=ADMIN).text
-        group = must_search(GROUP_BOX, page)[0]
-        label = must_search(
-            r'<label class="form-label" id="([^"]*)">Host Reference</label>', group
-        )
-        self.assertRegex(group, rf'role="group"\s+aria-labelledby="{label[1]}"')
-        self.assertLess(group.index("<label"), group.index("field-group-box"))
-
-    def test_the_fields_are_in_a_box_that_has_a_column_of_labels_of_its_own(self):
-        group = must_search(GROUP_BOX, self.web.get(ADD, headers=ADMIN).text)[0]
-        self.assertRegex(group, r'class="field-group-box card-body border rounded')
 
 
 class InSupportOfTest(ListCase):
@@ -244,14 +225,12 @@ class InSupportOfTest(ListCase):
             o.value for o in work.graph.objects(work.resource, SCHEMA + "inSupportOf")
         ]
 
-    def test_the_shape_says_it_is_for_a_thesis(self):
+    def test_the_shape_and_the_page_say_which_fields_are_for_which_works(self):
         graph, shape = self.application["work_repo"].types["work"].shacl_shape(False)
         self.assertEqual(
             forms.fields_only_for(graph, shape),
             {SCHEMA + "inSupportOf": [SCHEMA + "Thesis"]},
         )
-
-    def test_the_page_tells_the_script_which_fields_are_for_which_works(self):
         page = self.web.get(ADD, headers=ADMIN).text
         found = must_search(
             r'<div class="tab-pane[^>]*data-only-for-fields="([^"]*)"', page
@@ -261,47 +240,36 @@ class InSupportOfTest(ListCase):
             {"inSupportOf": [SCHEMA + "Thesis"]},
         )
 
-    def test_a_thesis_keeps_what_it_is_in_support_of(self):
+    def test_only_a_thesis_keeps_what_it_is_in_support_of(self):
         self.assertEqual(self.put_work("Thesis", "Master of Science").status_int, 302)
         self.assertEqual(self.stored(), ["Master of Science"])
         self.assertEqual(self.work().validate(), [])
-
-    def test_another_work_does_not_keep_it_even_when_it_is_sent(self):
-        response = self.put_work("Book", "Master of Science")
-        self.assertEqual(response.status_int, 302, response.text[:300])
-        self.assertEqual(self.stored(), [])
-
-    def test_a_thesis_that_becomes_another_work_loses_it(self):
-        self.put_work("Thesis", "Master of Science")
-        self.assertEqual(self.stored(), ["Master of Science"])
+        # a thesis that becomes another work loses it
         edit = "/work_repo/work/1/edit"
         self.assertEqual(
             self.put_work("Report", "Master of Science", edit).status_int, 302
         )
         self.assertEqual(self.stored(), [])
         self.assertEqual(self.work().validate(), [])
-
-    def test_the_other_fields_are_kept_for_every_work(self):
-        self.put_work("Book", "x")
-        work = self.work()
+        # another work does not keep it even when it is sent, but keeps the rest
+        response = self.put_work("Book", "Master of Science")
+        self.assertEqual(response.status_int, 302, response.text[:300])
+        self.assertEqual(self.stored(2), [])
+        work = self.work(2)
         self.assertEqual(
             [o.value for o in work.graph.objects(work.resource, SCHEMA + "name")],
             ["A work"],
         )
 
-    def test_a_record_that_has_it_as_another_work_is_refused_by_the_shape(self):
+    def test_a_record_that_has_it_as_another_work_is_refused_by_the_shape_with_words(
+        self,
+    ):
         self.put_work("Thesis", "Master of Science")
         work = self.work()
         work.graph.replace(work.resource, forms.RDF_TYPE, ox.NamedNode(SCHEMA + "Book"))
         problems = " ".join(map(str, work.validate()))
         self.assertIn("In support of is only for a thesis.", problems)
-        self.assertNotIn(
-            "are only for a thesis", problems
-        )  # the other rule is not broken
-
-    def test_the_two_rules_each_say_their_own_words(self):
-        self.put_work("Thesis", "Master of Science")
-        work = self.work()
+        self.assertNotIn("are only for a thesis", problems)  # the other rule
         node = ox.BlankNode()
         work.graph.add_value(work.resource, SCHEMA + "contributor", node)
         work.graph.add_value(node, forms.RDF_TYPE, ox.NamedNode(SCHEMA + "Role"))
@@ -311,7 +279,6 @@ class InSupportOfTest(ListCase):
             ox.NamedNode("http://example.org/vocab/role/CoSupervisor"),
         )
         work.graph.add_value(node, SCHEMA + "contributor", ox.NamedNode(PEOPLE[0]))
-        work.graph.replace(work.resource, forms.RDF_TYPE, ox.NamedNode(SCHEMA + "Book"))
         problems = " ".join(map(str, work.validate()))
         self.assertIn("In support of is only for a thesis.", problems)
         self.assertIn("are only for a thesis", problems)
@@ -358,8 +325,7 @@ class FieldRuleTest(unittest.TestCase):
             forms.fields_only_for(graph, ox.NamedNode(EX + "Work")),
             {SCHEMA + "inSupportOf": [SCHEMA + "Thesis"]},
         )
-
-    def test_several_classes_and_several_rules(self):
+        # several classes and several rules
         graph = self.graph(
             """
             ex:Work a sh:NodeShape ;
@@ -380,8 +346,7 @@ class FieldRuleTest(unittest.TestCase):
                 SCHEMA + "isbn": [SCHEMA + "Book"],
             },
         )
-
-    def test_other_alternatives_are_left_alone(self):
+        # other alternatives are left alone
         graph = self.graph(
             """
             ex:Work a sh:NodeShape ; sh:targetClass schema:Thesis ;

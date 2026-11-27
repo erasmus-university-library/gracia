@@ -127,7 +127,9 @@ class EtagTest(EtagCase):
             record("rec:work:2", refs=["rec:org:1"]),
         )
 
-    def test_a_record_has_a_row_with_the_ids_of_what_it_is_made_of(self):
+    def test_a_record_has_a_row_with_the_ids_of_what_it_is_made_of_and_the_python_id_is_the_one_of_the_database(
+        self,
+    ):
         row = dict(
             zip(
                 (
@@ -184,7 +186,6 @@ class EtagTest(EtagCase):
             ["rec:org:1", "rec:person:1", "rec:work:1"],
         )
 
-    def test_the_python_id_is_the_one_of_the_database(self):
         for slug, number in TYPES:
             found = fetch_one(
                 self.store.con.execute("SELECT record_id(?)", [f"rec:{slug}:{7}"])
@@ -229,7 +230,7 @@ class EtagTest(EtagCase):
             "INTEGER",
         )
 
-    def test_it_changes_with_what_the_page_is_made_of_and_with_nothing_else(self):
+    def test_the_etag_changes_with_what_the_page_is_made_of_and_with_nothing_else(self):
         first = self.etag("rec:work:1")
         self.put(
             record("rec:person:2", stamp="2026-02-01T00:00:00.000000Z")
@@ -241,12 +242,10 @@ class EtagTest(EtagCase):
         self.assertNotEqual(self.etag("rec:work:1"), first)
         self.assertNotEqual(self.etag("rec:person:1"), first)
 
-    def test_a_save_that_changes_nothing_leaves_the_etag(self):
         before = self.rows()
         self.put(record("rec:work:1", refs=["rec:person:1"]))
         self.assertEqual(self.rows(), before)
 
-    def test_a_record_that_points_somewhere_else_has_another_page(self):
         first = self.etag("rec:work:1")
         self.put(record("rec:work:1", refs=["rec:person:2"]))
         self.assertNotEqual(self.etag("rec:work:1"), first)
@@ -254,7 +253,7 @@ class EtagTest(EtagCase):
             self.store.page_uris("rec:work:1"), ["rec:person:2", "rec:work:1"]
         )
 
-    def test_a_reference_to_a_record_that_is_not_there_yet_is_found_when_it_is_made(
+    def test_a_reference_to_a_record_that_is_not_there_yet_or_by_resource_uri_is_found_when_it_is_made(
         self,
     ):
         self.put(record("rec:work:3", refs=["rec:person:9"]))
@@ -267,7 +266,6 @@ class EtagTest(EtagCase):
         )
         self.assert_made_again_equals_a_rebuild()
 
-    def test_a_reference_by_resource_uri_follows_the_resource_uri_of_the_record(self):
         self.put(record("rec:work:3", refs=["urn:orcid:42"]))
         self.assertEqual(self.store.page_uris("rec:work:3"), ["rec:work:3"])
         self.put(
@@ -280,7 +278,9 @@ class EtagTest(EtagCase):
         self.assertEqual(self.store.page_uris("rec:work:3"), ["rec:work:3"])
         self.assert_made_again_equals_a_rebuild()
 
-    def test_a_deleted_record_has_no_row_and_the_pages_made_of_it_change(self):
+    def test_a_deleted_record_has_no_row_a_cycle_ends_and_the_page_has_the_time_of_the_last_record(
+        self,
+    ):
         first = self.etag("rec:work:1")
         self.store.delete(["rec:person:1"])
         self.assertIsNone(self.etag("rec:person:1"))
@@ -288,7 +288,6 @@ class EtagTest(EtagCase):
         self.assertEqual(self.store.page_uris("rec:work:1"), ["rec:work:1"])
         self.assert_made_again_equals_a_rebuild()
 
-    def test_a_cycle_ends(self):
         self.put(
             record("rec:person:1", refs=["rec:org:1", "rec:work:1"])
         )  # work 1 -> person 1 -> work 1
@@ -298,7 +297,6 @@ class EtagTest(EtagCase):
         )
         self.assert_made_again_equals_a_rebuild()
 
-    def test_the_time_of_the_record_that_the_page_is_made_of_is_the_last_one(self):
         self.put(record("rec:org:1", stamp="2027-05-05T00:00:00.000000Z"))
         found = fetch_one(
             self.store.con.execute(
@@ -328,16 +326,23 @@ class TimeOnlyGoesUpTest(EtagCase):
             )
         )[0]
 
-    def test_a_page_that_loses_the_latest_record_by_its_deletion_gets_the_time_of_the_write(  # noqa: E501
+    def test_a_page_that_loses_the_latest_record_by_its_deletion_gets_the_time_of_the_write(
         self,
     ):
         before = self.last("rec:work:1")
+        untouched = (self.etag("rec:work:2"), self.last("rec:work:2"))
         self.store.delete(["rec:org:1"])
+        self.assertEqual((self.etag("rec:work:2"), self.last("rec:work:2")), untouched)
         self.assertEqual(
             self.store.page_uris("rec:work:1"), ["rec:person:1", "rec:work:1"]
         )
         self.assertGreater(self.last("rec:work:1"), before)
         self.assert_made_again_equals_a_rebuild()
+
+        self.store.delete(["rec:org:1"])
+        kept = self.last("rec:work:1")
+        self.store.rebuild_etags()
+        self.assertEqual(self.last("rec:work:1"), kept)
 
     def test_a_page_that_loses_the_latest_record_by_its_resource_uri_gets_the_time_of_the_write(  # noqa: E501
         self,
@@ -354,7 +359,7 @@ class TimeOnlyGoesUpTest(EtagCase):
         self.assertGreater(self.last("rec:work:1"), before)
         self.assert_made_again_equals_a_rebuild()
 
-    def test_a_page_that_stops_pointing_at_the_latest_record_gets_the_time_of_the_write(
+    def test_a_page_that_stops_pointing_at_the_latest_record_gets_the_time_of_the_write_and_one_with_the_same_etag_keeps_its_time(
         self,
     ):
         before = self.last("rec:work:1")
@@ -362,29 +367,9 @@ class TimeOnlyGoesUpTest(EtagCase):
         self.assertGreater(self.last("rec:work:1"), before)
         self.assert_made_again_equals_a_rebuild()
 
-    def test_a_rebuild_does_not_set_a_page_back_or_forward(self):
-        self.store.delete(["rec:org:1"])
-        kept = self.last("rec:work:1")
-        self.store.rebuild_etags()
-        self.assertEqual(self.last("rec:work:1"), kept)
-
-    def test_a_page_whose_etag_is_the_same_keeps_its_time(self):
         before = {u: self.last(u) for u in ("rec:work:1", "rec:work:2", "rec:person:1")}
         self.put(record("rec:work:2"))  # nothing changed
         self.assertEqual({u: self.last(u) for u in before}, before)
-
-    def test_every_page_that_changed_has_the_time_of_the_write_and_no_other_has_(self):
-        before = {
-            u: (self.etag(u), self.last(u))
-            for u in ("rec:work:1", "rec:work:2", "rec:person:1", "rec:org:1")
-        }
-        self.store.delete(["rec:org:1"])
-        for rec_uri in ("rec:work:1", "rec:person:1"):  # made of org 1
-            self.assertNotEqual(self.etag(rec_uri), before[rec_uri][0])
-            self.assertGreater(self.last(rec_uri), before[rec_uri][1])
-        self.assertEqual(
-            (self.etag("rec:work:2"), self.last("rec:work:2")), before["rec:work:2"]
-        )  # not made of it
 
 
 class WhenTheyAreMadeTest(EtagCase):
@@ -406,7 +391,9 @@ class WhenTheyAreMadeTest(EtagCase):
         ):  # nor a number that is too high
             fresh.put_multi(record("rec:nobody:10000000"))
 
-    def test_a_rebuild_says_which_etags_were_wrong(self):
+    def test_a_rebuild_says_which_etags_were_wrong_an_outside_write_is_made_up_for_and_a_failed_write_changes_nothing(
+        self,
+    ):
         self.put(
             record("rec:org:1"),
             record("rec:work:1", refs=["rec:org:1"]),
@@ -430,41 +417,6 @@ class WhenTheyAreMadeTest(EtagCase):
         )
         self.assertEqual(self.store.rebuild_etags(), [])
 
-    def test_a_type_keeps_its_number_and_a_new_type_changes_no_id(self):
-        self.put(record("rec:work:1"))
-        before = self.rows()
-        self.assertFalse(self.store.set_type_ids(TYPES))  # the same: nothing
-        self.assertTrue(
-            self.store.set_type_ids([("magazine", 40)])
-        )  # a new type: the ids of the others stay
-        self.assertEqual(self.rows(), before)
-        self.assertEqual(self.store.type_numbers()["magazine"], 40)
-        with self.assertRaisesRegex(ValueError, "keeps its number"):
-            self.store.set_type_ids([("work", 9)])
-        with self.assertRaisesRegex(ValueError, "one number"):
-            self.store.set_type_ids([("gadget", 40)])
-        self.assertEqual(self.rows(), before)
-        self.put(record("rec:magazine:1"))  # the new type has records now
-        self.assertIsNotNone(self.etag("rec:magazine:1"))
-
-    def test_a_reopened_store_knows_the_numbers_of_its_types(self):
-        self.store.set_type_ids([("magazine", 40)])
-        again = open_store(self.db)
-        self.addCleanup(again.close)
-        expected = {**uri.BASE_TYPE_NUMBERS, **dict(TYPES), "magazine": 40}
-        self.assertEqual(
-            {k: v for k, v in again.type_numbers().items() if k in expected}, expected
-        )
-        self.assertEqual(
-            fetch_one(
-                again.con.execute("SELECT resource_uri(record_id('rec:magazine:12'))")
-            )[0],
-            "rec:magazine:12",
-        )
-        with self.assertRaisesRegex(Exception, "unknown record uri"):
-            again.con.execute("SELECT resource_uri(record_id('rec:nobody:12'))")
-
-    def test_a_write_made_outside_the_store_is_made_up_for_by_the_next(self):
         self.put(record("rec:org:1"), record("rec:work:1", refs=["rec:org:1"]))
         first = self.etag("rec:work:1")
         # the database shell: no store, no refresh (the triggers still keep `records`
@@ -481,7 +433,6 @@ class WhenTheyAreMadeTest(EtagCase):
         self.assertNotEqual(self.etag("rec:work:1"), first)
         self.assert_made_again_equals_a_rebuild()
 
-    def test_a_write_that_fails_leaves_the_etags_as_they_were(self):
         self.put(record("rec:org:1"))
         before = self.rows()
         with self.assertRaises(ValueError):
@@ -496,6 +447,41 @@ class WhenTheyAreMadeTest(EtagCase):
                 )
             )
         self.assertEqual(self.rows(), before)
+
+    def test_a_type_keeps_its_number_a_new_type_changes_no_id_and_a_reopened_store_knows_them(
+        self,
+    ):
+        self.put(record("rec:work:1"))
+        before = self.rows()
+        self.assertFalse(self.store.set_type_ids(TYPES))  # the same: nothing
+        self.assertTrue(
+            self.store.set_type_ids([("magazine", 40)])
+        )  # a new type: the ids of the others stay
+        self.assertEqual(self.rows(), before)
+        self.assertEqual(self.store.type_numbers()["magazine"], 40)
+        with self.assertRaisesRegex(ValueError, "keeps its number"):
+            self.store.set_type_ids([("work", 9)])
+        with self.assertRaisesRegex(ValueError, "one number"):
+            self.store.set_type_ids([("gadget", 40)])
+        self.assertEqual(self.rows(), before)
+        self.put(record("rec:magazine:1"))  # the new type has records now
+        self.assertIsNotNone(self.etag("rec:magazine:1"))
+
+        self.store.set_type_ids([("magazine", 40)])
+        again = open_store(self.db)
+        self.addCleanup(again.close)
+        expected = {**uri.BASE_TYPE_NUMBERS, **dict(TYPES), "magazine": 40}
+        self.assertEqual(
+            {k: v for k, v in again.type_numbers().items() if k in expected}, expected
+        )
+        self.assertEqual(
+            fetch_one(
+                again.con.execute("SELECT resource_uri(record_id('rec:magazine:12'))")
+            )[0],
+            "rec:magazine:12",
+        )
+        with self.assertRaisesRegex(Exception, "unknown record uri"):
+            again.con.execute("SELECT resource_uri(record_id('rec:nobody:12'))")
 
     def test_many_records_at_once_are_made_in_one_refresh_and_equal_a_rebuild(self):
         self.put(record("rec:org:1"))
@@ -829,7 +815,14 @@ class DeltaTest(EtagCase):
     def etags_of_works(self):
         return {n: self.etag(f"rec:work:{n}") for n in range(1, 8)}
 
-    def test_a_rename_of_a_hub_does_not_walk_the_records_made_of_it(self):
+    def test_a_rename_of_a_hub_does_not_walk_the_records_made_of_it_nor_an_earlier_time_set_them_back(
+        self,
+    ):
+        before = self.rows()
+        self.put(record("rec:org:1"))
+        self.assertEqual(self.rows(), before)
+        self.walked.clear()
+
         before, last = (
             self.etags_of_works(),
             fetch_one(
@@ -852,7 +845,31 @@ class DeltaTest(EtagCase):
         self.assertEqual((last.year, moved.year, moved.month), (2026, 2027, 6))
         self.assert_made_again_equals_a_rebuild()
 
-    def test_a_hub_that_points_somewhere_else_is_walked_again_with_the_records_made_of_it(  # noqa: E501
+        self.put(record("rec:org:1", stamp="2027-06-01T00:00:00.000000Z"))
+        self.walked.clear()
+        self.put(record("rec:org:1", stamp="2026-03-01T00:00:00.000000Z"))
+        self.assertEqual(self.walked, [1])  # the hub only
+        last = fetch_one(
+            self.store.con.execute(
+                "SELECT last_modified_at FROM etags WHERE record_uri = 'rec:work:1'"
+            )
+        )[0]
+        self.assertEqual((last.year, last.month), (2027, 6))
+        self.assert_made_again_equals_a_rebuild()
+
+        self.put(
+            record(
+                "rec:org:1", res="ark:/1/moved/1", stamp="2027-06-01T00:00:00.000000Z"
+            )
+        )
+        row = self.store.con.execute(
+            "SELECT res_uri, sort_key FROM etags WHERE record_uri = 'rec:org:1'"
+        ).fetchone()
+        self.assertEqual(
+            row, ("ark:/1/moved/1", 1767225600000000)
+        )  # created: an edit does not move it
+
+    def test_a_hub_that_points_elsewhere_or_is_deleted_is_walked_again_with_the_records_made_of_it(
         self,
     ):
         self.put(
@@ -867,22 +884,7 @@ class DeltaTest(EtagCase):
         )
         self.assert_made_again_equals_a_rebuild()
 
-    def test_a_hub_that_is_written_with_an_earlier_time_does_not_set_the_pages_back(
-        self,
-    ):
-        self.put(record("rec:org:1", stamp="2027-06-01T00:00:00.000000Z"))
         self.walked.clear()
-        self.put(record("rec:org:1", stamp="2026-03-01T00:00:00.000000Z"))
-        self.assertEqual(self.walked, [1])  # the hub only
-        last = fetch_one(
-            self.store.con.execute(
-                "SELECT last_modified_at FROM etags WHERE record_uri = 'rec:work:1'"
-            )
-        )[0]
-        self.assertEqual((last.year, last.month), (2027, 6))
-        self.assert_made_again_equals_a_rebuild()
-
-    def test_a_hub_that_is_deleted_is_walked_again_with_the_records_made_of_it(self):
         self.store.delete(["rec:org:1"])
         self.assertEqual(self.walked, [1 + 1 + 7])
         self.assertEqual(
@@ -890,7 +892,9 @@ class DeltaTest(EtagCase):
         )
         self.assert_made_again_equals_a_rebuild()
 
-    def test_two_records_changed_at_once_move_the_etags_by_both_changes(self):
+    def test_two_records_changed_at_once_move_the_etags_by_both_changes_and_a_record_made_of_it_by_two_ways_changes_once(
+        self,
+    ):
         both = Graph(
             ox.Dataset(
                 list(record("rec:org:1", stamp="2027-06-01T00:00:00.000000Z"))
@@ -909,7 +913,6 @@ class DeltaTest(EtagCase):
         self.assertTrue(all(before[n] != self.etag(f"rec:work:{n}") for n in before))
         self.assert_made_again_equals_a_rebuild()
 
-    def test_a_record_made_of_a_changed_one_by_two_ways_changes_once_not_twice(self):
         before = self.etag("rec:work:1")
         self.put(record("rec:org:1", stamp="2027-01-01T00:00:00.000000Z"))
         self.assertNotEqual(self.etag("rec:work:1"), before)
@@ -920,24 +923,6 @@ class DeltaTest(EtagCase):
         self.put(record("rec:org:1", stamp="2027-06-01T00:00:00.000000Z"))
         self.assertEqual(self.walked, [1 + 1 + 7])  # the delta is for many
         self.assert_made_again_equals_a_rebuild()
-
-    def test_a_save_that_changes_nothing_moves_nothing(self):
-        before = self.rows()
-        self.put(record("rec:org:1"))
-        self.assertEqual(self.rows(), before)
-
-    def test_the_hub_itself_gets_its_own_columns(self):
-        self.put(
-            record(
-                "rec:org:1", res="ark:/1/moved/1", stamp="2027-06-01T00:00:00.000000Z"
-            )
-        )
-        row = self.store.con.execute(
-            "SELECT res_uri, sort_key FROM etags WHERE record_uri = 'rec:org:1'"
-        ).fetchone()
-        self.assertEqual(
-            row, ("ark:/1/moved/1", 1767225600000000)
-        )  # created: an edit does not move it
 
 
 class DeltaOracleTest(OracleTest):

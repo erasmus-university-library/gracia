@@ -13,7 +13,10 @@ ADMIN = as_user("admin")
 
 
 class AccessTest(JobsViewCase):
-    def test_only_those_who_may_manage_open_it(self):
+    def test_only_those_who_may_manage_open_it_and_the_api_document_lists_it_for_them(
+        self,
+    ):
+        # only those who may manage open it
         for user, status in (("admin", 200), ("ed", 403), ("guest", 403), (None, 403)):
             with self.subTest(user=user):
                 headers = as_user(user) if user else {}
@@ -22,7 +25,7 @@ class AccessTest(JobsViewCase):
                     status,
                 )
 
-    def test_it_is_in_the_api_document_for_those_who_may_manage(self):
+        # it is in the api document for those who may manage
         paths = self.web.get(
             "/test_repo/api", headers={**ADMIN, "Accept": "application/json"}
         ).json["paths"]
@@ -44,7 +47,10 @@ class PageTest(JobsViewCase):
             r'<form\s+id="form-type-settings".*?</form>', self.page(), re.S
         )[0]
 
-    def test_the_page_has_the_settings_of_the_type_with_the_schema_chosen(self):
+    def test_the_page_has_the_settings_of_the_type_with_the_schema_chosen_and_the_validate_button(
+        self,
+    ):
+        # the page has the settings of the type with the schema chosen
         page = self.page()
         self.assertIn("Manage Person", page)
         self.assertIn("rec:type:5", page)  # the type record it is about
@@ -58,14 +64,14 @@ class PageTest(JobsViewCase):
             page, r'<input[^>]*name="label"[^>]*readonly'
         )  # the label: not edited
 
-    def test_the_schema_is_a_field_of_the_form_and_validate_is_at_its_end(self):
+        # the schema is a field of the form and validate is at its end
         form = self.form()
         self.assertEqual(form.count(">Validate</button>"), 1)
         self.assertLess(form.index("<select"), form.index(">Validate</button>"))
         self.assertLess(form.index(">Validate</button>"), form.index('name="save"'))
         self.assertEqual(form.count('name="save"'), 1)
 
-    def test_the_validate_button_starts_the_job_with_the_form_as_it_is(self):
+        # the validate button starts the job with the form as it is
         page = self.page()
         button = must_search(r"<button[^>]*data-start-job[^>]*>", page)[0]
         self.assertIn(
@@ -79,9 +85,21 @@ class PageTest(JobsViewCase):
         self.assertIn('id="validate-problem"', page)
         self.assertRegex(page, r'<input type="hidden" name="res_type" value="person"')
 
+        # the edit address of the type record comes here
+        got = self.web.get("/test_repo/type/5/edit", headers=ADMIN)
+        self.assertEqual(got.status_int, 302)
+        self.assertEqual(
+            got.headers["Location"], "http://localhost" + URL + "?tab=settings"
+        )
+
+        # someone who cannot start the job gets the select only
+        page = self.web.get(URL, headers=as_user("admin")).text
+        self.assertIn("data-start-job", page)
+
     def test_the_history_of_the_jobs_is_not_shown_only_the_dialog_that_follows_one(
         self,
     ):
+        # the history of the jobs is not shown only the dialog that follows one
         page = self.page()
         self.assertRegex(
             page,
@@ -95,27 +113,15 @@ class PageTest(JobsViewCase):
         self.assertIn("data-progress-dialog", page)  # the dialog that follows a job
         self.assertIn("data-log-fold", page)
 
-    def test_the_jobs_page_still_shows_its_table(self):
+        # the jobs page still shows its table
         page = self.web.get("/test_repo/jobs", headers=ADMIN).text
         self.assertIn('data-compact=""', page)
         self.assertNotIn("align-middle d-none", page)
 
-    def test_the_scripts_of_the_panel_are_in_the_head(self):
+        # the scripts of the panel are in the head
         head = self.page().split("</head>")[0]
         self.assertIn("jobs.js", head)
         self.assertIn("htmx.min.js", head)
-
-    def test_the_edit_address_of_the_type_record_comes_here(self):
-        got = self.web.get("/test_repo/type/5/edit", headers=ADMIN)
-        self.assertEqual(got.status_int, 302)
-        self.assertEqual(
-            got.headers["Location"], "http://localhost" + URL + "?tab=settings"
-        )
-
-    def test_someone_who_cannot_start_the_job_gets_the_select_only(self):
-        # a manager may manage, but the validate job is for those the job names
-        page = self.web.get(URL, headers=as_user("admin")).text
-        self.assertIn("data-start-job", page)
 
 
 class IdentificationTabTest(JobsViewCase):
@@ -156,12 +162,16 @@ class IdentificationTabTest(JobsViewCase):
         self.assertRegex(pane, r"Highest used</dt>\s*<dd[^>]*>12<")
         self.assertRegex(pane, r"Next number</dt>\s*<dd[^>]*>13<")
 
-    def test_a_higher_number_reserves_the_numbers_up_to_it_and_the_next_is_past_it(
+    def test_a_higher_number_reserves_the_numbers_up_to_it_and_can_be_given_up_again(
         self,
     ):
+        # a higher number reserves the numbers up to it and the next is past it
         self.assertEqual(self.post(500).status_int, 302)
         self.assertEqual(self.numbering()["next"], 501)
         self.assertRegex(self.pane(), r'name="last"[^>]*value="500"')
+        self.assertEqual(self.post(12).status_int, 302)  # given up again
+        self.assertEqual(self.numbering()["next"], 13)
+        self.post(500)
         node = self.application["test_repo"]
         self.addCleanup(node.close)
         self.assertEqual(node.store.mint_id("person"), 501)
@@ -169,21 +179,17 @@ class IdentificationTabTest(JobsViewCase):
             self.numbering()["highest"], 12
         )  # nothing was made, only reserved
 
-    def test_a_number_below_one_that_is_in_use_is_refused_and_nothing_changes(self):
+    def test_a_number_below_the_one_in_use_or_from_who_may_not_save_is_refused_and_nothing_changes(
+        self,
+    ):
+        # a number below one that is in use is refused and nothing changes
         got = self.post(5)
         self.assertEqual(got.status_int, 200)  # the form again
         self.assertIn("cannot be lower than 12", got.text)
         self.assertEqual(self.numbering()["reserved"], 0)
         self.assertEqual(self.post("many").status_int, 200)  # not a number
 
-    def test_a_reservation_can_be_given_up_by_setting_the_number_back_to_what_is_in_use(
-        self,
-    ):
-        self.post(500)
-        self.assertEqual(self.post(12).status_int, 302)
-        self.assertEqual(self.numbering()["next"], 13)
-
-    def test_only_a_manager_may_save_it_from_this_site(self):
+        # only a manager may save it from this site
         got = self.web.post(
             URL + "?tab=identification",
             {"__formid__": "form-type-identification", "last": "500", "save": "save"},
@@ -206,7 +212,10 @@ class JobsTabTest(JobsViewCase):
         page = self.web.get(URL, headers=headers).text
         return must_search(r'id="tab-jobs".*', page, re.S)[0]
 
-    def test_the_jobs_about_the_records_of_the_type_start_from_their_own_forms(self):
+    def test_the_jobs_about_the_records_of_the_type_start_from_their_own_forms_and_are_listed_under_them(
+        self,
+    ):
+        # the jobs about the records of the type start from their own forms
         pane = self.pane()
         forms = re.findall(r'<form id="type-job-(\w+)".*?</form>', pane, re.S)
         self.assertEqual(forms, ["validate", "export", "rewrite", "purge_slugs"])
@@ -228,7 +237,7 @@ class JobsTabTest(JobsViewCase):
         self.assertIn('data-start-fields="res_type"', export)
         self.assertNotIn("<select", export)
 
-    def test_the_jobs_of_this_type_are_listed_under_them(self):
+        # the jobs of this type are listed under them
         pane = self.pane()
         self.assertIn('data-filter="subject=person"', pane)
         self.assertIn('data-compact=""', pane)  # the table is shown
@@ -256,7 +265,10 @@ class SaveTest(JobsViewCase):
         self.addCleanup(node.close)
         return node["person"].schema
 
-    def test_saving_changes_the_file_the_pages_of_the_type_follow(self):
+    def test_saving_changes_the_file_the_pages_of_the_type_follow_and_leaves_the_rest_as_it_was(
+        self,
+    ):
+        # saving changes the file the pages of the type follow
         self.assertEqual(self.current(), "person-unittest-01.ttl")
         got = self.save("person-strict-01.ttl")
         self.assertEqual(got.status_int, 302)
@@ -274,7 +286,7 @@ class SaveTest(JobsViewCase):
         )
         self.assertNotIn(">Saved.<", self.web.get(URL, headers=ADMIN).text)  # said once
 
-    def test_the_rest_of_the_type_is_left_as_it_was(self):
+        # the rest of the type is left as it was
         self.save("person-strict-01.ttl")
         node = self.application["test_repo"]
         self.addCleanup(node.close)
@@ -285,7 +297,10 @@ class SaveTest(JobsViewCase):
         )
         self.assertTrue(res_type.assets)
 
-    def test_a_file_that_is_not_one_of_the_types_is_refused_and_nothing_changes(self):
+    def test_a_file_that_is_not_one_of_the_types_or_from_who_may_not_save_is_refused_and_nothing_changes(
+        self,
+    ):
+        # a file that is not one of the types is refused and nothing changes
         got = self.save("nobody-full-01.ttl", force=True)
         self.assertEqual(got.status_int, 200)
         self.assertRegex(
@@ -293,7 +308,7 @@ class SaveTest(JobsViewCase):
         )  # same tab
         self.assertEqual(self.current(), "person-unittest-01.ttl")
 
-    def test_only_a_manager_saves_and_only_from_this_site(self):
+        # only a manager saves and only from this site
         self.assertEqual(self.save("person-strict-01.ttl", headers={}).status_int, 400)
         self.assertEqual(
             self.save(
@@ -312,9 +327,10 @@ class SaveTest(JobsViewCase):
 
 
 class ValidateBeforeSavingTest(JobsViewCase):
-    def test_validating_a_file_runs_the_job_and_does_not_change_the_type(self):
-        # what the button posts: the fields of the manage form, to the jobs start
-        # address
+    def test_validating_a_file_runs_the_job_without_changing_the_type_and_lists_this_type_only(
+        self,
+    ):
+        # validating a file runs the job and does not change the type
         got = self.start("admin", res_type="person", schema="person-strict-01.ttl")
         self.assertEqual(got.status_int, 200, got.text)
         job = self.job(got.json["id"])
@@ -329,13 +345,14 @@ class ValidateBeforeSavingTest(JobsViewCase):
             node["person"].schema, "person-unittest-01.ttl"
         )  # nothing was saved
 
-    def test_the_panel_of_the_page_lists_the_validations_of_this_type_only(self):
+        # the panel of the page lists the validations of this type only
         mine = self.start("admin", res_type="person").json["id"]
         self.start("admin", res_type="user")  # a validation of another type
         found = self.web.get(
             "/test_repo/jobs/list?job=validate&subject=person", headers=ADMIN
         ).json["jobs"]
-        self.assertEqual([j["id"] for j in found], [mine])
+        ids = [j["id"] for j in found]
+        self.assertEqual(sorted(ids), sorted([mine, got.json["id"]]))
 
 
 class TabsTest(JobsViewCase):
@@ -353,7 +370,10 @@ class TabsTest(JobsViewCase):
         self.addCleanup(node.close)
         return node["person"].schema
 
-    def test_the_settings_form_is_in_a_tab_of_its_own(self):
+    def test_the_settings_form_is_in_a_tab_of_its_own_and_the_address_and_the_form_say_which_tab(
+        self,
+    ):
+        # the settings form is in a tab of its own
         page = self.page()
         self.assertRegex(page, r'<ul class="nav nav-tabs"')
         button = must_search(r'<button[^>]*data-tab="settings"[^>]*>', page)[0]
@@ -370,7 +390,7 @@ class TabsTest(JobsViewCase):
         )  # the address says which tab: no field is needed
         self.assertIn(">Settings</button>", page)
 
-    def test_the_address_says_which_tab_and_an_unknown_one_is_the_first(self):
+        # the address says which tab and an unknown one is the first
         button = must_search(
             r'<button[^>]*data-tab="settings"[^>]*>', self.page("?tab=nope")
         )[0]
@@ -379,7 +399,7 @@ class TabsTest(JobsViewCase):
             "manage.js", self.page().split("</head>")[0]
         )  # keeps ?tab= in the address
 
-    def test_a_post_has_to_come_from_a_form_the_page_has(self):
+        # a post has to come from a form the page has
         for data in (
             {"save": "save"},
             {"__formid__": "form-type-nope", "save": "save"},
@@ -390,7 +410,10 @@ class TabsTest(JobsViewCase):
                 )
                 self.assertEqual(got.status_int, 400)
 
-    def test_another_form_is_another_pane_after_the_first(self):
+    def test_another_form_is_another_pane_after_the_first_and_posts_with_its_tab_in_the_address(
+        self,
+    ):
+        # another form is another pane after the first
         page = self.page(web=self.web_with_notes())
         self.assertEqual(
             re.findall(r'data-tab="([a-z]+)"', page),
@@ -400,13 +423,18 @@ class TabsTest(JobsViewCase):
             re.findall(r'class="tab-pane( active)?"', page), [" active", "", "", ""]
         )
 
-    def test_every_form_posts_to_the_manage_view_with_its_tab_in_the_address(self):
+        # every form posts to the manage view with its tab in the address
         page = self.page(web=self.web_with_notes())
         for name in ("settings", "notes"):
             self.assertRegex(
                 page,
                 rf'id="form-type-{name}"[^>]*?action="http://localhost/test_repo/person/manage\?tab={name}"',
             )
+
+        # the tab that is asked for is the one shown
+        page = self.page("?tab=notes", web=self.web_with_notes())
+        self.assertRegex(page, r'<div class="tab-pane active" id="tab-notes"')
+        self.assertRegex(page, r'<div class="tab-pane" id="tab-settings"')
 
     def test_a_post_goes_to_the_tab_it_names_and_a_form_that_was_not_right_comes_back_in_it(  # noqa: E501
         self,
@@ -435,11 +463,6 @@ class TabsTest(JobsViewCase):
             self.current_schema(), "person-unittest-01.ttl"
         )  # the other form was not posted
 
-    def test_the_tab_that_is_asked_for_is_the_one_shown(self):
-        page = self.page("?tab=notes", web=self.web_with_notes())
-        self.assertRegex(page, r'<div class="tab-pane active" id="tab-notes"')
-        self.assertRegex(page, r'<div class="tab-pane" id="tab-settings"')
-
 
 class FlashTest(JobsViewCase):
     def web_with_tabs(self, **extra) -> TestApp:
@@ -455,7 +478,10 @@ class FlashTest(JobsViewCase):
             headers={**ADMIN, **ORIGIN},
         )
 
-    def test_a_flash_is_shown_once_as_an_alert_of_its_level(self):
+    def test_a_flash_is_shown_once_as_an_alert_of_its_level_and_several_come_together_escaped(
+        self,
+    ):
+        # a flash is shown once as an alert of its level
         web = self.web_with_tabs()
         cases = (
             ("hello", "success"),
@@ -476,7 +502,7 @@ class FlashTest(JobsViewCase):
                     "Note kept:", web.get(URL, headers=ADMIN).text
                 )  # and it is gone
 
-    def test_several_flashes_come_together_and_the_markup_is_escaped(self):
+        # several flashes come together and the markup is escaped
         web = self.web_with_tabs()
         self.note(web, "<b>x</b>")
         self.note(web, "second")
@@ -485,9 +511,10 @@ class FlashTest(JobsViewCase):
         self.assertIn("Note kept: second", page)
         self.assertLess(page.index("&lt;b&gt;"), page.index("Note kept: second"))
 
-    def test_the_session_is_a_signed_cookie_that_is_only_set_when_something_is_flashed(
+    def test_the_session_is_a_signed_cookie_only_set_when_something_is_flashed_and_a_secret_shares_it(
         self,
     ):
+        # the session is a signed cookie that is only set when something is flashed
         web = self.web_with_tabs()
         self.assertNotIn("Set-Cookie", web.get("/test_repo/", headers=ADMIN).headers)
         self.assertNotIn("Set-Cookie", web.get(URL, headers=ADMIN).headers)
@@ -496,7 +523,7 @@ class FlashTest(JobsViewCase):
         self.assertIn("HttpOnly", cookie)
         self.assertIn("SameSite=Lax", cookie)
 
-    def test_a_secret_in_the_settings_lets_several_processes_read_one_flash(self):
+        # a secret in the settings lets several processes read one flash
         first = self.web_with_tabs(**{"gracia.session_secret": "one secret"})
         self.note(first, "from the first")
         cookie = first.cookies["gracia_session"]

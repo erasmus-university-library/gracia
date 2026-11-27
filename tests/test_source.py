@@ -40,7 +40,9 @@ class SourceCase(EditCase):
 
 
 class LinkTest(SourceCase):
-    def test_the_form_has_a_source_link_above_it_at_the_right(self):
+    def test_the_form_has_a_source_link_above_it_at_the_right_and_the_add_form_has_one_too_but_a_user_has_none(  # noqa: E501
+        self,
+    ):
         page = self.get("/test_repo/person/1/edit").text
         self.assertRegex(
             page,
@@ -52,14 +54,16 @@ class LinkTest(SourceCase):
         self.assertLess(
             page.index("Last modified"), page.index(">Source Edit</a>")
         )  # above them
-
-    def test_the_add_form_has_one_too(self):
-        page = self.get("/test_repo/person/add").text
+        add = self.get("/test_repo/person/add").text
         self.assertIn(
             'href="http://localhost/test_repo/person/add?source=turtle">'
             "Source Edit</a>",
-            page,
+            add,
         )
+        user = self.get("/test_repo/user/1/edit").text
+        self.assertNotIn(">Source Edit</a>", user)
+        shown = self.get("/test_repo/user/1/edit?source=turtle").text
+        self.assertNotIn("source_text", shown)  # the form, with the password
 
     def test_the_source_page_is_the_text_instead_of_the_form_and_a_link_back(self):
         page = self.get("/test_repo/person/1/edit?source=turtle").text
@@ -75,15 +79,11 @@ class LinkTest(SourceCase):
             "source.js", self.get("/test_repo/person/1/edit").text
         )  # only here
 
-    def test_a_user_has_no_source(self):
-        page = self.get("/test_repo/user/1/edit").text
-        self.assertNotIn(">Source Edit</a>", page)
-        shown = self.get("/test_repo/user/1/edit?source=turtle").text
-        self.assertNotIn("source_text", shown)  # the form, with the password
-
 
 class FormatTest(SourceCase):
-    def test_turtle_is_the_default_and_the_list_has_the_other_serializations(self):
+    def test_turtle_is_the_default_and_the_list_has_the_other_serializations_which_show_the_same_data(  # noqa: E501
+        self,
+    ):
         page = self.get("/test_repo/person/1/edit?source=turtle").text
         select = must_search(r"<select.*?</select>", page, re.S)[0]
         self.assertEqual(
@@ -96,8 +96,14 @@ class FormatTest(SourceCase):
             "@prefix foaf: <http://xmlns.com/foaf/0.1/>", text
         )  # the prefixes of the repository
         self.assertIn('foaf:name "Ada"', text)
-
-    def test_each_format_shows_the_same_data(self):
+        # the same data is the same text, with the type first
+        self.assertEqual(
+            text, self.text(self.get("/test_repo/person/1/edit?source=turtle"))
+        )
+        self.assertRegex(
+            text, r"<rec:person:1> a gracia:Record ;"
+        )  # the type, then the rest
+        self.assertRegex(text, r"_:[\w-]+ a foaf:Person ;")
         marks = {
             "ntriples": f'<{FOAF}name> "Ada"',
             "rdfxml": "<rdf:RDF",
@@ -109,7 +115,9 @@ class FormatTest(SourceCase):
                 self.assertIn(mark, text)
                 self.assertIn("Ada", text)
 
-    def test_choosing_another_format_converts_the_text_and_keeps_what_was_typed(self):
+    def test_choosing_another_format_converts_the_text_and_keeps_what_was_typed_and_text_that_is_not_in_the_format_is_an_error(  # noqa: E501
+        self,
+    ):
         text = self.edited(**{'foaf:name "Ada"': 'foaf:name "Ada of Lovelace"'})
         shown = self.post(
             "/test_repo/person/1/edit",
@@ -128,8 +136,6 @@ class FormatTest(SourceCase):
         self.assertNotIn(
             (f"{FOAF}name", "Ada of Lovelace"), self.values("rec:person:1")
         )
-
-    def test_text_that_is_not_in_the_format_it_says_is_an_error_and_is_kept(self):
         shown = self.post(
             "/test_repo/person/1/edit", "this is not turtle {", button="convert"
         )
@@ -172,7 +178,7 @@ class ClosedShapeTest(SourceCase):
             )
             store.put_multi(data)
 
-    def test_a_property_of_the_record_that_the_record_shape_does_not_have_is_an_error(
+    def test_a_property_of_the_record_that_the_record_shape_does_not_have_is_an_error_and_a_shape_that_is_not_closed_lets_other_properties_be(  # noqa: E501
         self,
     ):
         text = self.edited() + '\n<rec:person:1> <https://gracia.pub/ns/lable> "x" .'
@@ -183,14 +189,19 @@ class ClosedShapeTest(SourceCase):
             ['lable: this property is not described by the shape (its value is "x")'],
         )
         self.assertNotIn("lable", "".join(p for p, _ in self.values("rec:person:1")))
-
-    def test_the_record_shape_is_closed_but_not_for_the_type_of_the_node(self):
+        # the record shape is closed but not for the type of the node
         got = self.post("/test_repo/person/1/edit", self.edited())
         self.assertEqual(
             got.status_int, 302
         )  # rdf:type, gracia:type and the rest are described
+        text = self.edited(
+            **{'foaf:name "Ada"': 'foaf:name "Ada" ; foaf:givnName "Ada"'}
+        )
+        self.assertEqual(
+            self.post("/test_repo/person/1/edit", text).status_int, 302
+        )  # the content shape is open
 
-    def test_a_property_of_the_content_that_a_closed_shape_does_not_have_is_an_error(
+    def test_a_property_of_the_content_that_a_closed_shape_does_not_have_is_an_error_and_what_it_describes_is_saved(  # noqa: E501
         self,
     ):
         self.use_the_closed_profile()
@@ -207,31 +218,19 @@ class ClosedShapeTest(SourceCase):
             ],
         )  # said once, and not the note that the content does not conform
         self.assertNotIn(f"{FOAF}givnName", [p for p, _ in self.values("rec:person:1")])
-
-    def test_what_the_closed_shape_describes_is_saved(self):
-        self.use_the_closed_profile()
         text = self.edited(**{'foaf:name "Ada"': 'foaf:name "Ada Lovelace"'})
         self.assertEqual(self.post("/test_repo/person/1/edit", text).status_int, 302)
 
-    def test_a_shape_that_is_not_closed_lets_other_properties_be(self):
-        text = self.edited(
-            **{'foaf:name "Ada"': 'foaf:name "Ada" ; foaf:givnName "Ada"'}
-        )
-        self.assertEqual(
-            self.post("/test_repo/person/1/edit", text).status_int, 302
-        )  # open
-
 
 class PrefixesTest(SourceCase):
-    def test_turtle_declares_only_the_prefixes_it_uses(self):
+    def test_turtle_and_rdfxml_declare_only_the_prefixes_they_use(self):
         text = self.text(self.get("/test_repo/person/1/edit?source=turtle"))
         declared = re.findall(r"^@prefix (\w+):", text, re.M)
         self.assertEqual(
             declared, ["foaf", "gracia"]
         )  # not rdf, rdfs, skos, ...: `a` is not rdf:
         self.assertNotIn("@prefix skos", text)
-
-    def test_a_prefix_is_kept_when_it_is_used_and_not_when_it_is_only_in_a_string(self):
+        # a prefix is kept when it is used and not when it is only in a string
         data = Graph.parse(
             '<rec:person:1> <http://purl.org/dc/terms/title> "see skos:Concept" .',
             "turtle",
@@ -245,24 +244,20 @@ class PrefixesTest(SourceCase):
         )
         self.assertIn("@prefix dcterms:", text)
         self.assertNotIn("@prefix skos:", text)  # skos: is only in a literal
-
-    def test_rdfxml_declares_only_the_namespaces_it_uses_and_always_rdf(self):
         text = self.text(self.get("/test_repo/person/1/edit?source=rdfxml"))
         declared = re.findall(r"xmlns:(\w+)=", text)
-        self.assertEqual(declared, ["foaf", "gracia", "rdf"])
+        self.assertEqual(declared, ["foaf", "gracia", "rdf"])  # and always rdf
 
 
 class RdfXmlTest(SourceCase):
-    def test_rdfxml_is_nested_by_the_stylesheet(self):
+    def test_rdfxml_is_nested_by_the_stylesheet_and_is_the_same_data_and_can_be_saved(
+        self,
+    ):
         text = self.text(self.get("/test_repo/person/1/edit?source=rdfxml"))
         self.assertNotIn(
             "rdf:nodeID", text
         )  # the content is inside the property that points to it
         self.assertRegex(text, r"<gracia:resource>\s*<foaf:Person>")
-        self.assertEqual(re.findall(r"xmlns:(\w+)=", text), ["foaf", "gracia", "rdf"])
-
-    def test_nested_rdfxml_is_the_same_data_and_can_be_saved(self):
-        text = self.text(self.get("/test_repo/person/1/edit?source=rdfxml"))
         self.assertEqual(
             len(Graph.parse(text, "rdfxml")),
             len(
@@ -277,18 +272,6 @@ class RdfXmlTest(SourceCase):
         )
         self.assertEqual(got.status_int, 302, got.text[:300])
         self.assertIn((f"{FOAF}name", "Ada N"), self.values("rec:person:1"))
-
-
-class OrderTest(SourceCase):
-    def test_the_same_data_is_the_same_text_with_the_type_first(self):
-        first = self.text(self.get("/test_repo/person/1/edit?source=turtle"))
-        self.assertEqual(
-            first, self.text(self.get("/test_repo/person/1/edit?source=turtle"))
-        )
-        self.assertRegex(
-            first, r"<rec:person:1> a gracia:Record ;"
-        )  # the type, then the rest
-        self.assertRegex(first, r"_:[\w-]+ a foaf:Person ;")
 
 
 class JsonLdTest(SourceCase):
@@ -331,7 +314,9 @@ class HighlightTest(SourceCase):
 
 
 class SaveTest(SourceCase):
-    def test_saving_the_text_stores_the_record_like_the_form_does(self):
+    def test_saving_the_text_stores_the_record_like_the_form_does_in_the_format_it_was_shown_in(  # noqa: E501
+        self,
+    ):
         text = self.edited(**{'foaf:name "Ada"': 'foaf:name "Ada Lovelace"'})
         got = self.post("/test_repo/person/1/edit", text)
         self.assertEqual(got.status_int, 302)
@@ -347,9 +332,7 @@ class SaveTest(SourceCase):
         self.assertIn(
             ("https://gracia.pub/ns/resource_uri", "ark:/99999/ir/person/1"), stored
         )
-
-    def test_the_text_is_read_in_the_format_it_was_shown_in(self):
-        text = self.edited(**{'foaf:name "Ada"': 'foaf:name "Ada Lovelace"'})
+        text = self.edited(**{'foaf:name "Ada Lovelace"': 'foaf:name "Ada King"'})
         got = self.post("/test_repo/person/1/edit", text, fmt="ntriples", was="turtle")
         self.assertEqual(
             got.status_int, 302
@@ -368,15 +351,13 @@ class SaveTest(SourceCase):
                 )
                 current = f"Ada in {fmt}"
 
-    def test_text_that_cannot_be_parsed_stores_nothing(self):
+    def test_text_that_cannot_be_parsed_or_does_not_have_what_the_shape_requires_stores_nothing(  # noqa: E501
+        self,
+    ):
         got = self.post("/test_repo/person/1/edit", "<rec:person:1> a gracia:Record .")
         self.assertEqual(got.status_int, 200)
         self.assertIn("This is not valid turtle", got.text)
         self.assertIn((f"{FOAF}name", "Ada"), self.values("rec:person:1"))
-
-    def test_what_the_shape_requires_is_checked_and_nothing_is_stored_when_it_is_missing(  # noqa: E501
-        self,
-    ):
         text = self.edited(
             **{'foaf:name "Ada"': 'foaf:nick "Ada"'}
         )  # no name: the shape needs one
@@ -386,7 +367,7 @@ class SaveTest(SourceCase):
         self.assertIn("foaf:nick", self.text(got))  # what was typed stays
         self.assertIn((f"{FOAF}name", "Ada"), self.values("rec:person:1"))
 
-    def test_the_record_keeps_its_address_and_nothing_else_is_written(
+    def test_the_record_keeps_its_address_and_the_class_of_its_type_and_nothing_else_is_written(  # noqa: E501
         self,
     ):  # its type is in its address
         base = self.edited()
@@ -405,8 +386,6 @@ class SaveTest(SourceCase):
                 self.assertEqual(got.status_int, 200)
                 self.assertIn(message, html.unescape(got.text))
         self.assertEqual(self.values("rec:person:7"), [])
-
-    def test_the_content_has_to_stay_of_the_class_of_the_type(self):
         text = self.edited(**{"a foaf:Person": "a foaf:Prson"})
         got = self.post("/test_repo/person/1/edit", text)
         self.assertEqual(got.status_int, 200)
@@ -414,7 +393,6 @@ class SaveTest(SourceCase):
             got.text, r"alert-danger[^>]*>\s*resource:"
         )  # the property of the content
         self.assertIn("foaf:Prson", self.text(got))  # what was typed stays
-        self.assertNotIn((f"{FOAF}Prson", ""), self.values("rec:person:1"))
         stored_types = [
             v
             for p, v in self.values("rec:person:1")
@@ -422,7 +400,9 @@ class SaveTest(SourceCase):
         ]
         self.assertNotIn(f"{FOAF}Prson", stored_types)  # nothing was stored
 
-    def test_a_record_without_a_resource_uri_gets_the_ark_before_it_is_checked(self):
+    def test_a_record_without_a_resource_uri_gets_the_ark_before_it_is_checked_and_who_may_not_edit_may_not_use_the_source(  # noqa: E501
+        self,
+    ):
         text = self.edited()
         text = re.sub(r"\s*gracia:resource_uri [^;]*;", "", text)
         self.assertNotIn("resource_uri", text)
@@ -432,8 +412,6 @@ class SaveTest(SourceCase):
         self.assertEqual(
             stored["https://gracia.pub/ns/resource_uri"], "ark:/99999/ir/person/1"
         )
-
-    def test_who_may_not_edit_may_not_use_the_source_either(self):
         path = "/test_repo/person/1/edit?source=turtle"
         self.assertEqual(self.status(path, None), 401)
         self.assertEqual(self.status(path, self.editor), 200)  # an editor may
@@ -443,7 +421,9 @@ class AddTest(SourceCase):
     def text_of_new(self):
         return self.text(self.get("/test_repo/person/add?source=turtle"))
 
-    def test_a_new_record_starts_from_what_every_record_has_under_a_placeholder(self):
+    def test_a_new_record_starts_from_what_every_record_has_under_a_placeholder_and_saving_makes_the_number(  # noqa: E501
+        self,
+    ):
         text = self.text_of_new()
         self.assertIn("rec:person:0", text)
         self.assertIn("gracia:Record", text)
@@ -452,11 +432,7 @@ class AddTest(SourceCase):
             "number made when it is saved",
             self.get("/test_repo/person/add?source=turtle").text,
         )
-
-    def test_saving_makes_the_number_and_the_hooks_do_their_work(self):
-        text = self.text_of_new().replace(
-            "a foaf:Person", 'a foaf:Person ; foaf:name "Grace"'
-        )
+        text = text.replace("a foaf:Person", 'a foaf:Person ; foaf:name "Grace"')
         got = self.post("/test_repo/person/add", text)
         self.assertEqual(got.status_int, 302, got.text[:400])
         location = got.headers["Location"]
@@ -472,15 +448,15 @@ class AddTest(SourceCase):
             f"ark:/99999/ir/person/{number}",
         )
 
-    def test_a_new_record_whose_content_is_of_another_class_is_refused(self):
+    def test_a_new_record_of_another_class_or_without_what_the_shape_requires_is_refused_and_does_not_use_up_a_number(  # noqa: E501
+        self,
+    ):
         text = self.text_of_new().replace(
             "a foaf:Person", 'a foaf:Prson ; foaf:name "Grace"'
         )
         got = self.post("/test_repo/person/add", text)
         self.assertEqual(got.status_int, 200)
         self.assertRegex(got.text, r"alert-danger[^>]*>\s*resource:")
-
-    def test_a_refused_text_does_not_use_up_a_number(self):
         got = self.post(
             "/test_repo/person/add", self.text_of_new()
         )  # no name: the shape needs one

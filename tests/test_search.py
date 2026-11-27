@@ -111,7 +111,9 @@ class SearchCase(BatchCase):
 
 
 class DefinitionTest(SearchCase):
-    def test_the_schema_has_the_fields_of_the_definition(self):
+    def test_the_schema_has_the_fields_of_the_definition_the_hash_follows_the_fields_and_text_and_json_fields_can_be_fast_too(
+        self,
+    ):
         self.assertEqual(
             {f.name for f in RECORDS.fields},
             {
@@ -130,14 +132,10 @@ class DefinitionTest(SearchCase):
         self.assertIsNotNone(RECORDS.schema())
         with self.assertRaisesRegex(ValueError, "unknown type"):
             IndexDefinition("x", (Field("a", "banana"),)).schema()
-
-    def test_the_hash_follows_the_fields(self):
         base = RECORDS.hash()
         self.assertEqual(RECORDS.hash(), base)
         self.assertNotEqual(replace(RECORDS, fields=RECORDS.fields[:-1]).hash(), base)
         self.assertNotEqual(replace(RECORDS, name="other").hash(), base)
-
-    def test_text_and_json_fields_can_be_fast_too(self):
         fast = IndexDefinition(
             "x",
             (
@@ -169,7 +167,9 @@ class CheckTest(SearchCase):
         "modified": "2026-05-01T10:00:00Z",
     }
 
-    def test_a_document_that_is_right_has_no_problem(self):
+    def test_a_document_that_is_right_has_no_problem_and_a_field_the_schema_does_not_have_is_left_out(
+        self,
+    ):
         self.assertEqual(check_document(RECORDS, self.good), [])
         self.assertEqual(
             check_document(RECORDS, {**self.good, "label": ["a", "b"]}), []
@@ -178,8 +178,13 @@ class CheckTest(SearchCase):
         self.assertEqual(
             check_document(with_json, {**self.good, "data": {"a": [1]}}), []
         )
+        doc = {**self.good, "given_name": "Ada", "odd": None, "nested": {"a": 1}}
+        self.assertEqual(check_document(RECORDS, doc), [])
+        self.assertEqual(set(_for_tantivy(RECORDS, doc)), set(self.good))
 
-    def test_what_is_wrong_is_said_for_each_field(self):
+    def test_what_is_wrong_is_said_for_each_field_and_a_document_needs_the_id_of_its_record(
+        self,
+    ):
         wrong = check_document(
             replace(RECORDS, fields=(*RECORDS.fields, Field("data", "json"))),
             {
@@ -201,13 +206,6 @@ class CheckTest(SearchCase):
             "slug: no value",
         ):
             self.assertIn(part, text)
-
-    def test_a_field_the_schema_does_not_have_is_no_problem_and_is_left_out(self):
-        doc = {**self.good, "given_name": "Ada", "odd": None, "nested": {"a": 1}}
-        self.assertEqual(check_document(RECORDS, doc), [])
-        self.assertEqual(set(_for_tantivy(RECORDS, doc)), set(self.good))
-
-    def test_a_document_needs_the_id_of_its_record_and_an_error_is_a_problem(self):
         self.assertIn("record_id", " ".join(check_document(RECORDS, {"label": "x"})))
         self.assertIn(
             "could not make",
@@ -219,7 +217,9 @@ class CheckTest(SearchCase):
 
 
 class HandlerTest(SearchCase):
-    def test_a_batch_is_indexed_with_one_commit_and_found(self):
+    def test_a_batch_is_indexed_and_found_a_changed_record_is_replaced_and_a_gone_one_is_taken_out(
+        self,
+    ):
         self.add(
             person(1, "Ada Lovelace", "countess"),
             person(2, "Charles Babbage"),
@@ -233,30 +233,56 @@ class HandlerTest(SearchCase):
             self.hits("countess"), [ada]
         )  # the text, which is not stored, is searched
         self.assertEqual(len(self.hits("type:person", ("type",))), 3)
-
-    def test_a_record_that_changed_is_replaced_and_one_that_is_gone_is_taken_out(self):
-        self.add(person(1, "Ada Lovelace"), person(2, "Charles Babbage"))
-        self.handle()
+        # a record that changed is replaced and one that is gone is taken out
         self.add(person(1, "Ada King", modified="2026-06-01T10:00:00.000000Z"))
         self.handle()
         self.assertEqual(
-            (self.count(), self.hits("lovelace"), len(self.hits("king"))), (2, [], 1)
+            (self.count(), self.hits("lovelace"), len(self.hits("king"))), (3, [], 1)
         )
         self.store.delete(["rec:person:2"])
         self.handle()
-        self.assertEqual((self.count(), self.hits("babbage")), (1, []))
-
-    def test_doing_the_same_batch_twice_leaves_one_document_for_each(self):
-        self.add(person(1, "Ada Lovelace"))
-        self.handle()
+        self.assertEqual((self.count(), self.hits("babbage")), (2, []))
+        # doing the same batch twice leaves one document for each
         changes, docs = self.docs_of(1)
         for _ in range(2):
             self.indexes.update("main", RECORDS, changes, docs)
-        self.assertEqual(self.count(), 1)
+        self.assertEqual(self.count(), 2)
+        # the repositories have indexes of their own
+        self.handle()
+        self.assertTrue(self.indexes.path("main", RECORDS).is_dir())
+        self.assertFalse(self.indexes.path("other", RECORDS).exists())
+        self.assertEqual(self.indexes.stats("other")[0]["state"], "missing")
 
-    def test_a_document_that_is_not_right_is_left_out_and_reported_and_the_rest_goes_in(
+    def test_a_doc_with_fields_the_schema_lacks_is_indexed_and_an_index_for_another_definition_is_stale(
         self,
     ):
+        self.add(person(1, "Ada Lovelace"))
+        changes, docs = self.docs_of(1)
+        docs["rec:person:1"].update(
+            {"given_name": "Ada", "odd": None, "nested": {"a": 1}}
+        )
+        done = self.indexes.update("main", RECORDS, changes, docs)
+        self.assertEqual((done["indexed"], done["problems"]), (1, {}))
+        self.assertEqual(self.hits("lovelace"), [changes[0].record_id])
+        # an index made for another definition is stale and is not written to
+        newer = replace(RECORDS, fields=(*RECORDS.fields, Field("extra", "text")))
+        self.assertEqual(self.indexes.status("main", newer), "stale")
+        self.assertIsNone(self.indexes.open("main", newer))
+        changes, docs = self.docs_of(1)
+        done = self.indexes.update("main", newer, changes, docs)
+        self.assertEqual((done["state"], done["indexed"]), ("stale", 0))
+        self.indexes.reset("main", newer)  # a rebuild starts from nothing
+        self.assertEqual(self.indexes.status("main", newer), "missing")
+        self.indexes.open("main", newer)
+        self.assertEqual(self.indexes.status("main", newer), "ok")
+
+    def test_without_indexes_the_handler_does_nothing_and_a_document_that_is_not_right_is_left_out_and_reported(
+        self,
+    ):
+        self.app.indexes = None
+        self.add(person(1, "Ada Lovelace"))
+        self.assertEqual(self.handle(), 1)  # the event comes, nobody indexes
+        self.app.indexes = self.indexes
         self.add(person(1, "Ada Lovelace"), person(2, "Charles Babbage"))
         broken = replace(
             RECORDS,
@@ -275,32 +301,6 @@ class HandlerTest(SearchCase):
         self.assertEqual(
             self.indexes.status("main", broken), "ok"
         )  # and the index is not broken by it
-
-    def test_an_index_made_for_another_definition_is_stale_and_is_not_written_to(self):
-        self.add(person(1, "Ada Lovelace"))
-        self.handle()
-        newer = replace(RECORDS, fields=(*RECORDS.fields, Field("extra", "text")))
-        self.assertEqual(self.indexes.status("main", newer), "stale")
-        self.assertIsNone(self.indexes.open("main", newer))
-        changes, docs = self.docs_of(1)
-        done = self.indexes.update("main", newer, changes, docs)
-        self.assertEqual((done["state"], done["indexed"]), ("stale", 0))
-        self.indexes.reset("main", newer)  # a rebuild starts from nothing
-        self.assertEqual(self.indexes.status("main", newer), "missing")
-        self.indexes.open("main", newer)
-        self.assertEqual(self.indexes.status("main", newer), "ok")
-
-    def test_a_doc_with_fields_the_schema_lacks_is_indexed_and_the_fields_are_left_out(
-        self,
-    ):
-        self.add(person(1, "Ada Lovelace"))
-        changes, docs = self.docs_of(1)
-        docs["rec:person:1"].update(
-            {"given_name": "Ada", "odd": None, "nested": {"a": 1}}
-        )
-        done = self.indexes.update("main", RECORDS, changes, docs)
-        self.assertEqual((done["indexed"], done["problems"]), (1, {}))
-        self.assertEqual(self.hits("lovelace"), [changes[0].record_id])
 
     def test_the_docs_of_the_event_are_used_and_only_the_missing_ones_are_made(self):
         self.add(person(1, "Ada Lovelace"), person(2, "Charles Babbage"))
@@ -333,23 +333,15 @@ class HandlerTest(SearchCase):
         self.assertEqual(asked, [["rec:person:2"]])
         self.assertEqual(self.count(), 2)
 
-    def test_without_indexes_the_handler_does_nothing(self):
-        self.app.indexes = None
-        self.add(person(1, "Ada Lovelace"))
-        self.assertEqual(self.handle(), 1)  # the event comes, nobody indexes
-
-    def test_the_repositories_have_indexes_of_their_own(self):
-        self.add(person(1, "Ada Lovelace"))
-        self.handle()
-        self.assertTrue(self.indexes.path("main", RECORDS).is_dir())
-        self.assertFalse(self.indexes.path("other", RECORDS).exists())
-        self.assertEqual(self.indexes.stats("other")[0]["state"], "missing")
-
 
 class WiringTest(BatchCase):
-    def test_the_setting_makes_the_indexes_and_subscribes_the_handler(self):
+    def test_the_setting_makes_the_indexes_and_subscribes_the_handler_and_without_it_there_are_none(
+        self,
+    ):
         from gracia.main import make_config
 
+        make_config({"gracia.application": self.app}).make_wsgi_app()
+        self.assertIsNone(self.app.indexes)
         config = make_config(
             {"gracia.application": self.app, "gracia.index_dir": str(self.tmp / "idx")}
         )
@@ -360,12 +352,6 @@ class WiringTest(BatchCase):
             self.app, config.registry
         )  # the registry of the application: it has the subscriber
         self.assertEqual(self.app.indexes.stats("main")[0]["documents"], 1)
-
-    def test_without_the_setting_there_are_none(self):
-        from gracia.main import make_config
-
-        make_config({"gracia.application": self.app}).make_wsgi_app()
-        self.assertIsNone(self.app.indexes)
 
 
 class StatsRowTest(ManageCase):
@@ -387,11 +373,11 @@ class StatsRowTest(ManageCase):
         )[0]
         return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", found)).strip()
 
-    def test_an_index_that_is_not_made_yet_says_so(self):
+    def test_an_index_that_is_not_made_yet_says_so_and_one_has_its_documents_of_the_records_there_are(
+        self,
+    ):
         self.assertRegex(self.row(), r"^0 documents of \d+ records, 0 B$")
         self.assertIn("not made yet", self.page())
-
-    def test_an_index_has_its_documents_of_the_records_there_are(self):
         registry = Registry()
         registry.registerHandler(on_records_changed, (RecordsChanged,))
         process_pending(self.application, registry, "test_repo")
@@ -401,7 +387,7 @@ class StatsRowTest(ManageCase):
         )
         self.assertRegex(row, rf"^{records} documents of {records} records, \d")
 
-    def test_without_a_directory_it_says_there_is_no_index(self):
+        # without a directory it says there is no index
         self.application.indexes = None
         self.assertIn('id="search-tab-none"', self.page())
 
@@ -433,7 +419,7 @@ class ExtensionCase(ManageCase):
 
 
 class SearchExtensionTest(ExtensionCase):
-    def test_it_is_on_in_a_repository_that_never_said_and_ships_with_the_default_definition(  # noqa: E501
+    def test_it_is_on_in_a_repository_that_never_said_ships_with_the_default_definition_and_has_a_card(
         self,
     ):
         from gracia.extensions.search import DEFAULT_INDEXES
@@ -459,8 +445,7 @@ class SearchExtensionTest(ExtensionCase):
                 "modified",
             ],
         )
-
-    def test_there_is_a_card_for_it_on_the_extensions_tab(self):
+        # there is a card for it on the extensions tab
         _, page = self.tabs("/archive/manage?tab=extensions")
         card = must_search(
             r'id="extension-search".*?(?=<div class="extension|\Z)', page, re.S
@@ -498,7 +483,9 @@ class SearchExtensionTest(ExtensionCase):
             indexes.status("archive", after), "stale"
         )  # until the job has made it again
 
-    def test_a_field_is_added_and_removed_in_the_settings(self):
+    def test_a_field_is_added_and_removed_in_the_settings_and_the_required_ones_stay(
+        self,
+    ):
         from gracia.extensions import ExtensionError
 
         field = {
@@ -537,15 +524,11 @@ class SearchExtensionTest(ExtensionCase):
             )
         with self.assertRaisesRegex(ExtensionError, "no index 'nope'"):
             self.extension().add_field("nope", field)
-
-    def test_what_the_index_cannot_do_without_stays(self):
-        from gracia.extensions import ExtensionError
-
         for name in search.REQUIRED_FIELDS:
             with self.assertRaisesRegex(ExtensionError, "cannot be removed"):
                 self.extension().remove_field("records", name)
 
-    def test_a_repository_that_has_it_on_is_indexed_and_one_that_turned_it_off_is_not(
+    def test_a_repository_that_has_it_on_is_indexed_one_that_turned_it_off_is_not_and_the_tab_says_so(
         self,
     ):
         indexes = self.application.indexes = Indexes(self.index_dir)
@@ -565,6 +548,12 @@ class SearchExtensionTest(ExtensionCase):
         )  # nothing went in
         self.application["archive"].extension("search").enable()
         self.assertTrue(self.application["archive"].extension("search").enabled)
+        # the search tab says when search is turned off in the repository
+        self.application.indexes = Indexes(self.index_dir)
+        self.extension().disable()
+        _, page = self.tabs("/archive/manage?tab=search")
+        self.assertIn("turned off in this repository", page)
+        self.assertNotIn('id="search-counts-records"', page)
 
     def records_of_types(self) -> int:
         with self.application.new_store("archive") as store:
@@ -573,13 +562,6 @@ class SearchExtensionTest(ExtensionCase):
                 for slug, n in store.count_records_by_type().items()
                 if slug != "person"
             )
-
-    def test_the_search_tab_says_when_search_is_turned_off_in_the_repository(self):
-        self.application.indexes = Indexes(self.index_dir)
-        self.extension().disable()
-        _, page = self.tabs("/archive/manage?tab=search")
-        self.assertIn("turned off in this repository", page)
-        self.assertNotIn('id="search-counts-records"', page)
 
 
 class SearchPageTest(ManageCase):
@@ -620,7 +602,9 @@ class SearchPageTest(ManageCase):
             expect_errors=True,
         )
 
-    def test_a_browser_gets_a_page_with_a_search_box_and_a_program_asks_for_json(self):
+    def test_a_browser_gets_a_page_with_a_search_box_and_it_finds_records_and_links_to_them_by_their_words(
+        self,
+    ):
         page = self.page()
         self.assertEqual((page.status_int, page.content_type), (200, "text/html"))
         self.assertRegex(page.text, r'<input type="search" name="q"')
@@ -634,14 +618,41 @@ class SearchPageTest(ManageCase):
             .json["id"],
             "archive",
         )
-
-    def test_it_finds_records_and_links_to_them(self):
+        # it finds records and links to them
         page = self.page("lovelace", ADMIN)
         self.assertIn('id="search-hits"', page.text)
         self.assertIn('href="http://localhost/archive/person/1"', page.text)
         self.assertIn("Ada Lovelace", page.text)
         self.assertIn("1 of 1 record found", re.sub(r"\s+", " ", page.text))
         self.assertNotIn("Babbage", page.text)
+        self.assertIn(
+            "Ada Lovelace", self.page("countess", ADMIN).text
+        )  # the words, not only the label
+        # a query that is not well formed is read as well as it can be
+        page = self.page("ada%20AND%20(", ADMIN)
+        self.assertEqual(page.status_int, 200)
+        self.assertIn("Ada Lovelace", page.text)
+        # what is found depends on who asks so it is not shared
+        self.assertEqual(self.page("ada").headers["Cache-Control"], "private")
+
+    def test_what_is_not_published_or_of_a_type_the_caller_may_not_view_is_for_those_who_may(
+        self,
+    ):
+        self.assertNotIn("Ada Secret", self.page("secret").text)  # anyone
+        self.assertIn("Nothing found", self.page("secret").text)
+        admin = self.page("secret", ADMIN).text
+        self.assertIn("Ada Secret", admin)
+        self.assertIn("not published", admin)
+        admin = self.page("type:group", ADMIN).text
+        self.assertIn(
+            "3 of 3 records found", re.sub(r"\s+", " ", admin)
+        )  # the groups are there for an admin
+        self.assertIn("rec:group:1", admin)
+        anyone = self.page("type:group").text
+        self.assertIn(
+            "Nothing found", anyone
+        )  # and not for anyone else, though the index has them
+        self.assertNotIn("rec:group", anyone)
 
     def test_the_address_is_the_slug_of_the_record_when_it_has_one_and_its_number_when_not(  # noqa: E501
         self,
@@ -672,7 +683,9 @@ class SearchPageTest(ManageCase):
                 url,
             )
 
-    def test_an_index_made_for_other_fields_keeps_answering_and_says_so(self):
+    def test_an_index_made_for_other_fields_keeps_answering_and_without_indexes_or_with_search_off_it_says_so(
+        self,
+    ):
         from gracia.extensions.search import DEFAULT_INDEXES
 
         fewer = [
@@ -698,40 +711,6 @@ class SearchPageTest(ManageCase):
             "Nothing found. This index was made for other fields",
             re.sub(r"\s+", " ", self.page("zzzz", ADMIN).text),
         )
-
-    def test_the_words_of_the_record_are_searched_not_only_its_label(self):
-        self.assertIn("Ada Lovelace", self.page("countess", ADMIN).text)
-
-    def test_a_record_that_is_not_published_is_for_those_who_may_edit(self):
-        self.assertNotIn("Ada Secret", self.page("secret").text)  # anyone
-        self.assertIn("Nothing found", self.page("secret").text)
-        admin = self.page("secret", ADMIN).text
-        self.assertIn("Ada Secret", admin)
-        self.assertIn("not published", admin)
-
-    def test_the_records_of_a_type_the_caller_may_not_view_are_not_found(self):
-        admin = self.page("type:group", ADMIN).text
-        self.assertIn(
-            "3 of 3 records found", re.sub(r"\s+", " ", admin)
-        )  # the groups are there for an admin
-        self.assertIn("rec:group:1", admin)
-        anyone = self.page("type:group").text
-        self.assertIn(
-            "Nothing found", anyone
-        )  # and not for anyone else, though the index has them
-        self.assertNotIn("rec:group", anyone)
-
-    def test_a_query_that_is_not_well_formed_is_read_as_well_as_it_can_be(self):
-        page = self.page("ada%20AND%20(", ADMIN)
-        self.assertEqual(page.status_int, 200)
-        self.assertIn("Ada Lovelace", page.text)
-
-    def test_what_is_found_depends_on_who_asks_so_it_is_not_shared(self):
-        self.assertEqual(self.page("ada").headers["Cache-Control"], "private")
-
-    def test_without_the_indexes_or_with_search_off_or_before_the_index_is_made_it_says_so(  # noqa: E501
-        self,
-    ):
         # the application is made on first use, which sets the indexes: change them
         # after
         self.client()
@@ -762,7 +741,9 @@ class CompareTest(SearchCase):
     def rows(self, definition=RECORDS) -> dict[str, dict]:  # ty: ignore[incompatible-method-override]
         return {row["name"]: row for row in compare(OFFERED, definition)}
 
-    def test_a_field_in_both_is_indexed_and_one_only_the_docs_have_is_available(self):
+    def test_a_field_in_both_is_indexed_a_field_only_the_docs_have_is_available_and_the_others_are_orphan_different_or_required(
+        self,
+    ):
         rows = self.rows()
         self.assertEqual(rows["label"]["state"], "indexed")
         self.assertEqual(rows["given_name"]["state"], "available")
@@ -770,18 +751,12 @@ class CompareTest(SearchCase):
         self.assertEqual(
             list(rows)[-1], "given_name"
         )  # the offered ones come in their order
-
-    def test_a_field_only_the_definition_has_is_an_orphan_after_the_others(self):
         extra = replace(RECORDS, fields=(*RECORDS.fields, Field("old", "text")))
         rows = compare(OFFERED, extra)
         self.assertEqual((rows[-1]["name"], rows[-1]["state"]), ("old", "orphan"))
         self.assertEqual(
             {r["name"]: r["state"] for r in rows}["given_name"], "available"
         )
-
-    def test_a_field_the_definition_has_otherwise_is_different_and_is_shown_as_the_definition_has_it(  # noqa: E501
-        self,
-    ):
         other = replace(
             RECORDS,
             fields=tuple(
@@ -794,10 +769,6 @@ class CompareTest(SearchCase):
             (row["state"], sorted(row["differences"]), row["fast"], row["tokenizer"]),
             ("different", ["fast", "tokenizer"], True, "raw"),
         )
-
-    def test_the_required_fields_are_marked_and_without_a_definition_everything_is_available(  # noqa: E501
-        self,
-    ):
         self.assertTrue(
             all(
                 r["required"] == (r["name"] in REQUIRED_FIELDS)
@@ -808,7 +779,12 @@ class CompareTest(SearchCase):
 
 
 class FieldStatsTest(SearchCase):
-    def test_the_fast_fields_are_counted_and_the_others_are_not(self):
+    def test_the_fast_fields_are_counted_and_the_others_are_not_and_a_missing_or_stale_index_has_no_counts(
+        self,
+    ):
+        self.assertEqual(
+            set(self.indexes.field_stats("main", RECORDS).values()), {None}
+        )
         self.add(
             person(1, "Ada Lovelace"), person(2, "Charles Babbage", published=False)
         )
@@ -819,13 +795,6 @@ class FieldStatsTest(SearchCase):
         )
         self.assertIsNone(found["label"])  # not a fast field: Tantivy cannot count it
         self.assertEqual(set(found), {f.name for f in RECORDS.fields})
-
-    def test_an_index_that_is_not_there_or_is_stale_has_no_counts(self):
-        self.assertEqual(
-            set(self.indexes.field_stats("main", RECORDS).values()), {None}
-        )
-        self.add(person(1, "Ada Lovelace"))
-        self.handle()
         newer = replace(RECORDS, fields=(*RECORDS.fields, Field("extra", "text")))
         self.assertEqual(set(self.indexes.field_stats("main", newer).values()), {None})
 
@@ -873,7 +842,7 @@ class SearchTabTest(ManageCase):
             f["name"] for f in node.extension("search").settings["indexes"][0]["fields"]
         ]
 
-    def test_the_fields_of_the_index_are_listed_and_the_ones_only_the_docs_have_are_greyed_with_add(  # noqa: E501
+    def test_the_fields_of_the_index_are_listed_with_add_and_remove_and_the_required_ones_cannot_be_removed(
         self,
     ):
         self.assertIn('data-state="indexed"', self.row("label"))
@@ -884,8 +853,7 @@ class SearchTabTest(ManageCase):
         self.assertIn('name="add" value="given_name"', given)
         self.assertIn("person", given)  # the type that has it
         self.assertIn("every type", self.row("label"))
-
-    def test_the_required_fields_have_no_remove_button_that_works(self):
+        # the required fields have no remove button that works
         self.assertRegex(self.row("record_id"), r'name="remove"[^>]*disabled')
         answer = self.post(remove="record_id")  # a request by hand
         self.assertEqual(answer.status_int, 200)
@@ -899,22 +867,26 @@ class SearchTabTest(ManageCase):
             store.put_multi(person(1, "Ada Lovelace"))
         process_pending(self.application, registry, "archive")
 
-    def test_add_puts_the_field_in_the_settings_and_the_index_needs_a_rebuild(self):
+    def test_the_counts_are_shown_add_puts_the_field_in_the_settings_remove_takes_it_out_and_an_orphan_can_be_removed(
+        self,
+    ):
         self.build()
+        self.assertRegex(
+            self.row("record_id"), r'<td class="text-end">\s*<span>\d+</span>'
+        )
+        self.assertIn('title="Only a fast field can be counted"', self.row("label"))
+        # add puts the field in the settings and the index needs a rebuild
         self.assertNotIn("needs a rebuild", self.page())
         answer = self.post(add="given_name")
         self.assertEqual(answer.status_int, 302)
         self.assertEqual(self.fields()[-1], "given_name")
         self.assertIn('data-state="indexed"', self.row("given_name"))
         self.assertIn("needs a rebuild", self.page())
-
-    def test_remove_takes_it_out_again_and_it_is_available_again(self):
-        self.post(add="given_name")
+        # remove takes it out again and it is available again
         self.assertEqual(self.post(remove="given_name").status_int, 302)
         self.assertNotIn("given_name", self.fields())
         self.assertIn('data-state="available"', self.row("given_name"))
-
-    def test_a_field_no_doc_has_cannot_be_added_and_an_orphan_can_be_removed(self):
+        # a field no doc has cannot be added and an orphan can be removed
         answer = self.post(add="nothing_has_this")
         self.assertEqual(answer.status_int, 200)
         self.assertIn("no doc has a field", answer.text)
@@ -925,16 +897,9 @@ class SearchTabTest(ManageCase):
         self.assertEqual(self.post(remove="old").status_int, 302)
         self.assertNotIn("old", self.fields())
 
-    def test_the_counts_of_a_built_index_are_shown_for_the_fast_fields(self):
-        self.build()
-        self.assertRegex(
-            self.row("record_id"), r'<td class="text-end">\s*<span>\d+</span>'
-        )
-        self.assertIn('title="Only a fast field can be counted"', self.row("label"))
-
-    def test_it_says_so_without_the_indexes_or_with_search_off(self):
-        # the application is made on first use, which sets the indexes: change them
-        # after
+    def test_it_says_so_without_the_indexes_or_with_search_off_and_a_doc_stylesheet_that_does_not_work_is_a_message(
+        self,
+    ):
         self.client()
         self.application.indexes = None
         self.assertIn("gracia.index_dir", self.page())
@@ -943,11 +908,8 @@ class SearchTabTest(ManageCase):
         self.addCleanup(node.close)
         node.extension("search").disable()
         self.assertIn("turned off", self.page())
-
-    def test_a_doc_stylesheet_that_does_not_work_is_a_message_and_not_a_failed_page(
-        self,
-    ):
-        self.client()  # the application is made on first use
+        node.extension("search").enable()
+        # a doc stylesheet that does not work is a message and not a failed page
         self.application.cache.docs.schema = lambda *a, **k: (_ for _ in ()).throw(
             RuntimeError("boom")
         )

@@ -52,7 +52,9 @@ class CacheCase(EtagCase):
 
 
 class EtagsTest(CacheCase):
-    def test_many_record_ids_in_one_go_with_the_etag_and_the_types(self):
+    def test_many_record_ids_are_asked_in_one_go_once_and_not_while_the_files_do_not_change(
+        self,
+    ):
         ids = [self.rid(u) for u in ("rec:work:1", "rec:person:2")]
         got = self.cached.etags([*ids, 999])
         self.assertEqual(got[ids[0]], self.etag("rec:work:1"))
@@ -60,8 +62,7 @@ class EtagsTest(CacheCase):
         self.assertIsNone(got[999])
         self.assertEqual(list(got), [*ids, 999])
 
-    def test_it_is_asked_once_and_only_for_what_is_not_there_yet(self):
-        a, b = self.rid("rec:work:1"), self.rid("rec:work:2")
+        a, b = self.rid("rec:person:1"), self.rid("rec:org:1")
         self.cached.etags([a])
         asked = self.queries()
         self.cached.etags([a])
@@ -70,18 +71,19 @@ class EtagsTest(CacheCase):
         self.assertEqual(
             asked.count("sql"), 1
         )  # one query for the one that was missing
-        self.cached.etags([a, b, 999])
-        self.cached.etags([999])  # a record that is not there is remembered too
+        self.cached.etags([a, b, 998])
+        self.cached.etags([998])  # a record that is not there is remembered too
         self.assertEqual(asked.count("sql"), 2)
 
-    def test_the_files_are_not_read_while_they_do_not_change(self):
         self.cached.etags([self.rid("rec:work:1")])
         asked = self.queries()
         for _ in range(3):
             self.cached.etags([self.rid("rec:work:1")])
         self.assertEqual(asked, [])  # not even the table of the times
 
-    def test_a_write_gives_a_new_last_modified_at_and_the_new_etag(self):
+    def test_a_write_gives_a_new_last_modified_at_and_the_new_etag_and_a_late_request_cannot_fill_it(
+        self,
+    ):
         work = self.rid("rec:work:1")
         before = self.cached.etags([work])[work]
         stamp = self.cache.repo_last_modified_at("main")
@@ -95,13 +97,24 @@ class EtagsTest(CacheCase):
         # the etags of the old time are deleted, not just not read
         self.assertEqual(self.etag_cache.get_many("main", stamp, [work]), {})
 
-    def test_a_deleted_record_is_none_after_the_write(self):
         person = self.rid("rec:person:2")
         self.assertIsNotNone(self.cached.etags([person])[person])
         self.store.delete(["rec:person:2"])
         self.assertIsNone(self.cached.etags([person])[person])
 
-    def test_a_write_that_bypasses_the_store_is_seen(self):
+        work = self.rid("rec:work:1")
+        store = self.etag_cache
+        old = self.cache.repo_last_modified_at("main")
+        self.put(record("rec:person:2"), record("rec:org:1", refs=["rec:org:2"]))
+        self.cache.check()
+        new = self.cache.repo_last_modified_at("main")
+        self.assertGreater(new, old)
+        # what the late request writes: under the key it took
+        store.put_many("main", old, {work: "stale"})
+        self.assertEqual(store.get_many("main", new, [work]), {})
+        self.assertNotEqual(self.cached.etags([work])[work], "stale")
+
+    def test_a_write_that_bypasses_the_store_and_a_rebuild_of_the_etags_are_seen(self):
         work = self.rid("rec:work:1")
         self.cached.etags([work])
         stamp = self.cache.repo_last_modified_at("main")
@@ -116,20 +129,15 @@ class EtagsTest(CacheCase):
         self.cache.check()
         self.assertGreater(self.cache.repo_last_modified_at("main"), stamp)
 
-    def test_a_request_that_was_running_cannot_fill_the_new_last_modified_at(self):
         work = self.rid("rec:work:1")
-        store = self.etag_cache
-        old = self.cache.repo_last_modified_at("main")
-        self.put(record("rec:person:2"), record("rec:org:1", refs=["rec:org:2"]))
+        self.cached.etags([work])
+        stamp = self.cache.repo_last_modified_at("main")
+        time.sleep(0.01)
+        self.store.rebuild_etags()
         self.cache.check()
-        new = self.cache.repo_last_modified_at("main")
-        self.assertGreater(new, old)
-        # what the late request writes: under the key it took
-        store.put_many("main", old, {work: "stale"})
-        self.assertEqual(store.get_many("main", new, [work]), {})
-        self.assertNotEqual(self.cached.etags([work])[work], "stale")
+        self.assertGreater(self.cache.repo_last_modified_at("main"), stamp)
 
-    def test_the_etags_of_old_times_are_deleted_in_a_range(self):
+    def test_the_etags_of_old_times_are_deleted_in_a_range_over_the_batches(self):
         store = self.etag_cache
         for repo in ("main", "other"):
             store.put_many(repo, 100, {1: "a", 2: None})
@@ -141,7 +149,6 @@ class EtagsTest(CacheCase):
         )  # another repository is left alone
         self.assertEqual(store.get_many("other", 100, [1, 2]), {1: "a", 2: None})
 
-    def test_a_range_delete_goes_on_over_the_batches(self):
         env = self.etag_cache._env
         with env.begin(write=True) as txn:
             for i in range(25):
@@ -153,9 +160,13 @@ class EtagsTest(CacheCase):
             14,
         )
         with env.begin() as txn:
-            self.assertEqual(len(list(txn.cursor().iternext(values=False))), 11 + 0)
+            self.assertEqual(
+                len(list(txn.cursor().iternext(values=False))), 11 + 2
+            )  # and the two of the other repository
 
-    def test_without_a_file_the_table_is_read_every_time(self):
+    def test_an_application_watches_its_file_and_without_one_the_table_is_read_every_time(
+        self,
+    ):
         app = open_application(self, ":memory:")
         cache = app.cache
         self.assertEqual(cache._files, [])
@@ -164,16 +175,6 @@ class EtagsTest(CacheCase):
         cache.check()
         self.assertEqual(asked.count("cursor"), 2)
 
-    def test_a_rebuild_of_the_etags_is_a_write_for_the_cache(self):
-        work = self.rid("rec:work:1")
-        self.cached.etags([work])
-        stamp = self.cache.repo_last_modified_at("main")
-        time.sleep(0.01)
-        self.store.rebuild_etags()
-        self.cache.check()
-        self.assertGreater(self.cache.repo_last_modified_at("main"), stamp)
-
-    def test_an_application_watches_its_file_and_a_memory_database_nothing(self):
         self.assertEqual(
             [p.name for p in self.cache._files],
             [self.db.name, self.db.name + ".wal"],
@@ -209,7 +210,9 @@ class ReferencingTest(CacheCase):
     def ids(self, *uris):
         return [self.rid(u) for u in uris]
 
-    def test_the_records_that_point_at_a_record_newest_created_first(self):
+    def test_the_records_that_point_at_a_record_are_filtered_by_type_and_published_and_paged(
+        self,
+    ):
         org = self.rid("rec:org:1")
         got = self.store.referencing_records(org, limit=10)
         self.assertEqual(
@@ -217,7 +220,6 @@ class ReferencingTest(CacheCase):
         )  # work 1 points at person 1 only
         self.assertEqual(self.store.count_referencing_records(org), 2)
 
-    def test_a_type_number_filters_and_offset_and_limit_page(self):
         org = self.rid("rec:org:1")
         work = dict(TYPES)["work"]
         self.assertEqual(
@@ -230,7 +232,6 @@ class ReferencingTest(CacheCase):
             self.store.referencing_records(org, offset=1, limit=1), both[1:]
         )
 
-    def test_what_is_not_published_is_left_out_unless_asked(self):
         self.put(record("rec:work:3", refs=["rec:org:1"], published=False))
         org = self.rid("rec:org:1")
         self.assertEqual(self.store.count_referencing_records(org), 2)
@@ -241,13 +242,29 @@ class ReferencingTest(CacheCase):
     def number(self, slug: str) -> int:
         return dict(TYPES)[slug]
 
-    def test_one_of_a_record_and_a_type_has_to_be_given(self):
+    def test_one_of_a_record_and_a_type_has_to_be_given_and_only_a_type_with_the_deleted(
+        self,
+    ):
         with self.assertRaises(ValueError):
             self.store.referencing_records()
         with self.assertRaises(ValueError):
             self.store.count_referencing_records(None, 0)
 
-    def test_the_records_of_a_type_are_read_by_type_and_not_by_references(self):
+        work, org = self.number("work"), self.rid("rec:org:1")
+        for call in (
+            self.store.referencing_records,
+            self.store.count_referencing_records,
+        ):
+            with self.assertRaises(ValueError):  # no record that is pointed at
+                call(org, work, include_deleted=True)
+            with self.assertRaises(ValueError):
+                call(org, include_deleted=True)
+            with self.assertRaises(ValueError):  # a record that is gone has no state
+                call(record_type=work, include_deleted=True, state="draft")
+
+    def test_the_records_of_a_type_are_read_by_type_and_the_deleted_ones_are_listed_by_the_time_they_went(
+        self,
+    ):
         person = self.number("person")
         got = self.store.referencing_records(record_type=person)
         self.assertEqual(sorted(got), sorted(self.ids("rec:person:1", "rec:person:2")))
@@ -262,7 +279,22 @@ class ReferencingTest(CacheCase):
         self.assertNotIn("list_contains", plan)
         self.assertIn("record_type", plan)
 
-    def test_deleted_records_of_a_type_are_listed_by_the_time_they_went(self):
+        work = self.number("work")
+
+        def counts():
+            return (
+                self.store.count_referencing_records(record_type=work),
+                self.store.count_referencing_records(
+                    record_type=work, include_deleted=True
+                ),
+            )
+
+        self.assertEqual(counts(), (2, 2))
+        self.store.delete(["rec:work:1"])
+        self.assertEqual(counts(), (1, 2))  # one is only a deleted one
+        self.put(record("rec:work:1", refs=["rec:person:1"]))
+        self.assertEqual(counts(), (2, 2))
+
         work = self.number("work")
         # the records that are there, with nothing deleted
         self.assertEqual(
@@ -303,44 +335,12 @@ class ReferencingTest(CacheCase):
         )
         self.assertEqual(person, self.ids("rec:person:2", "rec:person:1"))
 
-    def test_only_a_type_can_be_asked_for_with_the_deleted(self):
-        work, org = self.number("work"), self.rid("rec:org:1")
-        for call in (
-            self.store.referencing_records,
-            self.store.count_referencing_records,
-        ):
-            with self.assertRaises(ValueError):  # no record that is pointed at
-                call(org, work, include_deleted=True)
-            with self.assertRaises(ValueError):
-                call(org, include_deleted=True)
-            with self.assertRaises(ValueError):  # a record that is gone has no state
-                call(record_type=work, include_deleted=True, state="draft")
-
-    def test_a_deleted_record_that_comes_back_is_not_listed_twice(self):
-        work = self.number("work")
-
-        def counts():
-            return (
-                self.store.count_referencing_records(record_type=work),
-                self.store.count_referencing_records(
-                    record_type=work, include_deleted=True
-                ),
-            )
-
-        self.assertEqual(counts(), (2, 2))
-        self.store.delete(["rec:work:1"])
-        self.assertEqual(counts(), (1, 2))  # one is only a deleted one
-        self.put(record("rec:work:1", refs=["rec:person:1"]))
-        self.assertEqual(counts(), (2, 2))
-
-    def test_deleted_records_are_mixed_in_with_the_records_of_the_type(self):
         cls = "http://ex/class/Person"
         self.put(
             record("rec:person:3", refs=[cls], stamp="2026-03-01T00:00:00.000000Z"),
             record("rec:person:4", refs=[cls], stamp="2026-05-01T00:00:00.000000Z"),
         )
         person = self.number("person")
-        self.store.delete(["rec:person:2"])
         # by the time modified (the one that went last, now, first)
         every = self.ids("rec:person:2", "rec:person:4", "rec:person:3", "rec:person:1")
         self.assertEqual(
@@ -441,7 +441,9 @@ class GraphTest(CacheCase):
             [record_id], compound_records=True, format="rdfxml"
         )
 
-    def test_the_graph_is_rdfxml_of_the_record_and_everything_it_is_made_of(self):
+    def test_the_graph_is_rdfxml_of_the_record_and_everything_it_is_made_of_and_a_deleted_record_has_none(
+        self,
+    ):
         self.assertEqual(
             self.subjects(self.graph(self.rid("rec:work:1"))),
             {"rec:work:1", "rec:person:1", "rec:org:1"},
@@ -450,6 +452,11 @@ class GraphTest(CacheCase):
             self.subjects(self.graph(self.rid("rec:person:2"))), {"rec:person:2"}
         )
         self.assertEqual(self.graph(999), "")  # a record that is not there has none
+
+        person = self.rid("rec:person:2")
+        self.assertTrue(self.graph(person))
+        self.store.delete(["rec:person:2"])
+        self.assertEqual(self.graph(person), "")
 
     @staticmethod
     def triples(xml: str) -> set:
@@ -490,13 +497,9 @@ class GraphTest(CacheCase):
         self.assertEqual(self.graph(work2), kept)
         self.assertEqual(asked.count("sql"), 1)
 
-    def test_a_deleted_record_has_no_graph_any_more(self):
-        person = self.rid("rec:person:2")
-        self.assertTrue(self.graph(person))
-        self.store.delete(["rec:person:2"])
-        self.assertEqual(self.graph(person), "")
-
-    def test_without_a_directory_the_graph_is_made_every_time(self):
+    def test_without_a_directory_the_graph_is_made_every_time_and_the_graphs_of_repositories_are_apart(
+        self,
+    ):
         cache = Cache(self.app.database, self.app.registry)
         store = new_store(self.app.database, "main", cache=cache)
         self.addCleanup(store.close)
@@ -506,7 +509,6 @@ class GraphTest(CacheCase):
         )
         self.assertIsNone(cache.graph_store)
 
-    def test_the_graphs_of_repositories_are_apart(self):
         other = open_store(self.db, repo="other", create=True)
         self.addCleanup(other.close)
         other.set_type_ids(TYPES)
@@ -516,7 +518,9 @@ class GraphTest(CacheCase):
         self.addCleanup(cached.close)
         self.assertNotEqual(self.graph(org), self.graph(org, cached))
 
-    def test_the_compound_graphs_from_the_database_are_what_the_cache_keeps(self):
+    def test_the_compound_graphs_from_the_database_are_what_the_cache_keeps_and_the_labels_are_valid_nodeids(
+        self,
+    ):
         work = self.rid("rec:work:1")
         etag, text = self.store.fetch_compound_graphs([work])[work]
         self.assertEqual(etag, self.etag("rec:work:1"))
@@ -535,7 +539,6 @@ class GraphTest(CacheCase):
             set(ox.parse(rdfxml(text), format=ox.RdfFormat.RDF_XML)),
         )
 
-    def test_the_labels_of_the_sources_are_valid_nodeids_and_the_graphs_merge(self):
         xml = self.graph(
             self.rid("rec:work:1")
         )  # not canonicalized: as the database made
@@ -559,7 +562,9 @@ class GraphTest(CacheCase):
 
 
 class GetMultiTest(CacheCase):
-    def test_a_record_by_uri_or_by_id_is_its_own_triples_only(self):
+    def test_a_record_is_its_own_triples_only_compound_records_are_one_graph_whatever_the_source_and_the_formats(
+        self,
+    ):
         work = self.rid("rec:work:1")
         graph = self.cached.get_multi(["rec:work:1", work, ox.NamedNode("rec:org:1")])
         self.assertEqual(
@@ -575,7 +580,6 @@ class GetMultiTest(CacheCase):
         self.assertEqual(len(self.cached.get_multi([999, "rec:nothing:1"])), 0)
         self.assertEqual(len(self.cached.get_multi([])), 0)
 
-    def test_the_compound_records_of_many_are_one_graph_whatever_the_source(self):
         ids = [self.rid(u) for u in ("rec:work:1", "rec:work:2")]
         want = self.store.get_multi(
             ids, compound_records=True
@@ -591,7 +595,6 @@ class GetMultiTest(CacheCase):
         self.assertEqual(set(got), set(want))
         self.assertGreater(asked.count("sql"), 0)  # not from the cache
 
-    def test_the_formats(self):
         work = self.rid("rec:work:1")
         graph = self.cached.get_multi([work], compound_records=True)
         for fmt in ("rdfxml", "ntriples", "turtle"):
@@ -608,7 +611,9 @@ class GetMultiTest(CacheCase):
 
 
 class GraphStoreTest(CacheCase):
-    def test_an_entry_is_used_for_its_etag_only(self):
+    def test_an_entry_is_used_for_its_etag_only_many_are_one_transaction_and_a_full_map_starts_over(
+        self,
+    ):
         graphs = GraphStore(self.tmp / "g")
         self.addCleanup(graphs.close)
         graphs.put("main", 7, "0123456789abcdef", b"<xml/>")
@@ -619,9 +624,6 @@ class GraphStoreTest(CacheCase):
         self.assertIsNone(graphs.get("main", 7, "0123456789abcdef"))
         self.assertEqual(graphs.get("main", 7, "fedcba9876543210"), b"<new/>")
 
-    def test_many_entries_are_one_transaction_and_a_batch_that_does_not_fit_is_an_error(
-        self,
-    ):
         graphs = GraphStore(self.tmp / "many")
         self.addCleanup(graphs.close)
         etag = "0123456789abcdef"
@@ -635,7 +637,6 @@ class GraphStoreTest(CacheCase):
                 ("main", n, etag, b"x" * 20_000) for n in range(1, 40)
             )  # 780 KB in one batch
 
-    def test_a_full_map_starts_over_and_keeps_the_new_entry(self):
         graphs = GraphStore(self.tmp / "small", size=256 * 1024)
         self.addCleanup(graphs.close)
         etag = "0123456789abcdef"

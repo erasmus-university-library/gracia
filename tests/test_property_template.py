@@ -1,4 +1,6 @@
-import base64
+"""The property template language of the shapes (`gracia:propertyTemplate`, the headers of
+nodes): what a template means, how a shape says it, and what the form and the database make of it."""
+
 import html
 import json
 import re
@@ -7,27 +9,28 @@ from typing import ClassVar
 
 import colander
 import pyoxigraph as ox
-from harness import BUNDLED, ConfiguredCase, fake_type, open_store
+from harness import FIXTURES, FOAF_PERSON, fake_type, open_store
 from test_records import graph
+from widgets_support import EX, FormCase
 
 from gracia import forms, shacl
 from gracia.predicates import HookContext
 from gracia.utils import assets
 
-SCHEMA = "https://schema.org/"
-GIVEN, FAMILY, PREFIX = (SCHEMA + n for n in ("givenName", "familyName", "prefix"))
-NAME = SCHEMA + "name"
-AUTH = {"Authorization": "Basic " + base64.b64encode(b"admin:correct horse").decode()}
+FOAF = "http://xmlns.com/foaf/0.1/"
+GIVEN, FAMILY, PREFIX, NAME = (
+    EX + n for n in ("givenName", "familyName", "prefix", "name")
+)
 
 
 class ParseTest(unittest.TestCase):
-    def test_a_placeholder_is_the_next_property(self):
+    def test_a_placeholder_is_the_next_property_and_a_part_in_brackets_is_optional(
+        self,
+    ):
         self.assertEqual(
             shacl.parse("{} {}", 2),
             (("source", 0), ("text", " "), ("source", 1)),
         )
-
-    def test_an_optional_part_has_its_own_placeholders(self):
         self.assertEqual(
             shacl.parse("{} [{} ]{}", 3),
             (
@@ -37,8 +40,7 @@ class ParseTest(unittest.TestCase):
                 ("source", 2),
             ),
         )
-
-    def test_doubled_braces_and_brackets_are_themselves(self):
+        # doubled braces and brackets are themselves
         self.assertEqual(shacl.parse("{{x}} [[y]]", 0), (("text", "{x} [y]"),))
 
     def test_a_template_that_makes_no_sense_is_refused(self):
@@ -63,15 +65,15 @@ def made(text: str, *sources: str) -> shacl.PropertyTemplate:
 class RenderTest(unittest.TestCase):
     full = made("{} [{} ]{}", GIVEN, PREFIX, FAMILY)
 
-    def test_every_source_outside_the_brackets_is_needed(self):
+    def test_the_sources_outside_the_brackets_are_needed_and_the_values_are_trimmed(
+        self,
+    ):
         self.assertEqual(self.full.required, [GIVEN, FAMILY])
         self.assertEqual(
             self.full.render({GIVEN: "Ada", FAMILY: "Lovelace"}), "Ada Lovelace"
         )
         self.assertIsNone(self.full.render({GIVEN: "Ada"}))
         self.assertIsNone(self.full.render({GIVEN: "Ada", FAMILY: "  "}))
-
-    def test_an_optional_part_is_left_out_without_its_source(self):
         values: dict[str, str | None] = {
             GIVEN: "Ludwig",
             FAMILY: "Beethoven",
@@ -79,8 +81,6 @@ class RenderTest(unittest.TestCase):
         }
         self.assertEqual(self.full.render(values), "Ludwig van Beethoven")
         self.assertEqual(self.full.render({**values, PREFIX: " "}), "Ludwig Beethoven")
-
-    def test_the_result_and_the_values_are_trimmed(self):
         self.assertEqual(made(" {} ", GIVEN).render({GIVEN: "  Ada\t"}), "Ada")
 
 
@@ -89,116 +89,96 @@ class ShapeTest(unittest.TestCase):
         "@prefix sh: <http://www.w3.org/ns/shacl#> .\n"
         "@prefix gracia: <https://gracia.pub/ns/> .\n"
         "@prefix ex: <http://example.org/> .\n"
-        "@prefix s: <https://schema.org/> .\n"
     )
 
     def shape(self, body: str):
         text = self.PREFIXES + "ex:S a sh:NodeShape ; sh:property " + body
         data = graph(text)
-        return data, ox.NamedNode("http://example.org/S")
+        return data, ox.NamedNode(EX + "S")
 
-    def test_the_templates_of_a_shape_are_found(self):
+    def test_the_templates_of_a_shape_are_found_also_in_the_person_profiles(self):
         found = shacl.of_shape(
             *self.shape(
-                '[ sh:path s:name ; gracia:propertyTemplate ( "{} {}" s:givenName '
-                "s:familyName ) ] , [ sh:path s:givenName ; sh:maxCount 1 ] , "
-                "[ sh:path s:familyName ; sh:maxCount 1 ] ."
+                '[ sh:path ex:name ; gracia:propertyTemplate ( "{} {}" ex:givenName '
+                "ex:familyName ) ] , [ sh:path ex:givenName ; sh:maxCount 1 ] , "
+                "[ sh:path ex:familyName ; sh:maxCount 1 ] ."
             )
         )
         self.assertEqual(
             [(t.target, t.sources) for t in found], [(NAME, (GIVEN, FAMILY))]
         )
+        for spec in ("person-unittest-01.ttl", "person-minimal-01.ttl"):
+            with self.subTest(spec=spec):
+                path = assets.resolve(f"{FIXTURES}/foaf/shacl/{spec}")
+                shapes, shape = assets.load_shape(path, FOAF + "Person")
+                self.assertEqual(
+                    [(t.target, t.sources) for t in shacl.of_shape(shapes, shape)],
+                    [(FOAF + "name", (FOAF + "givenName", FOAF + "familyName"))],
+                )
 
     def test_a_source_must_be_a_single_plain_value_of_the_same_shape(self):
         bad = {
-            "not in the shape": "[ sh:path s:name ; gracia:propertyTemplate "
-            '( "{}" s:givenName ) ] .',
-            "can have many": "[ sh:path s:name ; gracia:propertyTemplate "
-            '( "{}" s:givenName ) ] , [ sh:path s:givenName ] .',
-            "is the target": "[ sh:path s:name ; sh:maxCount 1 ; "
-            'gracia:propertyTemplate ( "{}" s:name ) ] .',
-            "is made by a template": "[ sh:path s:name ; gracia:propertyTemplate "
-            '( "{}" s:givenName ) ] , [ sh:path s:givenName ; sh:maxCount 1 ; '
-            'gracia:propertyTemplate ( "{}" s:familyName ) ] , '
-            "[ sh:path s:familyName ; sh:maxCount 1 ] .",
-            "is a node": "[ sh:path s:name ; gracia:propertyTemplate "
-            '( "{}" s:address ) ] , [ sh:path s:address ; sh:maxCount 1 ; '
+            "not in the shape": "[ sh:path ex:name ; gracia:propertyTemplate "
+            '( "{}" ex:givenName ) ] .',
+            "can have many": "[ sh:path ex:name ; gracia:propertyTemplate "
+            '( "{}" ex:givenName ) ] , [ sh:path ex:givenName ] .',
+            "is the target": "[ sh:path ex:name ; sh:maxCount 1 ; "
+            'gracia:propertyTemplate ( "{}" ex:name ) ] .',
+            "is made by a template": "[ sh:path ex:name ; gracia:propertyTemplate "
+            '( "{}" ex:givenName ) ] , [ sh:path ex:givenName ; sh:maxCount 1 ; '
+            'gracia:propertyTemplate ( "{}" ex:familyName ) ] , '
+            "[ sh:path ex:familyName ; sh:maxCount 1 ] .",
+            "is a node": "[ sh:path ex:name ; gracia:propertyTemplate "
+            '( "{}" ex:address ) ] , [ sh:path ex:address ; sh:maxCount 1 ; '
             "sh:node ex:S ] .",
         }
         for why, body in bad.items():
             with self.subTest(why), self.assertRaises(ValueError):
                 shacl.of_shape(*self.shape(body))
 
-    def test_a_template_in_an_alternative_is_for_the_value_that_alternative_has(self):
+    def test_a_template_in_an_alternative_is_for_the_value_that_alternative_has_and_names_its_kind_once(
+        self,
+    ):
         found = shacl.of_shape(
             *self.shape(
-                "[ sh:path s:url ; sh:nodeKind sh:IRI ; sh:maxCount 1 ] , "
-                "[ sh:path s:id ; sh:maxCount 1 ] , "
-                "[ sh:path s:kind ; sh:maxCount 1 ] ; "
-                'sh:or ( [ sh:property [ sh:path s:kind ; sh:hasValue "A" ] ; '
-                "sh:property [ sh:path s:url ; gracia:propertyTemplate "
-                '( "https://a.example/{}" s:id ) ] ] '
-                '[ sh:property [ sh:path s:kind ; sh:hasValue "B" ] ; '
-                "sh:property [ sh:path s:url ; gracia:propertyTemplate "
-                '( "https://b.example/{}" s:id ) ] ] ) .'
+                "[ sh:path ex:url ; sh:nodeKind sh:IRI ; sh:maxCount 1 ] , "
+                "[ sh:path ex:id ; sh:maxCount 1 ] , "
+                "[ sh:path ex:kind ; sh:maxCount 1 ] ; "
+                'sh:or ( [ sh:property [ sh:path ex:kind ; sh:hasValue "A" ] ; '
+                "sh:property [ sh:path ex:url ; gracia:propertyTemplate "
+                '( "https://a.example/{}" ex:id ) ] ] '
+                '[ sh:property [ sh:path ex:kind ; sh:hasValue "B" ] ; '
+                "sh:property [ sh:path ex:url ; gracia:propertyTemplate "
+                '( "https://b.example/{}" ex:id ) ] ] ) .'
             )
         )
         self.assertEqual(
             sorted((t.when, t.iri, t.sources) for t in found),
             [
-                ((SCHEMA + "kind", "A"), True, (SCHEMA + "id",)),
-                ((SCHEMA + "kind", "B"), True, (SCHEMA + "id",)),
+                ((EX + "kind", "A"), True, (EX + "id",)),
+                ((EX + "kind", "B"), True, (EX + "id",)),
             ],
         )
-
-    def test_an_alternative_with_a_template_names_its_kind_once(self):
         for guards in (
             "",
-            'sh:property [ sh:path s:kind ; sh:hasValue "A" ] ; '
-            'sh:property [ sh:path s:id ; sh:hasValue "B" ] ; ',
+            'sh:property [ sh:path ex:kind ; sh:hasValue "A" ] ; '
+            'sh:property [ sh:path ex:id ; sh:hasValue "B" ] ; ',
         ):
             with self.subTest(guards=guards), self.assertRaises(ValueError):
                 shacl.of_shape(
                     *self.shape(
-                        "[ sh:path s:url ; sh:maxCount 1 ] , [ sh:path s:id ; "
-                        "sh:maxCount 1 ] , [ sh:path s:kind ; sh:maxCount 1 ] ; "
-                        f"sh:or ( [ {guards}sh:property [ sh:path s:url ; "
-                        'gracia:propertyTemplate ( "x/{}" s:id ) ] ] ) .'
+                        "[ sh:path ex:url ; sh:maxCount 1 ] , [ sh:path ex:id ; "
+                        "sh:maxCount 1 ] , [ sh:path ex:kind ; sh:maxCount 1 ] ; "
+                        f"sh:or ( [ {guards}sh:property [ sh:path ex:url ; "
+                        'gracia:propertyTemplate ( "x/{}" ex:id ) ] ] ) .'
                     )
-                )
-
-    def test_the_shapes_of_the_person_profiles_have_theirs(self):
-        foaf = "http://xmlns.com/foaf/0.1/"
-        for spec, class_uri, name, given, family in (
-            ("person-schemaorg-01.ttl", SCHEMA + "Person", NAME, GIVEN, FAMILY),
-            (
-                "person-unittest-01.ttl",
-                foaf + "Person",
-                foaf + "name",
-                foaf + "givenName",
-                foaf + "familyName",
-            ),
-            (
-                "person-minimal-01.ttl",
-                foaf + "Person",
-                foaf + "name",
-                foaf + "givenName",
-                foaf + "familyName",
-            ),
-        ):
-            with self.subTest(spec=spec):
-                path = assets.resolve(f"gracia:assets/shacl/{spec}")
-                shapes, shape = assets.load_shape(path, class_uri)
-                self.assertEqual(
-                    [(t.target, t.sources) for t in shacl.of_shape(shapes, shape)],
-                    [(name, (given, family))],
                 )
 
 
 class SqlTest(unittest.TestCase):
     TEMPLATE = made("{} [{} ]{}", GIVEN, PREFIX, FAMILY)
 
-    def hooked(self, content: str, template=TEMPLATE, nodes: str = ""):
+    def hooked(self, content: str, template=TEMPLATE):
         context = HookContext(None, fake_type(slug="person"), template.target)
         store = open_store()
         self.addCleanup(store.close)
@@ -208,7 +188,7 @@ class SqlTest(unittest.TestCase):
         return store.apply_hooks(
             graph(
                 "@prefix gracia: <https://gracia.pub/ns/> .\n"
-                "@prefix schema: <https://schema.org/> .\n"
+                "@prefix ex: <http://example.org/> .\n"
                 f"<rec:person:1> a gracia:Record ; gracia:resource [ {content} ] ."
             )
         )
@@ -218,45 +198,29 @@ class SqlTest(unittest.TestCase):
             q.object.value for q in result.dataset if q.predicate.value == NAME
         )
 
-    def test_the_name_is_made_of_the_parts(self):
+    def test_the_name_is_made_of_the_parts_and_gives_way_to_them_unless_one_is_missing(
+        self,
+    ):
         result = self.hooked(
-            'a schema:Person ; schema:givenName "Ada" ; schema:familyName "Lovelace"'
+            'a ex:Person ; ex:givenName "Ada" ; ex:familyName "Lovelace"'
         )
         self.assertEqual(self.names(result), ["Ada Lovelace"])
-
-    def test_a_name_that_is_there_is_replaced_when_the_parts_are_all_there(self):
         result = self.hooked(
-            'a schema:Person ; schema:name "A. Lovelace" ; '
-            'schema:givenName "Ada" ; schema:familyName "Lovelace"'
-        )
+            'a ex:Person ; ex:name "A. Lovelace" ; '
+            'ex:givenName "Ada" ; ex:familyName "Lovelace"'
+        )  # a name that is there is replaced when the parts are all there
         self.assertEqual(self.names(result), ["Ada Lovelace"])
-
-    def test_a_name_that_is_there_is_kept_when_a_part_is_missing_or_empty(self):
-        for parts in (
-            'schema:givenName "Ada"',
-            'schema:givenName "Ada" ; schema:familyName "  "',
+        for parts in (  # and kept when a part is missing or empty
+            'ex:givenName "Ada"',
+            'ex:givenName "Ada" ; ex:familyName "  "',
         ):
             with self.subTest(parts=parts):
-                result = self.hooked(f'a schema:Person ; schema:name "A. L." ; {parts}')
+                result = self.hooked(f'a ex:Person ; ex:name "A. L." ; {parts}')
                 self.assertEqual(self.names(result), ["A. L."])
+        result = self.hooked('a ex:Person ; ex:givenName "Ada"')
+        self.assertEqual(self.names(result), [])  # one part alone makes no name
 
-    def test_one_part_alone_makes_no_name(self):
-        result = self.hooked('a schema:Person ; schema:givenName "Ada"')
-        self.assertEqual(self.names(result), [])
-
-    def test_the_optional_part_is_used_when_it_is_there(self):
-        result = self.hooked(
-            'a schema:Person ; schema:givenName "Ludwig" ; schema:prefix "van" ; '
-            'schema:familyName "Beethoven"'
-        )
-        self.assertEqual(self.names(result), ["Ludwig van Beethoven"])
-        result = self.hooked(
-            'a schema:Person ; schema:givenName "Ludwig" ; '
-            'schema:familyName "Beethoven"'
-        )
-        self.assertEqual(self.names(result), ["Ludwig Beethoven"])
-
-    def test_the_sql_and_the_python_agree(self):
+    def test_the_sql_and_the_python_agree_also_on_the_optional_part(self):
         for given, prefix, family in (
             ("Ada", "", "Lovelace"),
             ("Ludwig", "van", "Beethoven"),
@@ -264,88 +228,38 @@ class SqlTest(unittest.TestCase):
             ("Ada", "", ""),
         ):
             with self.subTest(given=given, prefix=prefix, family=family):
-                parts = f'schema:givenName "{given}" ; schema:familyName "{family}"'
+                parts = f'ex:givenName "{given}" ; ex:familyName "{family}"'
                 if prefix:
-                    parts += f' ; schema:prefix "{prefix}"'
-                result = self.hooked(f"a schema:Person ; {parts}")
+                    parts += f' ; ex:prefix "{prefix}"'
+                result = self.hooked(f"a ex:Person ; {parts}")
                 expected = self.TEMPLATE.render(
                     {GIVEN: given, PREFIX: prefix, FAMILY: family}
                 )
                 self.assertEqual(self.names(result), [expected] if expected else [])
+        result = self.hooked(
+            'a ex:Person ; ex:givenName "Ludwig" ; ex:prefix "van" ; '
+            'ex:familyName "Beethoven"'
+        )
+        self.assertEqual(self.names(result), ["Ludwig van Beethoven"])
 
     def test_a_node_inside_the_record_has_its_own_name_from_its_own_parts(self):
         template = shacl.PropertyTemplate(
-            "http://example.org/label",
-            ("http://example.org/a", "http://example.org/b"),
-            shacl.parse("{}, {}", 2),
+            EX + "label", (EX + "a", EX + "b"), shacl.parse("{}, {}", 2)
         )
         result = self.hooked(
-            'a schema:Thing ; schema:note [ <http://example.org/a> "x" ; '
-            '<http://example.org/b> "y" ] , [ <http://example.org/a> "z" ]',
-            template,
+            'a ex:Thing ; ex:note [ ex:a "x" ; ex:b "y" ] , [ ex:a "z" ]', template
         )
         found = [
-            q.object.value
-            for q in result.dataset
-            if q.predicate.value == "http://example.org/label"
+            q.object.value for q in result.dataset if q.predicate.value == EX + "label"
         ]
         self.assertEqual(found, ["x, y"])
 
 
-class PersonRecordTest(ConfiguredCase):
-    def setUp(self):
-        super().setUp()
-        self.application.create_repository(
-            "test_repo",
-            admin=("admin", "correct horse"),
-            content_types=[BUNDLED["person"]],
-        )
-        self.web = self.client()
-
-    def post(self, path: str, **values):
-        form = self.web.get(path, headers=AUTH).forms[0]
-        out = []
-        for name, value in form.submit_fields("save"):
-            out.append((name, values.get(name, value)))
-        return self.web.post(path, params=out, headers=AUTH, expect_errors=True)
-
-    def person(self):
-        record = self.application["test_repo"].types["person"].find_record("1")
-        return record, record.graph.value(record.resource, NAME)
-
-    def test_the_name_is_made_of_the_parts_and_is_the_label(self):
-        response = self.post(
-            "/test_repo/person/add", givenName="Ada", familyName="Lovelace"
-        )
-        self.assertEqual(response.status_int, 302, response.text[:500])
-        record, name = self.person()
-        self.assertEqual(name.value, "Ada Lovelace")
-        self.assertEqual(record.label, "Ada Lovelace")
-
-    def test_a_name_that_was_typed_gives_way_to_the_parts(self):
-        self.post(
-            "/test_repo/person/add",
-            name="A. L.",
-            givenName="Ada",
-            familyName="Lovelace",
-        )
-        record, name = self.person()
-        self.assertEqual((name.value, record.label), ("Ada Lovelace",) * 2)
-
-    def test_a_name_alone_is_kept(self):
-        self.post("/test_repo/person/add", name="Ada")
-        record, name = self.person()
-        self.assertEqual((name.value, record.label), ("Ada", "Ada"))
-
-    def test_without_a_name_or_both_parts_the_form_says_what_to_give(self):
-        response = self.post("/test_repo/person/add", givenName="Ada")
-        self.assertEqual(response.status_int, 200)
-        self.assertIn(
-            "Give a name, or fill in given name and family name", response.text
-        )
+class FoafPersonTest(FormCase):
+    types = (FOAF_PERSON,)  # noqa: RUF012
 
     def test_the_name_field_is_not_required_and_has_its_template_for_the_browser(self):
-        page = self.web.get("/test_repo/person/add", headers=AUTH).text
+        page = self.page("/test_repo/person/add")
         tag = re.search(r'<input[^>]*name="name"[^>]*>', page)
         assert tag is not None
         found = tag.group(0)
@@ -392,65 +306,59 @@ class PersonRecordTest(ConfiguredCase):
         )
 
 
-SHAPES = "http://example.org/shapes#"
-
-
-class HeaderTest(ConfiguredCase):
-    def person_shapes(self):
-        path = assets.resolve("gracia:assets/shacl/person-schemaorg-01.ttl")
-        return assets.load_shape(path, SCHEMA + "Person")[0]
+class HeaderTest(FormCase):
+    def shapes(self):
+        return (
+            self.application["test_repo"]
+            .types["gadget"]
+            .shacl_shape(include_record_shape=False)[0]
+        )
 
     def test_a_node_shape_has_a_header_and_perhaps_a_badge(self):
-        shapes = self.person_shapes()
-        header, addon = shacl.header_of(
-            shapes, ox.NamedNode(SHAPES + "PropertyValueShape")
-        )
+        shapes = self.shapes()
+        header, addon = shacl.header_of(shapes, ox.NamedNode(EX + "MarkShape"))
         assert header is not None and addon is not None
-        self.assertEqual(header.sources, (SCHEMA + "value",))
-        self.assertEqual(addon.sources, (SCHEMA + "propertyID",))
-        address, none = shacl.header_of(
-            shapes, ox.NamedNode(SHAPES + "PostalAddressShape")
-        )
-        assert address is not None
+        self.assertEqual(header.sources, (EX + "value",))
+        self.assertEqual(addon.sources, (EX + "kind",))
+        place, none = shacl.header_of(shapes, ox.NamedNode(EX + "PlaceShape"))
+        assert place is not None
         self.assertIsNone(none)
         self.assertEqual(
-            address.render_names(
-                {"streetAddress": "Mekelweg 4", "addressLocality": "Delft"}
-            ),
+            place.render_names({"street": "Mekelweg 4", "city": "Delft"}),
             "Mekelweg 4, Delft",
         )
         self.assertEqual(
-            address.render_names(
+            place.render_names(
                 {
-                    "streetAddress": "Mekelweg 4",
-                    "postalCode": "2628 CD",
-                    "addressLocality": "Delft",
-                    "addressCountry": "NL",
+                    "street": "Mekelweg 4",
+                    "code": "2628 CD",
+                    "city": "Delft",
+                    "country": "NL",
                 }
             ),
             "Mekelweg 4, 2628 CD Delft, NL",
         )
-        self.assertIsNone(address.render_names({}))  # nothing: the bar has its title
+        self.assertIsNone(place.render_names({}))  # nothing: the bar has its title
 
     def test_a_header_can_only_use_the_properties_of_its_shape(self):
         data = graph(
             "@prefix sh: <http://www.w3.org/ns/shacl#> .\n"
             "@prefix gracia: <https://gracia.pub/ns/> .\n"
-            "@prefix s: <https://schema.org/> .\n"
+            "@prefix ex: <http://example.org/> .\n"
             '<http://example.org/S> a sh:NodeShape ; gracia:headerTemplate ( "{}" '
-            "s:streatAddress ) ; sh:property [ sh:path s:streetAddress ] ."
+            "ex:streatAddress ) ; sh:property [ sh:path ex:streetAddress ] ."
         )
         with self.assertRaises(ValueError):
-            shacl.header_of(data, ox.NamedNode("http://example.org/S"))
+            shacl.header_of(data, ox.NamedNode(EX + "S"))
 
     def test_the_bar_of_a_node_has_the_icon_the_badge_and_the_header(self):
-        record = self.person_record()
+        record = self.application["test_repo"].types["gadget"].blank_record()
         form = forms.Form(record.edit_schema(), tabs="Record")
         page = form.render(
             {
                 "resource": {
-                    "identifier": [{"propertyID": "ORCID", "value": "0000-0001"}],
-                    "address": [{"streetAddress": "Mekelweg 4"}],
+                    "mark": [{"kind": "ORCID", "value": "0000-0001"}],
+                    "place": [{"street": "Mekelweg 4"}],
                 }
             }
         )
@@ -466,156 +374,102 @@ class HeaderTest(ConfiguredCase):
             r'(?s)<i class="bi bi-geo-alt me-2" aria-hidden="true"></i>\s*'
             r'<span class="bar-text flex-grow-1"[^>]*>Mekelweg 4</span>',
         )
-
-    def test_without_a_value_for_the_badge_it_is_there_but_hidden(self):
-        page = forms.Form(self.person_record().edit_schema(), tabs="Record").render(
-            {"resource": {"identifier": [{"value": "x"}]}}
-        )
+        page = forms.Form(record.edit_schema(), tabs="Record").render(
+            {"resource": {"mark": [{"value": "x"}]}}
+        )  # without a value for the badge it is there but hidden
         self.assertRegex(
             page, r'<span class="badge[^>]*data-header-template[^>]*hidden="hidden"'
         )
 
-    def person_record(self):
-        self.application.create_repository(
-            "test_repo",
-            admin=("admin", "correct horse"),
-            content_types=[BUNDLED["person"]],
-        )
-        return self.application["test_repo"].types["person"].blank_record()
 
-
-class IdentifierTest(ConfiguredCase):
+class MarkTest(FormCase):
     KINDS: ClassVar[dict[str, tuple[str, str | None]]] = {
         "ORCID": ("0000-0002-1825-0097", "https://orcid.org/0000-0002-1825-0097"),
         "ISNI": ("0000000121032683", "https://isni.org/isni/0000000121032683"),
-        "OpenAlex": ("A5023888391", "https://openalex.org/A5023888391"),
-        "Scopus": (
-            "57189222659",
-            "https://www.scopus.com/authid/detail.uri?authorId=57189222659",
-        ),
-        "ResearcherId": (
-            "A-1234-2008",
-            "https://www.webofscience.com/wos/author/rid/A-1234-2008",
-        ),
         "Local": ("p-17", None),
         "External": ("whatever 1", None),
     }
 
-    def setUp(self):
-        super().setUp()
-        self.application.create_repository(
-            "test_repo",
-            admin=("admin", "correct horse"),
-            content_types=[BUNDLED["person"]],
-        )
-        self.web = self.client()
+    def post_mark(self, kind: str, value: str, url: str = "", name="A gadget"):
+        row = [("kind", kind), ("value", value), ("url", url)]
+        return self.post("/test_repo/gadget/add", rows={"mark": [row]}, name=name)
 
-    def post(self, kind: str, value: str, url: str = "", name="Ada Lovelace"):
-        form = self.web.get("/test_repo/person/add", headers=AUTH).forms[0]
-        out = []
-        for field, text in form.submit_fields("save"):
-            out.append((field, name if field == "name" else text))
-            if (field, text) == ("__start__", "identifier:sequence"):
-                out += [
-                    ("__start__", "item:mapping"),
-                    ("propertyID", kind),
-                    ("value", value),
-                    ("url", url),
-                    ("__end__", "item:mapping"),
-                ]
-        return self.web.post(
-            "/test_repo/person/add", params=out, headers=AUTH, expect_errors=True
-        )
-
-    def identifier(self, number: int = 1):
-        record = self.application["test_repo"].types["person"].find_record(str(number))
-        (node,) = record.graph.objects(record.resource, SCHEMA + "identifier")
+    def mark(self, number: int = 1):
+        record = self.record("gadget", number)
+        (node,) = record.graph.objects(record.resource, EX + "mark")
         return {
-            q.predicate.value.removeprefix(SCHEMA): q.object
+            q.predicate.value.removeprefix(EX): q.object
             for q in record.graph.dataset.quads_for_subject(node)
         }
 
-    def test_the_kind_is_a_choice_of_the_seven_and_the_url_is_a_text_input(self):
-        self.post("ORCID", "0000-0002-1825-0097")
-        page = self.web.get("/test_repo/person/ada-lovelace/edit", headers=AUTH).text
-        select = re.search(r'(?s)<select[^>]*name="propertyID".*?</select>', page)
+    def test_the_kind_is_a_choice_and_the_url_is_a_text_input_with_the_templates_of_the_kinds(
+        self,
+    ):
+        self.saved(
+            "/test_repo/gadget/add",
+            rows={
+                "mark": [
+                    [("kind", "ORCID"), ("value", "0000-0002-1825-0097"), ("url", "")]
+                ]
+            },
+        )
+        page = self.page("/test_repo/gadget/1/edit")
+        select = re.search(r'(?s)<select[^>]*name="kind".*?</select>', page)
         assert select is not None
         self.assertEqual(
-            re.findall(r'value="([^"]*)"', select.group(0)), ["", *self.KINDS]
+            re.findall(r'value="([^"]*)"', select.group(0)),
+            ["", "ORCID", "ISNI", "Local", "External"],
         )
         self.assertRegex(page, r'<input[^>]*name="url"[^>]*>')
-
-    def test_the_url_is_made_for_the_kinds_that_have_one_and_is_a_uri(self):
-        for number, (kind, (value, url)) in enumerate(self.KINDS.items(), 1):
-            with self.subTest(kind=kind):
-                response = self.post(kind, value, name=f"Person {number}")
-                self.assertEqual(response.status_int, 302, response.text[:400])
-                found = self.identifier(number).get("url")
-                self.assertEqual(found, ox.NamedNode(url) if url else None)
-
-    def test_a_value_that_is_not_in_the_form_of_its_kind_is_refused(self):
-        for kind, value, said in (
-            ("ORCID", "not an orcid", "An ORCID iD is four groups of four digits"),
-            ("ISNI", "12", "An ISNI is 16 digits"),
-            ("OpenAlex", "5023", "An OpenAlex id is a letter and digits"),
-            ("Scopus", "12", "A Scopus id is 6 to 12 digits"),
-            ("ResearcherId", "1234", "A ResearcherId is like A-1234-2008"),
-        ):
-            with self.subTest(kind=kind):
-                response = self.post(kind, value)
-                self.assertEqual(response.status_int, 200)
-                self.assertIn(said, response.text)  # at the value, as the shape says
-                self.assertNotIn(
-                    "An ORCID iD", response.text.replace(said, "")
-                ) if kind != "ORCID" else None
-
-    def test_a_kind_that_is_not_one_of_them_is_refused(self):
-        response = self.post("Twitter", "ada")
-        self.assertEqual(response.status_int, 200)
-        self.assertIn("is not one of", response.text)
-
-    def test_a_url_that_was_typed_is_a_uri(self):
-        response = self.post("External", "x", "https://example.org/x")
-        self.assertEqual(response.status_int, 302, response.text[:400])
-        self.assertEqual(
-            self.identifier()["url"], ox.NamedNode("https://example.org/x")
-        )
-
-    def test_a_url_of_a_kind_has_to_start_as_the_kind_says(self):
-        response = self.post("ORCID", "0000-0002-1825-0097", "https://example.org/x")
-        self.assertEqual(response.status_int, 200)
-        self.assertIn("An ORCID URL starts with https://orcid.org/", response.text)
-        ok = self.post(
-            "ORCID", "0000-0002-1825-0097", "https://orcid.org/0000-0002-1825-0097"
-        )
-        self.assertEqual(ok.status_int, 302, ok.text[:300])
-
-    def test_something_that_is_not_a_uri_is_refused(self):
-        response = self.post("External", "x", "not a uri")
-        self.assertEqual(response.status_int, 200)
-        self.assertIn("Not a URI", response.text)
-
-    def test_the_templates_for_the_kinds_are_in_the_page_for_the_browser(self):
-        self.post("ORCID", "0000-0002-1825-0097")
-        page = self.web.get("/test_repo/person/ada-lovelace/edit", headers=AUTH).text
         attribute = re.search(r'name="url"[^>]*data-template="([^"]*)"', page)
         assert attribute is not None
         variants = json.loads(html.unescape(attribute[1]))
-        self.assertEqual(
-            sorted(v["when"][1] for v in variants),
-            sorted(["ORCID", "ISNI", "OpenAlex", "Scopus", "ResearcherId"]),
-        )
-        self.assertEqual(variants[0]["when"][0], "propertyID")
+        self.assertEqual(sorted(v["when"][1] for v in variants), ["ISNI", "ORCID"])
+        self.assertEqual(variants[0]["when"][0], "kind")
         self.assertIn("template.js", page)
 
+    def test_the_url_is_made_for_the_kinds_that_have_one_and_a_typed_one_is_a_uri(self):
+        for number, (kind, (value, url)) in enumerate(self.KINDS.items(), 1):
+            with self.subTest(kind=kind):
+                response = self.post_mark(kind, value, name=f"Gadget {number}")
+                self.assertEqual(response.status_int, 302, response.text[:400])
+                found = self.mark(number).get("url")
+                self.assertEqual(found, ox.NamedNode(url) if url else None)
+        response = self.post_mark("External", "x", "https://example.org/x", "Typed")
+        self.assertEqual(response.status_int, 302, response.text[:400])
+        self.assertEqual(self.mark(5)["url"], ox.NamedNode("https://example.org/x"))
 
-class FewStatementsTest(unittest.TestCase):
+    def test_what_is_not_in_the_form_of_its_kind_is_refused_as_the_shape_says(self):
+        for kind, value, url, said in (
+            ("ORCID", "not an orcid", "", "An ORCID iD is four groups of four digits"),
+            ("ISNI", "12", "", "An ISNI is 16 digits"),
+            (
+                "ORCID",
+                "0000-0002-1825-0097",
+                "https://example.org/x",
+                "An ORCID URL starts with https://orcid.org/",
+            ),
+            ("Twitter", "ada", "", "is not one of"),
+            ("External", "x", "not a uri", "Not a URI"),
+        ):
+            with self.subTest(kind=kind, url=url):
+                response = self.post_mark(kind, value, url)
+                self.assertEqual(response.status_int, 200)
+                self.assertIn(said, response.text)  # at the value, as the shape says
+        ok = self.post_mark("ORCID", "0000-0002-1825-0097", "https://orcid.org/x")
+        self.assertEqual(ok.status_int, 302, ok.text[:300])
+
+
+class FewStatementsTest(FormCase):
     def test_the_variants_of_one_property_are_one_delete_and_one_insert(self):
-        path = assets.resolve("gracia:assets/shacl/person-schemaorg-01.ttl")
-        shapes, _shape = assets.load_shape(path, SCHEMA + "Person")
-        found = shacl.of_shape(shapes, ox.NamedNode(SHAPES + "PropertyValueShape"))
-        self.assertEqual(len(found), 5)  # one for each kind that has an url
-        context = HookContext(None, fake_type(slug="person"), SCHEMA + "url")
+        shapes = (
+            self.application["test_repo"]
+            .types["gadget"]
+            .shacl_shape(include_record_shape=False)[0]
+        )
+        found = shacl.of_shape(shapes, ox.NamedNode(EX + "MarkShape"))
+        self.assertEqual(len(found), 2)  # one for each kind that has an url
+        context = HookContext(None, fake_type(slug="gadget"), EX + "url")
         statements = shacl.sql_of(found, context)
         self.assertEqual(len(statements), 2)
         self.assertTrue(statements[0].lstrip().startswith("DELETE"))

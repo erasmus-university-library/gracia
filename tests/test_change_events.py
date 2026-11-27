@@ -30,33 +30,27 @@ class QueueCase(EtagCase):
 
 
 class WrittenTest(QueueCase):
-    def test_a_new_record_is_an_insert_and_a_changed_one_an_update(self):
+    def test_a_new_record_is_an_insert_a_changed_one_an_update_and_the_rows_are_one_for_the_record_and_the_transaction(
+        self,
+    ):
         self.put(record("rec:org:1"), record("rec:org:2"))
         self.assertEqual(
             self.queue(), [(1, "rec:org:1", "insert"), (1, "rec:org:2", "insert")]
         )
         self.put(record("rec:org:1", refs=["rec:org:2"], stamp=STAMP2))
         self.assertIn((2, "rec:org:1", "update"), self.queue(1))
-
-    def test_a_delete_is_a_delete_and_the_record_made_again_is_an_insert(self):
-        self.put(record("rec:org:1"))
+        # a delete is a delete and the record made again is an insert
         self.store.delete(["rec:org:1"])
-        self.assertEqual(self.queue(1), [(2, "rec:org:1", "delete")])
+        self.assertEqual(self.queue(2), [(3, "rec:org:1", "delete")])
         self.put(record("rec:org:1"))
-        self.assertEqual(self.queue(2), [(3, "rec:org:1", "insert")])
-
-    def test_a_replace_is_one_row_for_the_record_and_the_transaction(self):
-        self.put(record("rec:org:1"))
+        self.assertEqual(self.queue(3), [(4, "rec:org:1", "insert")])
+        # a replace is one row for the record and the transaction
         self.put(record("rec:org:1", refs=["rec:org:9"], stamp=STAMP2))
         self.assertEqual(
-            [r for r in self.queue(1) if r[1] == "rec:org:1"],
-            [(2, "rec:org:1", "update")],
+            [r for r in self.queue(4) if r[1] == "rec:org:1"],
+            [(5, "rec:org:1", "update")],
         )
-
-    def test_the_rows_are_in_the_transaction_that_wrote_them_and_a_rollback_leaves_none(
-        self,
-    ):
-        self.put(record("rec:org:1"))
+        # the rows are in the transaction that wrote them and a rollback leaves none
         before = self.queue()
         self.store.con.begin()
         self.store.con.execute("DELETE FROM triples WHERE s = 'rec:org:1'")
@@ -81,37 +75,36 @@ class WrittenTest(QueueCase):
                 (2, "rec:work:1", "ref_update"),
             ],
         )  # work 2 is not made of org 1
-
-    def test_the_same_with_the_delta_that_does_not_walk_the_pages(self):
+        # the same with the delta that does not walk the pages
         old = store_module.ETAGS_DELTA_ABOVE
         store_module.ETAGS_DELTA_ABOVE = 0  # ty: ignore[invalid-assignment]
         self.addCleanup(setattr, store_module, "ETAGS_DELTA_ABOVE", old)
         self.put(
-            record("rec:org:1"),
-            record("rec:person:1", refs=["rec:org:1"]),
-            *[record(f"rec:work:{n}", refs=["rec:person:1"]) for n in range(1, 6)],
+            record("rec:org:11"),
+            record("rec:person:11", refs=["rec:org:11"]),
+            *[record(f"rec:work:{n}", refs=["rec:person:11"]) for n in range(11, 16)],
         )
+        last = self.store.last_transaction()
         self.put(
-            record("rec:org:1", stamp=STAMP2)
+            record("rec:org:11", stamp=STAMP2)
         )  # its references are the same: the pages are moved, not walked
         self.assertEqual(
-            {r[1] for r in self.queue(1) if r[2] == "ref_update"},
-            {"rec:person:1", *(f"rec:work:{n}" for n in range(1, 6))},
+            {r[1] for r in self.queue(last) if r[2] == "ref_update"},
+            {"rec:person:11", *(f"rec:work:{n}" for n in range(11, 16))},
         )
-
-    def test_a_record_that_was_written_and_made_of_something_that_changed_is_one_row(
-        self,
-    ):
-        self.put(record("rec:org:1"), record("rec:person:1", refs=["rec:org:1"]))
+        # a record that was written and made of something that changed is one row
+        self.put(record("rec:org:21"), record("rec:person:21", refs=["rec:org:21"]))
+        last = self.store.last_transaction()
         self.put(
-            record("rec:org:1", stamp=STAMP2),
-            record("rec:person:1", refs=["rec:org:1"], stamp=STAMP2),
+            record("rec:org:21", stamp=STAMP2),
+            record("rec:person:21", refs=["rec:org:21"], stamp=STAMP2),
         )
         self.assertEqual(
-            self.queue(1), [(2, "rec:org:1", "update"), (2, "rec:person:1", "update")]
+            self.queue(last),
+            [(last + 1, "rec:org:21", "update"), (last + 1, "rec:person:21", "update")],
         )
 
-    def test_a_write_outside_the_store_is_queued_by_the_triggers_and_its_pages_when_made_up_for(  # noqa: E501
+    def test_a_write_outside_the_store_is_queued_by_the_triggers_and_a_rebuild_queues_the_pages_that_are_not_what_they_were(  # noqa: E501
         self,
     ):
         self.put(record("rec:org:1"), record("rec:work:1", refs=["rec:org:1"]))
@@ -136,8 +129,7 @@ class WrittenTest(QueueCase):
         )
         self.assertFalse(self.store.catch_up_etags())  # and now there is nothing
 
-    def test_a_rebuild_queues_the_pages_that_are_not_what_they_were(self):
-        self.put(record("rec:org:1"), record("rec:work:1", refs=["rec:org:1"]))
+        # a rebuild queues the pages that are not what they were
         self.store.con.execute(
             "UPDATE etags SET etag = etag + 1 WHERE record_uri = 'rec:work:1'"
         )
@@ -153,12 +145,13 @@ class TakeTest(QueueCase):
             *[record(f"rec:work:{n}") for n in range(1, 8)]
         )  # transaction 1: seven inserts
 
-    def test_the_oldest_rows_in_the_order_they_were_queued_and_nothing_is_removed(self):
+    def test_the_oldest_rows_in_the_order_they_were_queued_and_nothing_is_removed_until_they_are_done(
+        self,
+    ):
         taken, bound = self.store.take_change_events(3)
         self.assertEqual([t[1] for t in taken], [f"rec:work:{n}" for n in (1, 2, 3)])
         self.assertEqual((bound, self.store.pending_change_events()), (1, (7, 1)))
-
-    def test_a_record_that_changed_again_is_one_change_with_the_newest_action(self):
+        # a record that changed again is one change with the newest action
         self.put(record("rec:work:2", refs=["rec:org:9"], stamp=STAMP2))
         self.store.delete(["rec:work:3"])
         taken, bound = self.store.take_change_events(100)
@@ -167,19 +160,16 @@ class TakeTest(QueueCase):
         self.assertEqual(by_record["rec:work:3"], "delete")
         self.assertEqual(len(taken), 7)  # seven records, nine rows
         self.assertEqual(bound, 3)
-
-    def test_what_was_queued_after_the_read_stays_when_the_rows_are_taken_off(self):
-        taken, bound = self.store.take_change_events(100)
+        # what was queued after the read stays when the rows are taken off
         self.put(
             record("rec:work:1", refs=["rec:org:9"], stamp=STAMP2)
-        )  # transaction 2, after the read
+        )  # transaction 4, after the read
         self.store.change_events_done([t[0] for t in taken], bound)
-        self.assertEqual([r[:2] for r in self.queue()], [(2, "rec:work:1")])
-        self.assertEqual(self.store.pending_change_events(), (1, 2))
-
-    def test_an_empty_queue_has_nothing(self):
+        self.assertEqual([r[:2] for r in self.queue()], [(4, "rec:work:1")])
+        self.assertEqual(self.store.pending_change_events(), (1, 4))
+        # an empty queue has nothing
         self.store.change_events_done(
-            [t[0] for t in self.store.take_change_events(100)[0]], 1
+            [t[0] for t in self.store.take_change_events(100)[0]], 4
         )
         self.assertEqual(
             (self.store.take_change_events(10)[0], self.store.pending_change_events()),
@@ -205,7 +195,7 @@ class SizeTest(QueueCase):
             ).fetchall()
         }
 
-    def test_a_record_has_the_size_of_its_source_and_a_page_the_size_of_all_it_is_made_of(  # noqa: E501
+    def test_a_record_has_the_size_of_its_source_a_page_the_size_of_all_it_is_made_of_and_a_batch_stops_at_the_bytes(
         self,
     ):
         own = dict(
@@ -223,6 +213,28 @@ class SizeTest(QueueCase):
             own["rec:work:1"] + own["rec:person:1"] + own["rec:org:1"],
         )
         self.assertEqual(sizes["rec:work:2"][1], own["rec:work:2"])
+        sizes = self.sizes()
+        everything, _ = self.store.take_change_events(100)
+        two, _ = self.store.take_change_events(
+            100, max_bytes=sizes[everything[0][1]][1] + sizes[everything[1][1]][1]
+        )
+        self.assertEqual([t[1] for t in two], [t[1] for t in everything[:2]])
+        tiny, _ = self.store.take_change_events(100, max_bytes=1)
+        self.assertEqual(
+            len(tiny), 1
+        )  # the first is always taken: a batch is never empty
+        self.assertEqual(
+            len(self.store.take_change_events(100, max_bytes=10**9)[0]), len(everything)
+        )
+        # the work of the queue is how many records and how many bytes
+        records, size = self.store.pending_size()
+        self.assertEqual(records, 4)
+        self.assertEqual(size, sum(c for _, c in self.sizes().values()))
+        self.store.change_events_done(
+            [t[0] for t in self.store.take_change_events(100)[0]],
+            self.store.last_transaction(),
+        )
+        self.assertEqual(self.store.pending_size(), (0, 0))
 
     def test_the_size_of_a_page_follows_what_it_is_made_of_also_when_the_etags_are_moved_not_walked(  # noqa: E501
         self,
@@ -243,31 +255,6 @@ class SizeTest(QueueCase):
             after["rec:work:2"][1], before["rec:work:2"][1]
         )  # not made of it
         self.assert_made_again_equals_a_rebuild()  # and a rebuild says the same
-
-    def test_a_batch_stops_at_the_bytes_but_always_has_one_record(self):
-        sizes = self.sizes()
-        everything, _ = self.store.take_change_events(100)
-        two, _ = self.store.take_change_events(
-            100, max_bytes=sizes[everything[0][1]][1] + sizes[everything[1][1]][1]
-        )
-        self.assertEqual([t[1] for t in two], [t[1] for t in everything[:2]])
-        tiny, _ = self.store.take_change_events(100, max_bytes=1)
-        self.assertEqual(
-            len(tiny), 1
-        )  # the first is always taken: a batch is never empty
-        self.assertEqual(
-            len(self.store.take_change_events(100, max_bytes=10**9)[0]), len(everything)
-        )
-
-    def test_the_work_of_the_queue_is_how_many_records_and_how_many_bytes(self):
-        records, size = self.store.pending_size()
-        self.assertEqual(records, 4)
-        self.assertEqual(size, sum(c for _, c in self.sizes().values()))
-        self.store.change_events_done(
-            [t[0] for t in self.store.take_change_events(100)[0]],
-            self.store.last_transaction(),
-        )
-        self.assertEqual(self.store.pending_size(), (0, 0))
 
 
 class BatchCase(QueueCase):
@@ -291,7 +278,7 @@ class BatchCase(QueueCase):
 
 
 class BatchTest(BatchCase):
-    def test_a_batch_is_one_event_with_the_changes_and_a_dataset_of_every_record_that_is_there(  # noqa: E501
+    def test_a_batch_is_one_event_with_the_changes_and_a_dataset_of_every_record_that_is_there(
         self,
     ):
         self.put(record("rec:org:1"), record("rec:person:1", refs=["rec:org:1"]))
@@ -313,6 +300,27 @@ class BatchTest(BatchCase):
         )  # and what it is made of
         self.assertEqual(subjects(event.graphs["rec:org:1"]), {"rec:org:1"})
         self.assertEqual(self.store.pending_change_events(), (0, None))
+        # a record that is gone when the batch gets to it is a delete, and a record
+        # changed three times is one change
+        self.events.clear()
+        self.put(record("rec:org:5"), record("rec:org:6"))
+        self.store.delete(
+            ["rec:org:6"]
+        )  # still queued as an insert first, then a delete: the newest is a delete
+        self.put(record("rec:org:7"))
+        self.put(record("rec:org:7", refs=["rec:org:2"], stamp=STAMP2))
+        self.put(
+            record("rec:org:7", refs=["rec:org:3"], stamp="2026-07-01T00:00:00.000000Z")
+        )
+        self.drain()
+        actions = {c.record: c.kind for e in self.events for c in e.changes}
+        self.assertEqual(
+            actions,
+            {"rec:org:5": "insert", "rec:org:6": "delete", "rec:org:7": "update"},
+        )
+        self.assertEqual(
+            sum(c.record == "rec:org:7" for e in self.events for c in e.changes), 1
+        )
 
     def test_records_the_cache_lacked_are_made_when_the_worker_is_asked_to_make_them(
         self,
@@ -369,44 +377,9 @@ class BatchTest(BatchCase):
                 txn.get(self.app.cache.graph_store._key("main", record_id))  # ty: ignore[missing-union-attribute]
             )
 
-    def test_a_record_that_is_gone_when_the_batch_gets_to_it_is_a_delete(self):
-        self.put(record("rec:org:1"), record("rec:org:2"))
-        self.store.delete(
-            ["rec:org:2"]
-        )  # still queued as an insert first, then a delete: the newest is a delete
-        self.drain()
-        actions = {c.record: c.kind for e in self.events for c in e.changes}
-        self.assertEqual(actions, {"rec:org:1": "insert", "rec:org:2": "delete"})
-
-    def test_a_handler_that_fails_leaves_the_rows_and_the_batch_is_done_again(self):
-        self.put(record("rec:org:1"))
-        failing = {"on": True}
-
-        def handler(event):
-            if failing["on"]:
-                raise RuntimeError("the index is down")
-
-        self.registry.registerHandler(handler, (RecordsChanged,))
-        with self.assertRaisesRegex(RuntimeError, "index is down"):
-            process_batch(self.app, self.registry, "main")
-        self.assertEqual(self.store.pending_change_events()[0], 1)
-        failing["on"] = False
-        self.assertEqual(len(process_batch(self.app, self.registry, "main")), 1)
-        self.assertEqual(self.store.pending_change_events(), (0, None))
-
-    def test_a_record_changed_three_times_is_one_change(self):
-        self.put(record("rec:org:1"))
-        self.put(record("rec:org:1", refs=["rec:org:2"], stamp=STAMP2))
-        self.put(
-            record("rec:org:1", refs=["rec:org:3"], stamp="2026-07-01T00:00:00.000000Z")
-        )
-        self.drain()
-        self.assertEqual(
-            [(c.record, c.kind) for e in self.events for c in e.changes],
-            [("rec:org:1", "update")],
-        )
-
-    def test_a_write_outside_the_store_is_made_up_for_before_it_is_read(self):
+    def test_a_write_outside_the_store_is_made_up_for_a_failing_handler_leaves_the_rows_and_without_a_graph_directory_the_events_come(
+        self,
+    ):
         self.put(record("rec:org:1"), record("rec:work:1", refs=["rec:org:1"]))
         self.drain()
         self.events.clear()
@@ -424,16 +397,33 @@ class BatchTest(BatchCase):
             {c.record for e in self.events for c in e.changes},
             {"rec:org:1", "rec:work:1"},
         )
+        # a handler that fails leaves the rows and the batch is done again
+        self.put(record("rec:org:31"))
+        failing = {"on": True}
 
-    def test_without_a_graph_directory_the_events_still_come(self):
+        def handler(event):
+            if failing["on"]:
+                raise RuntimeError("the index is down")
+
+        self.registry.registerHandler(handler, (RecordsChanged,))
+        with self.assertRaisesRegex(RuntimeError, "index is down"):
+            process_batch(self.app, self.registry, "main")
+        self.assertEqual(self.store.pending_change_events()[0], 1)
+        failing["on"] = False
+        self.assertEqual(len(process_batch(self.app, self.registry, "main")), 1)
+        self.assertEqual(self.store.pending_change_events(), (0, None))
+        # without a graph directory the events still come
         app = open_application(self, self.db)
-        self.put(record("rec:org:1"))
+        self.events.clear()
+        self.put(record("rec:org:32"))
         self.assertEqual(len(process_batch(app, self.registry, "main")), 1)
         self.assertEqual(len(self.events), 1)
 
 
 class ByteBatchTest(BatchCase):
-    def test_an_event_is_as_many_records_as_fit_in_the_bytes(self):
+    def test_an_event_is_as_many_records_as_fit_in_the_bytes_and_a_record_bigger_than_a_batch_is_a_batch_of_its_own(
+        self,
+    ):
         self.put(*[record(f"rec:work:{n}") for n in range(1, 11)])
         one = fetch_one(self.store.con.execute("SELECT max(closure_bytes) FROM etags"))[
             0
@@ -442,15 +432,16 @@ class ByteBatchTest(BatchCase):
             process_pending(self.app, self.registry, max_bytes=one * 4), 10
         )
         self.assertEqual([len(e.changes) for e in self.events], [4, 4, 2])
-
-    def test_a_record_bigger_than_a_batch_is_a_batch_of_its_own(self):
-        self.put(record("rec:org:1"), record("rec:work:1", refs=["rec:org:1"]))
+        self.events.clear()
+        self.put(record("rec:org:1"), record("rec:work:101", refs=["rec:org:1"]))
         self.assertEqual(process_pending(self.app, self.registry, max_bytes=1), 2)
         self.assertEqual([len(e.changes) for e in self.events], [1, 1])
 
 
 class ManualTest(BatchCase):
-    def test_it_handles_everything_that_is_queued_and_says_how_many_records(self):
+    def test_it_handles_everything_that_is_queued_says_how_many_records_and_the_size_of_a_batch_is_the_size_of_an_event(
+        self,
+    ):
         self.put(record("rec:org:1"), record("rec:work:1", refs=["rec:org:1"]))
         self.assertEqual(process_pending(self.app, self.registry), 2)
         self.assertEqual(self.store.pending_change_events(), (0, None))
@@ -458,6 +449,11 @@ class ManualTest(BatchCase):
         self.assertEqual(
             process_pending(self.app, self.registry), 0
         )  # and nothing the second time
+        # the size of a batch is the size of an event
+        self.events.clear()
+        self.put(*[record(f"rec:work:{n}") for n in range(11, 18)])
+        self.assertEqual(process_pending(self.app, self.registry, batch=3), 7)
+        self.assertEqual([len(e.changes) for e in self.events], [3, 3, 1])
 
     def test_a_repository_can_be_named_and_the_others_are_left(self):
         other = open_store(self.db, repo="other", create=True)
@@ -475,12 +471,9 @@ class ManualTest(BatchCase):
         )  # all: the other one now
         self.assertEqual({e.repo for e in self.events}, {"main", "other"})
 
-    def test_the_size_of_a_batch_is_the_size_of_an_event(self):
-        self.put(*[record(f"rec:work:{n}") for n in range(1, 8)])
-        self.assertEqual(process_pending(self.app, self.registry, batch=3), 7)
-        self.assertEqual([len(e.changes) for e in self.events], [3, 3, 1])
-
-    def test_the_lock_is_waited_for_when_asked_to_and_not_when_there_is_none(self):
+    def test_the_lock_is_waited_for_when_asked_to_and_the_locks_go_in_the_cache_directory_or_next_to_the_database(
+        self,
+    ):
         with repository_lock(None, "main") as held:
             self.assertTrue(held)
         holder = threading.Event()
@@ -501,8 +494,6 @@ class ManualTest(BatchCase):
         with repository_lock(self.tmp / "l", "main", wait=True) as waited:
             self.assertTrue(waited)  # it came when the other let go
         thread.join()
-
-    def test_the_locks_go_in_the_cache_directory_or_next_to_the_database(self):
         self.assertEqual(
             lock_dir_for({"gracia.cache_dir": "/c", "gracia.db": "/d/x.db"}).as_posix(),  # ty: ignore[missing-union-attribute]
             "/c",
@@ -583,12 +574,42 @@ class WorkerTest(BatchCase):
         worker.wake()
         self.assertTrue(self.wait_for(lambda: self.events))
 
-    def test_without_a_file_to_watch_it_looks_every_time(self):
+    def test_without_a_file_to_watch_it_looks_every_time_and_one_process_at_a_time_handles_a_repository(
+        self,
+    ):
         app = open_application(self, ":memory:")
         self.assertIsNone(app.cache.file_signature())
         self.assertEqual(
             ChangeEventsWorker(app, self.registry).turn(), False
         )  # nothing to handle, nothing wrong
+        # one process at a time handles a repository
+        first, second = (
+            self.worker(lock_dir=self.tmp / "locks"),
+            self.worker(lock_dir=self.tmp / "locks"),
+        )
+        with first._lock("main") as held:
+            self.assertTrue(held)
+            with second._lock("main") as other:
+                self.assertFalse(other)  # the lock of the file is the first one's
+            with second._lock("other") as elsewhere:
+                self.assertTrue(elsewhere)  # another repository is another lock
+        with second._lock("main") as now:
+            self.assertTrue(now)  # let go of when the first is done
+        # a repository that another process has is looked at again
+        self.put(record("rec:org:1"))
+        first, second = (
+            self.worker(lock_dir=self.tmp / "locks2"),
+            self.worker(lock_dir=self.tmp / "locks2"),
+        )
+        with first._lock("main"):
+            self.assertFalse(second.turn())  # the other one is on it
+            self.assertIn(
+                "main", second._line
+            )  # and it stays in line: the other may leave rows behind
+            self.assertEqual(self.store.pending_change_events()[0], 1)
+        while second.turn():
+            pass
+        self.assertEqual(self.store.pending_change_events(), (0, None))
 
     def test_a_dead_thread_is_started_again_by_the_cache_and_a_stopped_worker_is_not(
         self,
@@ -625,36 +646,6 @@ class WorkerTest(BatchCase):
         self.assertGreaterEqual(len(calls), 3)
         self.assertTrue(worker.alive)
 
-    def test_one_process_at_a_time_handles_a_repository(self):
-        first, second = (
-            self.worker(lock_dir=self.tmp / "locks"),
-            self.worker(lock_dir=self.tmp / "locks"),
-        )
-        with first._lock("main") as held:
-            self.assertTrue(held)
-            with second._lock("main") as other:
-                self.assertFalse(other)  # the lock of the file is the first one's
-            with second._lock("other") as elsewhere:
-                self.assertTrue(elsewhere)  # another repository is another lock
-        with second._lock("main") as now:
-            self.assertTrue(now)  # let go of when the first is done
-
-    def test_a_repository_that_another_process_has_is_looked_at_again(self):
-        self.put(record("rec:org:1"))
-        first, second = (
-            self.worker(lock_dir=self.tmp / "locks"),
-            self.worker(lock_dir=self.tmp / "locks"),
-        )
-        with first._lock("main"):
-            self.assertFalse(second.turn())  # the other one is on it
-            self.assertIn(
-                "main", second._line
-            )  # and it stays in line: the other may leave rows behind
-            self.assertEqual(self.store.pending_change_events()[0], 1)
-        while second.turn():
-            pass
-        self.assertEqual(self.store.pending_change_events(), (0, None))
-
 
 class LineTest(BatchCase):
     def setUp(self):
@@ -687,10 +678,24 @@ class LineTest(BatchCase):
             turns += 1
         return turns
 
-    def test_the_first_look_puts_every_repository_in_line(self):
+    def test_the_first_look_puts_every_repository_in_line_and_a_repository_that_has_nothing_leaves_it(
+        self,
+    ):
         worker = self.worker()
         worker._notice()
         self.assertEqual(sorted(worker._line), ["main", "other"])
+        self.fill(2)
+        self.run_turns(worker)
+        self.assertEqual(list(worker._line), [])
+        worker._notice()  # the rows the worker took off are not a write: nothing joins
+        self.assertEqual(list(worker._line), [])
+        self.other.put_multi(
+            self.graph_of([record("rec:work:9", res="ark:/1/other/9")])
+        )
+        worker._notice()
+        self.assertEqual(list(worker._line), ["other"])  # only the one that was written
+        self.assertTrue(worker.turn())
+        self.assertEqual(self.events[-1].repo, "other")
 
     def test_a_repository_with_a_backlog_does_not_keep_the_other_waiting(self):
         self.fill(3)
@@ -705,24 +710,9 @@ class LineTest(BatchCase):
             ((0, None), (0, None)),
         )
 
-    def test_a_repository_that_has_nothing_leaves_the_line_and_comes_back_when_it_is_written(  # noqa: E501
+    def test_a_repository_that_fails_waits_by_itself_and_the_pause_doubles_for_one_that_keeps_failing(
         self,
     ):
-        self.fill(2)
-        worker = self.worker()
-        self.run_turns(worker)
-        self.assertEqual(list(worker._line), [])
-        worker._notice()  # the rows the worker took off are not a write: nothing joins
-        self.assertEqual(list(worker._line), [])
-        self.other.put_multi(
-            self.graph_of([record("rec:work:9", res="ark:/1/other/9")])
-        )
-        worker._notice()
-        self.assertEqual(list(worker._line), ["other"])  # only the one that was written
-        self.assertTrue(worker.turn())
-        self.assertEqual(self.events[-1].repo, "other")
-
-    def test_a_repository_that_fails_waits_by_itself_and_the_other_goes_on(self):
         self.fill(2)
         broken = {"main": True}
 
@@ -747,9 +737,8 @@ class LineTest(BatchCase):
         self.assertTrue(worker.turn())
         self.assertEqual(self.store.pending_change_events(), (0, None))
         self.assertNotIn("main", worker._retry)
-
-    def test_the_pause_doubles_for_a_repository_that_keeps_failing(self):
-        self.fill(1)
+        # the pause doubles for a repository that keeps failing
+        self.put(record("rec:work:50"))
         self.registry.registerHandler(lambda e: 1 / 0, (RecordsChanged,))
         worker = self.worker()
         worker.turn()
@@ -786,9 +775,13 @@ class WiringTest(BatchCase):
             time.sleep(0.02)
         self.assertEqual([c.record for c in seen[0].changes], ["rec:org:1"])
 
-    def test_the_batch_and_the_poll_are_settings(self):
+    def test_the_batch_and_the_poll_are_settings_and_without_the_setting_there_is_no_worker(
+        self,
+    ):
         from gracia.main import make_config
 
+        make_config({"gracia.application": self.app}).make_wsgi_app()
+        self.assertIsNone(self.app.cache.worker)
         make_config(
             {
                 "gracia.application": self.app,
@@ -806,9 +799,3 @@ class WiringTest(BatchCase):
             (7, 123456, 0.25),
         )
         self.assertEqual(worker.lock_dir, self.db.parent)  # ty: ignore[missing-union-attribute]
-
-    def test_without_the_setting_there_is_no_worker(self):
-        from gracia.main import make_config
-
-        make_config({"gracia.application": self.app}).make_wsgi_app()
-        self.assertIsNone(self.app.cache.worker)

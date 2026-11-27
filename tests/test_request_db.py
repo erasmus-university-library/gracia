@@ -23,12 +23,14 @@ class RequestDbTest(ConfiguredCase):
         )
         return self.client()
 
-    def test_the_root_of_a_request_is_an_application_with_the_cursor_of_the_request(
+    def test_the_root_of_a_request_is_an_application_and_the_store_is_scoped_to_the_cursor_of_the_request(  # noqa: E501
         self,
     ):
         def view(request):
             self.seen.update(
-                root=request.root, db=request.db, repository=request.context
+                root=request.root,
+                db=request.db,
+                store=request.context.store,
             )
             return Response("ok")
 
@@ -39,19 +41,17 @@ class RequestDbTest(ConfiguredCase):
         self.assertIs(root.db, self.seen["db"])
         self.assertIs(root.database, self.application.database)  # what is shared
         self.assertIs(root.cache, self.application.cache)
-
-    def test_the_store_of_the_repository_is_scoped_to_its_schema_on_that_cursor(self):
-        def view(request):
-            self.seen.update(db=request.db, store=request.context.store)
-            return Response("ok")
-
-        self.probe(view).get("/test_repo/probe")
         self.assertIs(self.seen["store"].con, self.seen["db"])
 
-    def test_the_cursor_is_closed_when_the_request_ends(self):
+    def test_the_cursor_is_closed_when_the_request_ends_and_closing_the_node_leaves_it_open(  # noqa: E501
+        self,
+    ):
         def view(request):
             self.seen["db"] = request.db
             request.db.execute("SELECT 1")  # open while the request runs
+            self.assertIs(request.context.store.con, request.db)  # opens the store
+            request.context.close()
+            request.db.execute("SELECT 1")  # still open: the store left it
             return Response("ok")
 
         self.probe(view).get("/test_repo/probe")
@@ -67,24 +67,15 @@ class RequestDbTest(ConfiguredCase):
         with self.assertRaises(duckdb.ConnectionException):
             self.seen["db"].execute("SELECT 1")
 
-    def test_closing_the_node_leaves_the_cursor_of_the_request_open(self):
-        def view(request):
-            self.seen["db"] = request.db
-            self.assertIs(request.context.store.con, request.db)  # opens the store
-            request.context.close()
-            request.db.execute("SELECT 1")  # still open: the store left it
-            return Response("ok")
-
-        self.probe(view).get("/test_repo/probe")
-
-    def test_a_node_made_without_a_request_has_a_cursor_of_its_own(self):
+    def test_a_node_made_without_a_request_has_a_cursor_of_its_own_and_so_has_the_dummy_request(
+        self,
+    ):
         with self.application["test_repo"] as repository:
             store = repository.store
             self.assertIsNot(store.con, self.application.db)
         with self.assertRaises(duckdb.ConnectionException):
             store.con.execute("SELECT 1")  # closed with the node
 
-    def test_the_dummy_request_of_the_harness_has_a_cursor_and_the_registry(self):
         request = self.request()
         self.assertIs(request.registry, self.application.registry)
         self.assertEqual(request.db.execute("SELECT 1").fetchone(), (1,))

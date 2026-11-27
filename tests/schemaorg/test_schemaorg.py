@@ -20,17 +20,12 @@ SCHEMAORG = {
 
 
 class TypesTest(unittest.TestCase):
-    def test_the_schemaorg_types_are_registered(self):
-        found = BUNDLED
-        for slug, class_uri in SCHEMAORG.items():
-            with self.subTest(slug=slug):
-                self.assertEqual(found[slug].class_uri, class_uri)
-                self.assertEqual(found[slug].name, slug.capitalize())
-
-    def test_each_has_a_shape_for_its_class_in_its_shacl_directory(self):
+    def test_the_schemaorg_types_are_registered_each_with_a_shape_for_its_class(self):
         for slug, class_uri in SCHEMAORG.items():
             with self.subTest(slug=slug):
                 content_type = BUNDLED[slug]
+                self.assertEqual(content_type.class_uri, class_uri)
+                self.assertEqual(content_type.name, slug.capitalize())
                 path = assets.resolve(
                     assets.schema_spec(
                         content_type.assets, content_type.schema, content_type.slug
@@ -38,59 +33,9 @@ class TypesTest(unittest.TestCase):
                 )
                 assets.load_shape(path, class_uri)  # a ValueError when there is none
 
-    def test_the_name_is_the_label_of_each_shape_and_only_the_main_shape_has_one(self):
-        shapes = {
-            **{
-                slug: (
-                    f"gracia:assets/shacl/{slug}-schemaorg-01.ttl",
-                    uri,
-                )
-                for slug, uri in SCHEMAORG.items()
-            },
-            "person": (
-                "gracia:assets/shacl/person-schemaorg-01.ttl",
-                "https://schema.org/Person",
-            ),
-        }
-        for slug, (spec, class_uri) in shapes.items():
-            with self.subTest(slug=slug):
-                data, node = assets.load_shape(assets.resolve(spec), class_uri)
-                labels = [
-                    (role, path)
-                    for role, path, _place in forms.property_roles(
-                        data, node, class_uri
-                    )
-                    if role == "label"
-                ]
-                self.assertEqual(labels, [("label", SCHEMA + "name")])
-
-    def test_every_schema_org_property_and_class_of_the_shapes_has_a_name(self):
-        sh_node_shape = ox.NamedNode("http://www.w3.org/ns/shacl#NodeShape")
-        rdf_type = ox.NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#type")
-        for slug, class_uri in {
-            **SCHEMAORG,
-            "person": "https://schema.org/Person",
-        }.items():
-            with self.subTest(slug=slug):
-                spec = f"gracia:assets/shacl/{slug}-schemaorg-01.ttl"
-                data, _node = assets.load_shape(assets.resolve(spec), class_uri)
-                shapes = [
-                    q.subject
-                    for q in data.dataset.quads_for_object(sh_node_shape)
-                    if q.predicate == rdf_type
-                ]
-                self.assertTrue(shapes)
-                for shape in shapes:
-                    self.assertTrue(
-                        data.value(shape, "http://www.w3.org/ns/shacl#name"), shape
-                    )  # the label of its class
-                    for path, prop in forms.properties(data, shape):
-                        if path.startswith(SCHEMA):
-                            self.assertNotEqual(
-                                forms.property_title(data, prop, path), path
-                            )
-
-    def test_the_properties_of_every_shape_have_an_order_with_the_name_first(self):
+    def test_the_name_is_the_label_and_comes_first_and_everything_has_a_name_and_order(
+        self,
+    ):
         sh_node_shape = ox.NamedNode("http://www.w3.org/ns/shacl#NodeShape")
         rdf_type = ox.NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#type")
         order = "http://www.w3.org/ns/shacl#order"
@@ -101,11 +46,31 @@ class TypesTest(unittest.TestCase):
             with self.subTest(slug=slug):
                 spec = f"gracia:assets/shacl/{slug}-schemaorg-01.ttl"
                 data, node = assets.load_shape(assets.resolve(spec), class_uri)
-                for shape in [
+                shapes = [
                     q.subject
                     for q in data.dataset.quads_for_object(sh_node_shape)
                     if q.predicate == rdf_type
-                ]:
+                ]
+                self.assertTrue(shapes)
+                labels = [
+                    (role, path)
+                    for role, path, _place in forms.property_roles(
+                        data, node, class_uri
+                    )
+                    if role == "label"
+                ]
+                self.assertEqual(
+                    labels, [("label", SCHEMA + "name")]
+                )  # only the main shape has one
+                for shape in shapes:
+                    self.assertTrue(
+                        data.value(shape, "http://www.w3.org/ns/shacl#name"), shape
+                    )  # the label of its class
+                    for path, prop in forms.properties(data, shape):
+                        if path.startswith(SCHEMA):
+                            self.assertNotEqual(
+                                forms.property_title(data, prop, path), path
+                            )
                     found = [
                         (path, data.value(prop, order))
                         for path, prop in forms.properties(data, shape)
@@ -145,7 +110,7 @@ PARENTS = """
 
 
 class RecursiveShapesTest(ConfiguredCase):
-    def test_types_whose_shapes_refer_to_themselves_can_be_added_and_used(self):
+    def test_types_whose_shapes_refer_to_themselves_can_be_added_and_used_and_end(self):
         # an organization has a parent organization, a collection a parent collection
         self.application.create_repository(
             "test_repo", content_types=[BUNDLED[slug] for slug in SCHEMAORG]
@@ -160,8 +125,7 @@ class RecursiveShapesTest(ConfiguredCase):
                 self.assertTrue(res_type.sql_hooks is not None)
                 fields = res_type.blank_record().fields
                 self.assertIn(SCHEMA + "name", [f.predicate for f in fields])
-
-    def test_the_paths_and_names_of_a_shape_that_refers_to_itself_end(self):
+        # the paths and names of a shape that refers to itself end
         data, node = assets.load_shape(
             assets.resolve("gracia:assets/shacl/organization-schemaorg-01.ttl"),
             SCHEMAORG["organization"],

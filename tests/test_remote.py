@@ -37,14 +37,17 @@ class RemoteApplicationTest(DbTestCase):
         self.addCleanup(lambda: owner.execute(f"CALL quack_stop('{uri}')"))
         self.app = open_application(self, quack=uri, token=token)
 
-    def test_a_wrong_token_or_address_is_a_clear_error(self):
+    def test_a_wrong_token_is_an_error_and_repositories_are_created_and_listed_in_their_own_schema(
+        self,
+    ):
+        # a wrong token or address is a clear error
         with (
             self.assertRaises(ValueError),
             opened(quack="quack:localhost:1", token="not-the-token-0123456789"),
         ):
             pass
 
-    def test_create_list_and_the_initial_data(self):
+        # create list and the initial data
         self.assertEqual(self.app.list_repositories(), [])
         self.assertTrue(self.app.create_repository("test_repo"))
         self.assertFalse(self.app.create_repository("test_repo"))
@@ -52,7 +55,7 @@ class RemoteApplicationTest(DbTestCase):
         with self.app.new_store("test_repo") as store:
             self.assertEqual(store.records_of_type("repository"), ["rec:repository:1"])
 
-    def test_the_repository_lands_in_its_own_schema(self):
+        # the repository lands in its own schema
         self.app.create_repository("test_repo")
         con = self.app.database.connect()
         tables = con.execute(
@@ -60,7 +63,10 @@ class RemoteApplicationTest(DbTestCase):
         ).fetchall()
         self.assertEqual(tables, [("test_repo",)])
 
-    def test_put_get_replace_and_delete(self):
+    def test_put_get_replace_delete_bnodes_lists_exports_and_forks_work_and_repositories_share_nothing(
+        self,
+    ):
+        # put get replace and delete
         self.app.create_repository("test_repo")
         with self.app.new_store("test_repo") as store:
             store.put_multi(dataset("book", "one"))
@@ -71,7 +77,7 @@ class RemoteApplicationTest(DbTestCase):
             store.delete([REC["book"]])
             self.assertEqual(len(store.get(REC["book"])), 0)
 
-    def test_repositories_share_nothing(self):
+        # repositories share nothing
         self.app.create_repository("a")
         self.app.create_repository("b")
         with self.app.new_store("a") as a, self.app.new_store("b") as b:
@@ -79,7 +85,7 @@ class RemoteApplicationTest(DbTestCase):
             a.put_multi(dataset("book"))
             self.assertEqual(len(b.get(REC["book"])), 0)
 
-    def test_bnodes_and_lists_survive(self):
+        # bnodes and lists survive
         self.app.create_repository("test_repo")
         text = (
             f"<rec:thing:9> <{EX}list> ( 1 2 3 ) ; "
@@ -91,7 +97,7 @@ class RemoteApplicationTest(DbTestCase):
             back = store.get("rec:thing:9")
         self.assertEqual(len(back), len(data))
 
-    def test_streamed_export_and_forks(self):
+        # streamed export and forks
         self.app.create_repository("test_repo")
         with self.app.new_store("test_repo") as store:
             store.put_multi(dataset("book"))
@@ -127,7 +133,10 @@ class RemoteApplicationTest(DbTestCase):
                 len(store.get_multi([rec(f"book{n + 1}") for n in range(4)])), 4
             )
 
-    def test_minting_finding_and_logging_in_through_the_owner(self):
+    def test_minting_finding_logging_in_and_adding_a_user_work_through_the_owner_and_the_web_app_runs_on_it(
+        self,
+    ):
+        # minting finding and logging in through the owner
         import base64
 
         self.app.create_repository("test_repo", admin=("admin", "correct horse"))
@@ -147,7 +156,7 @@ class RemoteApplicationTest(DbTestCase):
             web.get("/test_repo/user/1", expect_errors=True).status_int, 401
         )
 
-    def test_adding_a_user_through_the_web_app_on_the_owner(self):
+        # adding a user through the web app on the owner
         import base64
 
         from webtest import TestApp
@@ -172,7 +181,7 @@ class RemoteApplicationTest(DbTestCase):
             web.get(
                 "/test_repo/user", headers={**admin, "Accept": "application/json"}
             ).json["records"],
-            [1, 2],
+            [1, 3],  # 2 was minted above
         )
         again = web.get(
             "/test_repo/user/2",
@@ -181,7 +190,7 @@ class RemoteApplicationTest(DbTestCase):
         )
         self.assertEqual(again.status_int, 403)  # logged in, but users are for admins
 
-    def test_the_web_app_runs_on_it(self):
+        # the web app runs on it
         from webtest import TestApp
 
         from gracia.main import make_config
@@ -208,35 +217,38 @@ class OwnerDiscoveryTest(DbTestCase):
         token_file.write_text(token + "\n")
         token_file.chmod(0o600)
 
-    def test_a_running_owner_next_to_its_token_file_is_used(self):
+    def test_a_running_owner_next_to_its_token_file_or_in_the_owner_file_is_used_and_otherwise_the_file(
+        self,
+    ):
+        # a running owner next to its token file is used
         port, db = free_port(), str(self.tmp / "t.db")
         self.owner("t.db", port)
         found = cli._discover_owner({"gracia.db": db}, port=port)
         self.assertEqual(found["gracia.db"], f"quack:localhost:{port}")
         self.assertEqual(found["gracia.db.token_file"], f"{db}.token")
 
-    def test_without_an_owner_or_token_file_the_file_is_used(self):
-        db = str(self.tmp / "t.db")
-        self.assertEqual(
-            cli._discover_owner({"gracia.db": db})["gracia.db"], db
-        )  # no token file
-        (self.tmp / "t.db.token").write_text("0123456789abcdef0123456789\n")
-        (self.tmp / "t.db.token").chmod(0o600)
-        found = cli._discover_owner(
-            {"gracia.db": db}, port=free_port()
-        )  # nobody listens
-        self.assertEqual(found["gracia.db"], db)
-
-    def test_an_explicit_quack_target_is_left_alone(self):
-        settings = {"gracia.db": "quack:localhost:1"}
-        self.assertEqual(cli._discover_owner(settings), settings)
-
-    def test_the_owner_file_gives_a_custom_port(self):
+        # the owner file gives a custom port
         port, db = free_port(), str(self.tmp / "t.db")
         self.owner("t.db", port)
         database.owner_file(db).write_text(f"quack:localhost:{port}\n{db}.token\n")
         found = cli._discover_owner({"gracia.db": db})  # not the default port
         self.assertEqual(found["gracia.db"], f"quack:localhost:{port}")
+
+        # without an owner or token file the file is used
+        db = str(self.tmp / "u.db")
+        self.assertEqual(
+            cli._discover_owner({"gracia.db": db})["gracia.db"], db
+        )  # no token file
+        (self.tmp / "u.db.token").write_text("0123456789abcdef0123456789\n")
+        (self.tmp / "u.db.token").chmod(0o600)
+        found = cli._discover_owner(
+            {"gracia.db": db}, port=free_port()
+        )  # nobody listens
+        self.assertEqual(found["gracia.db"], db)
+
+        # an explicit quack target is left alone
+        settings = {"gracia.db": "quack:localhost:1"}
+        self.assertEqual(cli._discover_owner(settings), settings)
 
     def test_serve_db_writes_the_owner_file_and_removes_it_on_stop(self):
         db, port = self.tmp / "s.db", free_port()

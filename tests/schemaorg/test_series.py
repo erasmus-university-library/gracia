@@ -3,8 +3,8 @@
 import re
 
 import pyoxigraph as ox
+from schemaorg.cases import ADMIN, POSTING, DatesCase
 from support import uri_select
-from test_dates import ADMIN, POSTING, DatesCase
 
 from gracia import forms
 
@@ -32,7 +32,7 @@ class SeriesCase(DatesCase):
 
 
 class SeriesTypeTest(SeriesCase):
-    def test_the_form_has_a_choice_of_the_four_classes_named_by_their_labels(self):
+    def test_the_form_has_a_choice_of_the_four_classes_with_labels_and_icons(self):
         select = uri_select(self.web.get(ADD, headers=ADMIN).text)
         self.assertEqual(
             select.items,
@@ -44,9 +44,6 @@ class SeriesTypeTest(SeriesCase):
                 (SCHEMA + "CreativeWorkSeries", "Series"),
             ],
         )
-
-    def test_the_options_have_the_icons_the_shape_gives(self):
-        select = uri_select(self.web.get(ADD, headers=ADMIN).text)
         icons = dict(
             re.findall(r'data-value="([^"]+)"[^>]*data-icon="([^"]*)"', select.html)
         )
@@ -59,35 +56,29 @@ class SeriesTypeTest(SeriesCase):
                 "CreativeWorkSeries": "collection",
             },
         )
-
-    def test_a_new_series_starts_as_the_class_of_its_type(self):
-        select = uri_select(self.web.get(ADD, headers=ADMIN).text)
+        # a new series starts as the class of its type
         self.assertEqual(select.chosen, SCHEMA + "CreativeWorkSeries")
 
-    def test_a_series_is_stored_with_the_one_class_that_was_chosen(self):
+    def test_a_series_is_stored_with_the_one_class_chosen_and_another_replaces_it(self):
         for number, kind in enumerate(CLASSES, 1):
             with self.subTest(kind=kind):
                 response = self.put(kind, f"Series {number}")
                 self.assertEqual(response.status_int, 302, response.text[:300])
                 self.assertEqual(self.types_of(number), [SCHEMA + kind])
                 self.assertEqual(self.series(number).validate(), [])
-
-    def test_another_class_replaces_the_one_there_was(self):
-        self.put("Periodical")
-        self.assertEqual(
-            self.put("BookSeries", path="/test_repo/series/1/edit").status_int, 302
-        )
+        edit = "/test_repo/series/1/edit"
+        self.assertEqual(self.put("BookSeries", path=edit).status_int, 302)
         self.assertEqual(self.types_of(), [SCHEMA + "BookSeries"])
 
-    def test_a_class_that_is_not_one_of_them_is_refused(self):
+    def test_a_class_that_is_not_one_of_them_is_refused_and_two_classes_do_not_conform(
+        self,
+    ):
         form = self.web.get(ADD, headers=ADMIN).forms[0]
         form["name"] = "A series"
         form["type"].force_value(SCHEMA + "Book")
         response = form.submit("save", headers=POSTING, expect_errors=True)
         self.assertEqual(response.status_int, 200)
         self.assertIn("is not one of", response.text)
-
-    def test_two_classes_do_not_conform(self):
         self.put("Periodical")
         series = self.series()
         series.graph.add_value(
@@ -120,18 +111,25 @@ class SeriesIdentifierTest(SeriesCase):
             graph.add_value(node, SCHEMA + "url", ox.NamedNode(url))
         return series
 
-    def test_the_kinds_are_issn_isbn_openalex_local_and_external(self):
-        graph, _shape = self.application["test_repo"].types["series"].shacl_shape(False)
-        shape = ox.NamedNode("http://example.org/shapes#PropertyValueShape")
+    def test_the_kinds_are_issn_isbn_openalex_local_and_external_and_no_separate_issn(
+        self,
+    ):
+        graph, shape = self.application["test_repo"].types["series"].shacl_shape(False)
+        node = ox.NamedNode("http://example.org/shapes#PropertyValueShape")
         (kind,) = [
             p
-            for path, p in forms.properties(graph, shape)
+            for path, p in forms.properties(graph, node)
             if path == SCHEMA + "propertyID"
         ]
         (head,) = graph.objects(kind, ox.NamedNode("http://www.w3.org/ns/shacl#in"))
         self.assertEqual(
             [i.value for i in forms._list_items(graph, head)],
             ["ISSN", "ISBN", "OpenAlex", "Local", "External"],
+        )
+        # the issn is a kind of identifier, not a field of its own
+        self.assertNotIn('name="issn"', self.web.get(ADD, headers=ADMIN).text)
+        self.assertNotIn(
+            SCHEMA + "issn", [p for p, _ in forms.properties(graph, shape)]
         )
 
     def test_a_value_in_the_form_of_its_kind_conforms(self):
@@ -147,25 +145,19 @@ class SeriesIdentifierTest(SeriesCase):
             with self.subTest(kind=kind, value=value):
                 self.assertEqual(self.with_identifier(kind, value, url).validate(), [])
 
-    def test_a_value_that_is_not_in_the_form_of_its_kind_does_not(self):
+    def test_a_value_not_in_the_form_of_its_kind_or_of_a_kind_a_series_lacks_does_not(
+        self,
+    ):
         for kind, value in (
             ("ISSN", "12345678"),
             ("ISSN", "0302-97"),
             ("ISBN", "12345"),
             ("OpenAlex", "W2741809807"),  # a work, not a source
             ("OpenAlex", "I114027177"),  # an institution
+            ("ORCID", "x"),
+            ("Scopus", "x"),
+            ("DOI", "x"),
+            ("Handle", "x"),
         ):
             with self.subTest(kind=kind, value=value):
                 self.assertNotEqual(self.with_identifier(kind, value).validate(), [])
-
-    def test_a_kind_that_a_series_does_not_have_is_refused(self):
-        for kind in ("ORCID", "Scopus", "DOI", "Handle"):
-            with self.subTest(kind=kind):
-                self.assertNotEqual(self.with_identifier(kind, "x").validate(), [])
-
-    def test_there_is_no_separate_issn_for_it_is_a_kind_of_identifier(self):
-        self.assertNotIn('name="issn"', self.web.get(ADD, headers=ADMIN).text)
-        graph, shape = self.application["test_repo"].types["series"].shacl_shape(False)
-        self.assertNotIn(
-            SCHEMA + "issn", [p for p, _ in forms.properties(graph, shape)]
-        )
